@@ -12,7 +12,7 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링 (토스 화이트 테마)] ---
-st.set_page_config(page_title="Quant Sniper V16.5", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Quant Sniper V16.6", page_icon="📈", layout="wide")
 
 st.markdown("""
 <style>
@@ -30,8 +30,8 @@ st.markdown("""
     }
     
     /* 3. 색상 시스템 */
-    .text-up { color: #F04452 !important; }   /* 빨강 (상승/과열) */
-    .text-down { color: #3182F6 !important; } /* 파랑 (하락/침체) */
+    .text-up { color: #F04452 !important; }   /* 빨강 (상승) */
+    .text-down { color: #3182F6 !important; } /* 파랑 (하락) */
     .text-gray { color: #8B95A1 !important; } 
     
     /* 4. 텍스트 스타일 */
@@ -42,8 +42,8 @@ st.markdown("""
     
     /* 5. 뱃지 스타일 */
     .badge-clean { padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; display: inline-block; }
-    .badge-buy { background-color: rgba(240, 68, 82, 0.1); color: #F04452; }
-    .badge-sell { background-color: rgba(49, 130, 246, 0.1); color: #3182F6; }
+    .badge-buy { background-color: rgba(240, 68, 82, 0.1); color: #F04452; }    /* 긍정/매수 (빨강 배경) */
+    .badge-sell { background-color: rgba(49, 130, 246, 0.1); color: #3182F6; }   /* 부정/매도 (파랑 배경) */
     .badge-neu { background-color: #F2F4F6; color: #4E5968; }
     
     /* 6. 매크로 박스 */
@@ -389,7 +389,7 @@ with st.sidebar:
     if st.button("🗑️ 전체 초기화"):
         st.session_state['watchlist'] = {}; save_to_github({}); st.rerun()
 
-st.title("📈 Quant Sniper V16.5")
+st.title("📈 Quant Sniper V16.6")
 st.caption(f"AI 기반 실시간 분석 시스템 | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 with st.expander("📘 지표 해석 가이드 (범례)", expanded=True):
@@ -435,6 +435,8 @@ macro = get_global_macro()
 if macro:
     col1, col2, col3, col4, col5 = st.columns(5)
     m_data = macro['data']; score = macro['score']
+    
+    # [시장 점수 표시 로직]
     if score >= 1: m_state = "적극 투자"; m_cls = "badge-buy"; m_col = "text-up"
     elif score <= -1: m_state = "위험 관리"; m_cls = "badge-sell"; m_col = "text-down"
     else: m_state = "관망"; m_cls = "badge-neu"; m_col = "text-gray"
@@ -444,16 +446,28 @@ if macro:
     cols = [col2, col3, col4, col5]
     keys = ['S&P500', 'VIX', 'WTI', 'US 10Y']
     labels = ['S&P 500', 'VIX (공포)', 'WTI 유가', '미국채 10년']
+    
     for i, k in enumerate(keys):
         if k in m_data:
             val = m_data[k]['p']; chg = m_data[k]['c']
-            is_good = (chg > 0) if k == 'S&P500' else (chg < 0)
-            col = "text-up" if is_good else "text-down"
-            bg_cls = "badge-buy" if is_good else "badge-sell"
+            
+            # 1. 긍정/부정 판단 (Badge)
+            if k == 'S&P500':
+                is_good = chg > 0 # S&P는 올라야 긍정
+            else:
+                is_good = chg < 0 # 나머지는 내려야 긍정 (유가, 금리, 공포)
+            
+            bg_cls = "badge-buy" if is_good else "badge-sell" # 긍정=Red(Buy), 부정=Blue(Sell)
             stt = "긍정" if is_good else "부정"
+            
+            # 2. 텍스트 색상 판단 (Price Color) - 무조건 등락에 따름
+            # 오르면 Red(text-up), 내리면 Blue(text-down)
+            val_col = "text-up" if chg > 0 else "text-down"
+            
             txt = f"{val:.2f}"; txt += "%" if k == 'US 10Y' else ""; txt = f"${val:.1f}" if k == 'WTI' else txt
+            
             with cols[i]:
-                st.markdown(f"<div class='macro-box'><div class='label-text'>{labels[i]}</div><div class='macro-val {col}'>{txt}</div><div class='badge-clean {bg_cls}'>{stt}</div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='macro-box'><div class='label-text'>{labels[i]}</div><div class='macro-val {val_col}'>{txt}</div><div class='badge-clean {bg_cls}'>{stt}</div></div>", unsafe_allow_html=True)
 
 st.write("")
 tab1, tab2 = st.tabs(["내 주식", "AI 발굴"])
@@ -463,7 +477,6 @@ with tab1:
     else:
         with st.spinner("분석 중..."): results = analyze_portfolio_parallel(st.session_state['watchlist'])
         for res in results:
-            # sector 정보가 없으면 '기타'로 처리
             sec = res.get('sector', '기타')
             st.markdown(create_card_html(res, sec, False), unsafe_allow_html=True)
             with st.expander(f"📊 {res['name']} 차트 더보기"):
