@@ -11,8 +11,8 @@ import altair as alt
 from pykrx import stock
 import concurrent.futures
 
-# --- [1. 설정 및 UI 스타일링 (토스 테마)] ---
-st.set_page_config(page_title="Quant Sniper V16.1", page_icon="📈", layout="wide")
+# --- [1. 설정 및 UI 스타일링 (토스 테마 + 그라데이션)] ---
+st.set_page_config(page_title="Quant Sniper V16.2", page_icon="📈", layout="wide")
 
 st.markdown("""
 <style>
@@ -29,7 +29,7 @@ st.markdown("""
         margin-bottom: 16px; 
     }
     
-    /* 3. 색상 시스템 (한국형: 빨강=상승/매수, 파랑=하락/매도) */
+    /* 3. 색상 시스템 (한국형) */
     .text-up { color: #F04452 !important; }   
     .text-down { color: #3182F6 !important; } 
     .text-gray { color: #8B95A1 !important; } 
@@ -52,29 +52,22 @@ st.markdown("""
     
     /* 7. 체크포인트 태그 */
     .check-container { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
-    .check-tag { 
-        font-size: 12px; padding: 6px 12px; border-radius: 18px; 
-        background: #F2F4F6; color: #4E5968; font-weight: 600; 
-        display: flex; align-items: center; 
-    }
+    .check-tag { font-size: 12px; padding: 6px 12px; border-radius: 18px; background: #F2F4F6; color: #4E5968; font-weight: 600; display: flex; align-items: center; }
     
-    /* 8. 기타 게이지 등 */
+    /* 8. 게이지 및 RSI 바 스타일 */
     .score-bg { background: #F2F4F6; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 10px; }
     .score-fill { height: 100%; border-radius: 4px; }
-    .rsi-container { width: 100%; background-color: #F2F4F6; height: 8px; border-radius: 4px; margin-top: 6px; overflow: hidden; }
-    .rsi-bar { height: 100%; border-radius: 4px; }
+    .rsi-container { width: 100%; background-color: #F2F4F6; height: 10px; border-radius: 5px; margin-top: 8px; overflow: hidden; }
+    .rsi-bar { height: 100%; border-radius: 5px; transition: width 0.5s ease-in-out; }
     
-    /* [NEW] 범례 테이블 스타일 (화이트 버전) */
+    /* 범례 및 기타 */
     .legend-table { width: 100%; font-size: 14px; border-collapse: collapse; margin-top: 5px; }
     .legend-table td { padding: 12px; border-bottom: 1px solid #F2F4F6; color: #333D4B; vertical-align: middle; line-height: 1.5; }
     .legend-header { font-weight: 800; color: #191F28; background-color: #F9FAFB; text-align: center; padding: 10px; border-radius: 8px; margin-bottom: 10px; display: block;}
     .legend-title { font-weight: 700; color: #4E5968; width: 140px; background-color: #F2F4F6; padding: 6px 10px; border-radius: 6px; text-align: center; display: inline-block;}
     
     .streamlit-expanderContent { background-color: #FFFFFF !important; border: 1px solid #F2F4F6; border-radius: 12px; }
-    div.stButton > button { 
-        width: 100%; border-radius: 12px; font-weight: bold; border: none; 
-        background: #3182F6; color: white; padding: 12px 0; transition: 0.2s;
-    }
+    div.stButton > button { width: 100%; border-radius: 12px; font-weight: bold; border: none; background: #3182F6; color: white; padding: 12px 0; transition: 0.2s; }
     div.stButton > button:hover { background: #1B64DA; }
 </style>
 """, unsafe_allow_html=True)
@@ -86,32 +79,22 @@ FILE_PATH = "my_watchlist_v7.json"
 
 @st.cache_data
 def get_krx_list():
-    try: 
-        df = fdr.StockListing('KRX')
-        return df[['Code', 'Name', 'Sector']]
-    except: 
-        return pd.DataFrame()
+    try: df = fdr.StockListing('KRX'); return df[['Code', 'Name', 'Sector']]
+    except: return pd.DataFrame()
 krx_df = get_krx_list()
 
 def get_sector_info(code):
-    try: 
-        row = krx_df[krx_df['Code'] == code]
-        return row.iloc[0]['Sector'] if not row.empty else "기타"
-    except: 
-        return "기타"
+    try: row = krx_df[krx_df['Code'] == code]; return row.iloc[0]['Sector'] if not row.empty else "기타"
+    except: return "기타"
 
 def load_local_json():
     if os.path.exists(FILE_PATH):
-        try: 
-            with open(FILE_PATH, "r", encoding="utf-8") as f: 
-                return json.load(f)
-        except: 
-            return {}
+        try: with open(FILE_PATH, "r", encoding="utf-8") as f: return json.load(f)
+        except: return {}
     return {}
 
 def save_local_json(data):
-    with open(FILE_PATH, "w", encoding="utf-8") as f: 
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    with open(FILE_PATH, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=4)
 
 def load_from_github():
     try:
@@ -172,8 +155,7 @@ def create_card_html(item, sector, is_recomm=False):
         score_color = "#F2A529" if score >= 50 else "#8B95A1"
         p_color = "text-gray"; badge_cls = "badge-neu"; badge_text = "관망 필요"
     
-    if is_recomm: 
-        p_color = "text-up"; score_color = "#F04452"; badge_cls = "badge-buy"; badge_text = "강력 매수"
+    if is_recomm: p_color = "text-up"; score_color = "#F04452"; badge_cls = "badge-buy"; badge_text = "강력 매수"
     
     checks_html = "".join([f"<div class='check-tag'>{c}</div>" for c in item['checks']])
     supply_f = format(int(item['supply']['f']), ',')
@@ -182,8 +164,19 @@ def create_card_html(item, sector, is_recomm=False):
     supply_i_col = '#F04452' if item['supply']['i'] > 0 else '#3182F6'
     price_fmt = format(item['price'], ',')
     
+    # [NEW] RSI 그라데이션 바 복구 및 토스 스타일 적용
     rsi_val = item['rsi']
-    rsi_color = "#F04452" if rsi_val <= 30 else ("#3182F6" if rsi_val >= 70 else "#8B95A1")
+    rsi_width = min(max(rsi_val, 0), 100)
+    
+    if rsi_val <= 30:
+        rsi_text_col = "#F04452"
+        rsi_gradient = "linear-gradient(90deg, #F04452, #FF8A9B)" # 부드러운 빨강
+    elif rsi_val >= 70:
+        rsi_text_col = "#3182F6"
+        rsi_gradient = "linear-gradient(90deg, #3182F6, #76B1FF)" # 부드러운 파랑
+    else:
+        rsi_text_col = "#8B95A1"
+        rsi_gradient = "linear-gradient(90deg, #8B95A1, #B0B8C1)" # 부드러운 회색
     
     html = f"""
     <div class='toss-card'>
@@ -218,9 +211,10 @@ def create_card_html(item, sector, is_recomm=False):
             </div>
             <div style='width:48%; border-left:1px solid #F2F4F6; padding-left:15px;'>
                  <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
-                    <span style='color:#8B95A1;'>RSI (14)</span><span style='color:{rsi_color}; font-weight:600;'>{rsi_val:.1f}</span>
+                    <span style='color:#8B95A1;'>RSI (14)</span><span style='color:{rsi_text_col}; font-weight:600;'>{rsi_val:.1f}</span>
                 </div>
-                <div style='display:flex; justify-content:space-between;'>
+                <div class='rsi-container'><div class='rsi-bar' style='width:{rsi_width}%; background:{rsi_gradient};'></div></div>
+                <div style='display:flex; justify-content:space-between; margin-top:8px;'>
                     <span style='color:#8B95A1;'>볼린저</span><span style='color:#4E5968; font-weight:600;'>{item['bb_status']}</span>
                 </div>
             </div>
@@ -368,40 +362,15 @@ with st.sidebar:
 st.title("📈 Quant Sniper")
 st.caption(f"AI 기반 실시간 분석 시스템 | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-# [NEW] 범례 복구 (화이트 테마)
 with st.expander("📘 지표 해석 가이드 (범례)", expanded=False):
     st.markdown("""
     <table class='legend-table'>
-        <tr>
-            <td colspan='2' class='legend-header'>🌍 글로벌 시장 지표 (시장 점수)</td>
-        </tr>
-        <tr>
-            <td width='30%'><span class='legend-title'>시장 점수</span></td>
-            <td><b>+1 이상:</b> <span class='text-up'>적극 투자 (상승장)</span><br><b>-1 이하:</b> <span class='text-down'>보수적 대응 (하락장)</span></td>
-        </tr>
-        <tr>
-            <td><span class='legend-title'>S&P 500</span></td>
-            <td>미국 대표 지수. 한국 시장의 선행 지표 (상승 시 긍정적).</td>
-        </tr>
-        <tr>
-            <td><span class='legend-title'>WTI 유가</span></td>
-            <td>국제 유가. 급등 시 기업 비용 증가로 주가에 부정적(악재).</td>
-        </tr>
-        <tr>
-            <td><span class='legend-title'>VIX (공포)</span></td>
-            <td>월가 공포 지수. <b>20 이상</b>이면 시장이 공포에 질림 (하락 위험).</td>
-        </tr>
-        <tr>
-            <td colspan='2' class='legend-header' style='margin-top:10px;'>📊 종목 진단 지표</td>
-        </tr>
-        <tr>
-            <td><span class='legend-title'>AI 점수</span></td>
-            <td><b>75점↑:</b> <span class='badge-clean badge-buy'>매수 추천</span> / <b>25점↓:</b> <span class='badge-clean badge-sell'>매도 권장</span></td>
-        </tr>
-        <tr>
-            <td><span class='legend-title'>볼린저 밴드</span></td>
-            <td>주가의 길. <b>하단 터치</b> 시 반등 확률 높음(기회).</td>
-        </tr>
+        <tr><td colspan='2' class='legend-header'>🌍 글로벌 시장 지표</td></tr>
+        <tr><td width='30%'><span class='legend-title'>시장 점수</span></td><td><b>+1 이상:</b> <span class='text-up'>적극 투자 (상승장)</span><br><b>-1 이하:</b> <span class='text-down'>보수적 대응 (하락장)</span></td></tr>
+        <tr><td><span class='legend-title'>VIX (공포)</span></td><td>월가 공포 지수. <b>20 이상</b>이면 시장 공포(하락 위험).</td></tr>
+        <tr><td colspan='2' class='legend-header' style='margin-top:10px;'>📊 종목 진단 지표</td></tr>
+        <tr><td><span class='legend-title'>AI 점수</span></td><td><b>75점↑:</b> <span class='badge-clean badge-buy'>매수 추천</span> / <b>25점↓:</b> <span class='badge-clean badge-sell'>매도 권장</span></td></tr>
+        <tr><td><span class='legend-title'>RSI (14)</span></td><td><b>30이하:</b> 침체(기회), <b>70이상:</b> 과열(주의).</td></tr>
     </table>
     """, unsafe_allow_html=True)
 
