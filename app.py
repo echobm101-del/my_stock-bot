@@ -3,7 +3,6 @@ import FinanceDataReader as fdr
 import pandas as pd
 import datetime
 import requests
-from bs4 import BeautifulSoup
 import json
 import os
 import time
@@ -80,7 +79,7 @@ def save_json(file, data):
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_json(DATA_FILE)
 settings = load_json(SETTINGS_FILE)
 if 'sent_alerts' not in st.session_state: st.session_state['sent_alerts'] = {}
-if 'routine_flags' not in st.session_state: st.session_state['routine_flags'] = {} # 루틴 발송 여부 체크용
+if 'routine_flags' not in st.session_state: st.session_state['routine_flags'] = {}
 
 def send_telegram_msg(token, chat_id, message):
     try:
@@ -285,6 +284,7 @@ with st.sidebar:
             if send_telegram_msg(t_token, t_chat, "🚀 [SYSTEM] 알림 봇 연결 확인 완료"): st.success("성공")
             else: st.error("실패")
 
+    # 자동 모드 체크박스 (GitHub Actions를 쓰더라도 화면 켜둘 때 유용함)
     auto_mode = st.checkbox("🔴 실시간 자동 감시 및 루틴 알림", value=False)
     
     st.divider()
@@ -315,8 +315,8 @@ with st.sidebar:
         save_json(DATA_FILE, {})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V11.0 (Auto-Routine)")
-st.caption(f"Automated Routine & Signal System | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.title("🚀 QUANT SNIPER V11.0")
+st.caption(f"Full-Stack Market Analysis System | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 legend_html = """
 <table class='legend-table'>
@@ -366,7 +366,7 @@ with tab1:
             card_html = create_card_html(res, get_sector_info(res['code']), is_recomm=False)
             st.markdown(card_html, unsafe_allow_html=True)
             
-            # [자동매매 시그널 알림] (기존 로직)
+            # [화면이 켜져있을 때 알림 로직]
             if auto_mode and t_token and t_chat:
                 today = datetime.datetime.now().strftime("%Y%m%d")
                 price_fmt = format(res['price'], ',')
@@ -395,48 +395,29 @@ with tab2:
                 card_html = create_card_html(item, item['sector'], is_recomm=True)
                 st.markdown(card_html, unsafe_allow_html=True)
 
-# [NEW] 루틴별 자동 알림 시스템 (시간 체크)
+# [NEW] 루틴별 자동 알림 시스템 (화면이 켜져있을 때만 작동하는 백업용 루틴)
 if auto_mode and t_token and t_chat:
     now = datetime.datetime.now()
     today_str = now.strftime("%Y%m%d")
     
-    # 1. 아침 시황 브리핑 (08:50 ~ 08:59 사이 1회 발송)
+    # 1. 아침 시황 브리핑 (08:50 ~ 08:59 사이)
     if 8 <= now.hour < 9 and now.minute >= 50:
         if st.session_state['routine_flags'].get(f"market_{today_str}") != "sent":
             m_score = macro['score']
-            msg = f"🌅 [장전 시황 브리핑]\n\n📊 Market Score: {m_score}\n🇺🇸 S&P500: {macro['data']['S&P500']['c']:.2f}%\n😱 VIX: {macro['data']['VIX']['p']:.2f}\n\n"
-            msg += "✅ 투자 의견: Risk On (적극)" if m_score >= 1 else ("⚠️ 투자 의견: Risk Off (보수적)" if m_score <= -1 else "☁️ 투자 의견: 중립")
-            if send_telegram_msg(t_token, t_chat, msg):
-                st.session_state['routine_flags'][f"market_{today_str}"] = "sent"
+            msg = f"🌅 [장전 시황 브리핑]\n\n📊 Market Score: {m_score}\n🇺🇸 S&P500: {macro['data']['S&P500']['c']:.2f}%\n😱 VIX: {macro['data']['VIX']['p']:.2f}\n"
+            if send_telegram_msg(t_token, t_chat, msg): st.session_state['routine_flags'][f"market_{today_str}"] = "sent"
     
-    # 2. 오전 포트폴리오 점검 (09:00 ~ 09:10 사이 1회 발송)
-    if now.hour == 9 and 0 <= now.minute <= 10:
-        if st.session_state['routine_flags'].get(f"portfolio_{today_str}") != "sent":
-            danger_list = [r['name'] for r in results if r['score'] <= 25]
-            safe_list = [r['name'] for r in results if r['score'] >= 75]
-            msg = f"☀️ [오전 포트폴리오 점검]\n\n총 {len(results)}개 종목 분석 완료.\n\n"
-            if danger_list: msg += f"📉 위험 감지: {', '.join(danger_list)}\n(즉시 차트 확인 요망)\n\n"
-            if safe_list: msg += f"🚀 상승세: {', '.join(safe_list)}\n"
-            if not danger_list and not safe_list: msg += "특이사항 없이 안정적입니다."
-            if send_telegram_msg(t_token, t_chat, msg):
-                st.session_state['routine_flags'][f"portfolio_{today_str}"] = "sent"
-
-    # 3. 오후 AI 추천 발굴 (14:30 ~ 14:40 사이 1회 발송)
+    # 2. 오후 추천 (14:30 ~ 14:40 사이)
     if now.hour == 14 and 30 <= now.minute <= 40:
         if st.session_state['routine_flags'].get(f"sniper_{today_str}") != "sent":
             recs = get_recommendations()
             if recs:
-                top3 = recs[:3]
-                msg = f"☕ [마감 전 AI 추천주]\n\n"
-                for i, r in enumerate(top3):
-                    msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {format(r['price'],',')}원\n"
-                msg += "\n종가 베팅 여부를 검토하세요!"
-                if send_telegram_msg(t_token, t_chat, msg):
-                    st.session_state['routine_flags'][f"sniper_{today_str}"] = "sent"
+                msg = f"☕ [마감 전 AI 추천주]\n{recs[0]['name']}"
+                if send_telegram_msg(t_token, t_chat, msg): st.session_state['routine_flags'][f"sniper_{today_str}"] = "sent"
 
 if auto_mode:
     st.markdown("---")
     status_text = st.empty()
-    status_text.markdown(f"⏳ **AI 비서 가동 중... (현재시간: {datetime.datetime.now().strftime('%H:%M:%S')})**")
+    status_text.markdown(f"⏳ **AI 비서 가동 중... (PC가 켜져있을 때만 작동합니다)**")
     time.sleep(60)
     st.rerun()
