@@ -12,7 +12,7 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링 (토스 화이트 테마)] ---
-st.set_page_config(page_title="Quant Sniper V16.4", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Quant Sniper V16.3", page_icon="📈", layout="wide")
 
 st.markdown("""
 <style>
@@ -29,9 +29,9 @@ st.markdown("""
         margin-bottom: 16px; 
     }
     
-    /* 3. 색상 시스템 (한국형 기본 + RSI 요청사항 반영) */
-    .text-up { color: #F04452 !important; }   /* 빨강 (상승/과열) */
-    .text-down { color: #3182F6 !important; } /* 파랑 (하락/침체) */
+    /* 3. 색상 시스템 (한국형 기본) */
+    .text-up { color: #F04452 !important; }   /* 빨강 (상승) */
+    .text-down { color: #3182F6 !important; } /* 파랑 (하락) */
     .text-gray { color: #8B95A1 !important; } 
     
     /* 4. 텍스트 스타일 */
@@ -60,7 +60,7 @@ st.markdown("""
     .rsi-container { width: 100%; background-color: #F2F4F6; height: 10px; border-radius: 5px; margin-top: 8px; overflow: hidden; }
     .rsi-bar { height: 100%; border-radius: 5px; transition: width 0.5s ease-in-out; }
     
-    /* 범례 테이블 스타일 */
+    /* 범례 테이블 */
     .legend-table { width: 100%; font-size: 14px; border-collapse: collapse; margin-top: 5px; }
     .legend-table td { padding: 12px; border-bottom: 1px solid #F2F4F6; color: #333D4B; vertical-align: middle; line-height: 1.5; }
     .legend-header { font-weight: 800; color: #191F28; background-color: #F9FAFB; text-align: center; padding: 10px; border-radius: 8px; margin-bottom: 10px; display: block;}
@@ -93,7 +93,6 @@ def get_sector_info(code):
     except: 
         return "기타"
 
-# [중요] 에러 원인이었던 함수 수정 (줄바꿈 적용)
 def load_local_json():
     if os.path.exists(FILE_PATH):
         try:
@@ -167,7 +166,6 @@ def create_card_html(item, sector, is_recomm=False):
     if not item: return ""
     score = item['score']
     
-    # 기본 점수 색상 (한국형: 상승=빨강, 하락=파랑)
     if score >= 75:
         score_color = "#F04452"; p_color = "text-up"; badge_cls = "badge-buy"; badge_text = "매수 추천"
     elif score <= 25:
@@ -185,17 +183,17 @@ def create_card_html(item, sector, is_recomm=False):
     supply_i_col = '#F04452' if item['supply']['i'] > 0 else '#3182F6'
     price_fmt = format(item['price'], ',')
     
-    # [RSI 그라데이션 - 요청사항: 저점(기회)=파랑, 고점(과열)=빨강]
+    # [RSI 그라데이션 바 - 요청사항 적용]
     rsi_val = item['rsi']
     rsi_width = min(max(rsi_val, 0), 100)
     
-    if rsi_val <= 30: # 30 이하: 파랑 (기회)
-        rsi_text_col = "#3182F6" 
-        rsi_gradient = "linear-gradient(90deg, #3182F6, #76B1FF)" 
-    elif rsi_val >= 70: # 70 이상: 빨강 (과열)
+    if rsi_val <= 30: # 30 이하: 부드러운 파랑 (기회/저점)
+        rsi_text_col = "#3182F6"
+        rsi_gradient = "linear-gradient(90deg, #3182F6, #76B1FF)"
+    elif rsi_val >= 70: # 70 이상: 부드러운 빨강 (과열/고점)
         rsi_text_col = "#F04452"
         rsi_gradient = "linear-gradient(90deg, #F04452, #FF8A9B)"
-    else: # 중립
+    else: # 중립: 회색
         rsi_text_col = "#8B95A1"
         rsi_gradient = "linear-gradient(90deg, #8B95A1, #B0B8C1)"
     
@@ -380,21 +378,19 @@ with st.sidebar:
     if st.button("🗑️ 전체 초기화"):
         st.session_state['watchlist'] = {}; save_to_github({}); st.rerun()
 
-st.title("📈 Quant Sniper V16.4")
+st.title("📈 Quant Sniper")
 st.caption(f"AI 기반 실시간 분석 시스템 | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-# [범례 - RSI 색상 설명 명확화]
-with st.expander("📘 지표 해석 가이드 (범례)", expanded=True):
+# [범례 복구 및 RSI 설명 수정]
+with st.expander("📘 지표 해석 가이드 (범례)", expanded=False):
     st.markdown("""
     <table class='legend-table'>
         <tr><td colspan='2' class='legend-header'>🌍 글로벌 시장 지표</td></tr>
         <tr><td width='30%'><span class='legend-title'>시장 점수</span></td><td><b>+1 이상:</b> <span class='text-up'>적극 투자 (상승장)</span><br><b>-1 이하:</b> <span class='text-down'>보수적 대응 (하락장)</span></td></tr>
+        <tr><td><span class='legend-title'>VIX (공포)</span></td><td>월가 공포 지수. <b>20 이상</b>이면 시장 공포(하락 위험).</td></tr>
         <tr><td colspan='2' class='legend-header' style='margin-top:10px;'>📊 종목 진단 지표</td></tr>
-        <tr><td><span class='legend-title'>AI 점수</span></td><td><b>75점↑:</b> <span class='badge-clean badge-buy'>매수 추천 (빨강)</span> / <b>25점↓:</b> <span class='badge-clean badge-sell'>매도 권장 (파랑)</span></td></tr>
-        <tr><td><span class='legend-title'>RSI (14)</span></td><td>
-            <b>30이하 (기회):</b> <span style='color:#3182F6; font-weight:bold;'>부드러운 파랑 그라데이션</span> (침체/저점매수)<br>
-            <b>70이상 (주의):</b> <span style='color:#F04452; font-weight:bold;'>부드러운 빨강 그라데이션</span> (과열/고점매도)
-        </td></tr>
+        <tr><td><span class='legend-title'>AI 점수</span></td><td><b>75점↑:</b> <span class='badge-clean badge-buy'>매수 추천</span> / <b>25점↓:</b> <span class='badge-clean badge-sell'>매도 권장</span></td></tr>
+        <tr><td><span class='legend-title'>RSI (14)</span></td><td><b>30이하 (파랑):</b> 침체/저점 (매수 기회) <br> <b>70이상 (빨강):</b> 과열/고점 (주의 필요)</td></tr>
     </table>
     """, unsafe_allow_html=True)
 
