@@ -10,7 +10,7 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V11.5", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V11.6", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -176,37 +176,28 @@ def get_global_macro():
             "US 10Y": "^TNX",
             "VIX": "^VIX"
         }
-        res = {}
-        score = 0
+        res = {}; score = 0
         
         for n, c in indices.items():
-            df = fdr.DataReader(c, datetime.datetime.now() - datetime.timedelta(days=10))
+            df = fdr.DataReader(c, datetime.datetime.now()-datetime.timedelta(days=10))
             if not df.empty:
-                now = df['Close'].iloc[-1]
-                prev = df['Close'].iloc[-2]
-                chg = ((now - prev) / prev) * 100
+                now = df['Close'].iloc[-1]; prev = df['Close'].iloc[-2]
+                chg = ((now-prev)/prev)*100
                 res[n] = {"p": now, "c": chg}
-                
-                # 점수 계산 로직 (문법 오류 수정됨)
-                if n == "S&P500": 
-                    if chg > 0: score += 1
-                    elif chg < 0: score -= 1
-                elif n == "USD/KRW":
-                    if chg > 0.5: score -= 1
-                    elif chg < -0.5: score += 1
-                elif n == "US 10Y":
+                if n=="S&P500": 
+                    if chg>0: score+=1
+                    elif chg<0: score-=1
+                elif n=="USD/KRW":
+                    if chg>0.5: score-=1
+                    elif chg<-0.5: score+=1
+                elif n=="US 10Y":
                     if chg > 1.0: score -= 1 
                     elif chg < -1.0: score += 1
-                elif n == "VIX":
+                elif n=="VIX":
                     if now > 20: score -= 2
                     elif now < 15: score += 1
-                elif n == "WTI":
-                    if chg > 2.0: score -= 1
-                    elif chg < -2.0: score += 1
-                    
         return {"data": res, "score": score}
-    except:
-        return None
+    except: return None
 
 @st.cache_data(ttl=1800)
 def get_supply_demand(code):
@@ -344,27 +335,12 @@ with st.sidebar:
         save_json(DATA_FILE, {})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V11.5")
+st.title("🚀 QUANT SNIPER V11.6")
 st.caption(f"Visualized Market Intelligence | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-# [범례: 모든 지표 포함 및 스타일 수정]
-legend_html = """
-<table class='legend-table'>
-    <tr><td colspan="2" class='legend-header'>🌍 글로벌 시장 지표 (상단 5개 박스)</td></tr>
-    <tr><td class='legend-title'>MARKET SCORE</td><td>시장 종합 점수. <br><b>+1 이상:</b> 투자 적기 (Risk On) / <b>-1 이하:</b> 보수적 대응 필요 (Risk Off)</td></tr>
-    <tr><td class='legend-title'>🇺🇸 S&P 500</td><td>미국 증시 지수. 한국 시장의 선행 지표 (상승 시 호재).</td></tr>
-    <tr><td class='legend-title'>🇰🇷 USD/KRW</td><td>원/달러 환율. <b>상승 시:</b> 외국인 이탈 우려 (주가에 악재).</td></tr>
-    <tr><td class='legend-title'>🛢️ WTI CRUDE</td><td>국제 유가. <b>상승 시:</b> 인플레이션 및 기업 비용 증가 (주가에 악재).</td></tr>
-    <tr><td class='legend-title' style='color:#FF5252;'>😱 VIX (공포지수)</td><td>월가 공포 지수. <b>20 이상:</b> 공포(하락장), <b>15 이하:</b> 안정(상승장).</td></tr>
-    <tr><td class='legend-title'>🇺🇸 US 10Y</td><td>미국채 10년물 금리. <b>급등 시:</b> 기술주/성장주 하락 압력 (악재).</td></tr>
-    
-    <tr><td colspan="2" class='legend-header' style='padding-top:15px;'>📊 정밀 진단 지표</td></tr>
-    <tr><td class='legend-title'>볼린저 밴드</td><td><b>하단 터치:</b> 과매도(매수 기회), <b>상단 돌파:</b> 과열(매도 검토).</td></tr>
-    <tr><td class='legend-title'>AI SCORE</td><td><b>75점 이상:</b> 강력 매수 / <b>25점 이하:</b> 매도 권장.</td></tr>
-</table>
-"""
+# [범례: 줄바꿈 없이 한 줄로 처리하여 코드 노출 문제 완벽 해결]
 with st.expander("📘 범례 및 용어 설명 (모든 지표 포함)", expanded=False):
-    st.markdown(legend_html, unsafe_allow_html=True)
+    st.markdown("<table class='legend-table'><tr><td colspan='2' class='legend-header'>🌍 글로벌 시장 지표 (상단 5개 박스)</td></tr><tr><td class='legend-title'>MARKET SCORE</td><td>시장 종합 점수. <br><b>+1 이상:</b> 투자 적기 (Risk On) / <b>-1 이하:</b> 보수적 대응 필요 (Risk Off)</td></tr><tr><td class='legend-title'>🇺🇸 S&P 500</td><td>미국 증시 지수. 한국 시장의 선행 지표 (상승 시 호재).</td></tr><tr><td class='legend-title'>🇰🇷 USD/KRW</td><td>원/달러 환율. <b>상승 시:</b> 외국인 이탈 우려 (주가에 악재).</td></tr><tr><td class='legend-title'>🛢️ WTI CRUDE</td><td>국제 유가. <b>상승 시:</b> 인플레이션 및 기업 비용 증가 (주가에 악재).</td></tr><tr><td class='legend-title' style='color:#FF5252;'>😱 VIX (공포지수)</td><td>월가 공포 지수. <b>20 이상:</b> 공포(하락장), <b>15 이하:</b> 안정(상승장).</td></tr><tr><td class='legend-title'>🇺🇸 US 10Y</td><td>미국채 10년물 금리. <b>급등 시:</b> 기술주/성장주 하락 압력 (악재).</td></tr><tr><td colspan='2' class='legend-header' style='padding-top:15px;'>📊 정밀 진단 지표</td></tr><tr><td class='legend-title'>볼린저 밴드</td><td><b>하단 터치:</b> 과매도(매수 기회), <b>상단 돌파:</b> 과열(매도 검토).</td></tr><tr><td class='legend-title'>AI SCORE</td><td><b>75점 이상:</b> 강력 매수 / <b>25점 이하:</b> 매도 권장.</td></tr></table>", unsafe_allow_html=True)
 
 # 매크로
 macro = get_global_macro()
