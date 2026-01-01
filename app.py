@@ -11,7 +11,7 @@ import altair as alt
 from pykrx import stock
 import concurrent.futures
 from bs4 import BeautifulSoup
-import html
+# import html  <-- 삭제 (내장 함수로 대체하여 호환성 높임)
 
 # --- [1. 설정 및 UI 스타일링] ---
 st.set_page_config(page_title="Quant Sniper V17.1", page_icon="📈", layout="wide")
@@ -60,16 +60,11 @@ FILE_PATH = "my_watchlist_v7.json"
 @st.cache_data
 def get_krx_list():
     try: 
-        # KRX 전체 리스트 가져오기
         df = fdr.StockListing('KRX')
-        # 데이터가 비어있거나 컬럼이 없는 경우 방어 코드
         if df.empty: return pd.DataFrame()
-        
-        # Sector 컬럼이 없는 경우 대비 (최근 fdr 버전 이슈 대비)
         if 'Sector' not in df.columns:
             if 'Industry' in df.columns: df['Sector'] = df['Industry']
             else: df['Sector'] = '기타'
-            
         df['Sector'] = df['Sector'].fillna('기타')
         return df[['Code', 'Name', 'Sector']]
     except: 
@@ -167,7 +162,6 @@ def get_news_sentiment(code):
         
         news_score = 0
         latest_headline = "-"
-        
         good_keywords = ["수주", "계약", "체결", "흑자", "최대", "개선", "성장", "호조", "개발", "승인", "공급", "적자 축소", "흑자 전환"]
         bad_keywords = ["횡령", "배임", "구속", "압수수색", "적자 지속", "하향", "불확실", "우려", "급락", "약세", "손실", "어닝 쇼크"]
         
@@ -178,7 +172,6 @@ def get_news_sentiment(code):
             if count >= 10: break
             t_text = titles[i].get_text().strip()
             d_text = dates[i].get_text().strip()
-            
             try:
                 news_date = datetime.datetime.strptime(d_text, "%Y.%m.%d %H:%M")
                 diff = (today - news_date).days
@@ -186,13 +179,10 @@ def get_news_sentiment(code):
             except: continue
                 
             if count == 0: latest_headline = t_text
-            
             for k in good_keywords:
                 if k in t_text: news_score += 1; break
-            
             for k in bad_keywords:
                 if k in t_text: news_score -= 2; break
-            
             count += 1
             
         return {"score": news_score, "headline": latest_headline}
@@ -200,6 +190,7 @@ def get_news_sentiment(code):
         return {"score": 0, "headline": "-"}
 
 def create_card_html(item, sector, is_recomm=False):
+    # --- [HTML 생성기: 줄바꿈 없이 한 줄로 연결하여 렌더링 오류 방지] ---
     if not item: return ""
     score = item['score']
     
@@ -233,61 +224,17 @@ def create_card_html(item, sector, is_recomm=False):
     news_html = ""
     if item['news']['headline'] != "-":
         n_col = "#F04452" if item['news']['score'] > 0 else ("#3182F6" if item['news']['score'] < 0 else "#8B95A1")
-        safe_headline = html.escape(item['news']['headline'][:28])
-        news_html = f"""
-        <div style='margin-top:10px; padding:10px; background:#F9FAFB; border-radius:12px; font-size:12px;'>
-            <span style='font-weight:bold; color:{n_col};'>📰 최근 뉴스 (5일내)</span><br>
-            <span style='color:#333;'>{safe_headline}...</span>
-        </div>
-        """
+        # html.escape 대신 간단한 치환 사용 (Import 에러 방지)
+        safe_headline = item['news']['headline'][:28].replace("<", "&lt;").replace(">", "&gt;")
+        news_html = f"<div style='margin-top:10px; padding:10px; background:#F9FAFB; border-radius:12px; font-size:12px;'><span style='font-weight:bold; color:{n_col};'>📰 최근 뉴스 (5일내)</span><br><span style='color:#333;'>{safe_headline}...</span></div>"
 
-    # 수정된 부분: 들여쓰기를 제거한 Flush Left 문자열
-    return f"""
-<div class='toss-card'>
-    <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
-        <div>
-            <span class='badge-clean badge-neu'>{sector}</span>
-            <div style='margin-top:8px;'>
-                <span class='stock-name'>{item.get('name', 'Unknown')}</span>
-                <span class='stock-code'>{item['code']}</span>
-            </div>
-            <div class='big-price {p_color}'>{price_fmt}원</div>
-        </div>
-        <div style='text-align:right;'>
-            <div class='label-text'>AI 진단</div>
-            <div style='font-size:24px; font-weight:800; color:{score_color};'>{score}점</div>
-            <div class='badge-clean {badge_cls}' style='margin-top:4px;'>{badge_text}</div>
-        </div>
-    </div>
-    <div class='score-bg'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>
+    # [핵심 수정] 모든 HTML을 하나의 긴 문자열(String)로 연결합니다. (f-string 내 들여쓰기 원천 차단)
+    html_str = f"<div class='toss-card'><div style='display:flex; justify-content:space-between; align-items:flex-start;'><div><span class='badge-clean badge-neu'>{sector}</span><div style='margin-top:8px;'><span class='stock-name'>{item.get('name', 'Unknown')}</span><span class='stock-code'>{item['code']}</span></div><div class='big-price {p_color}'>{price_fmt}원</div></div><div style='text-align:right;'><div class='label-text'>AI 진단</div><div style='font-size:24px; font-weight:800; color:{score_color};'>{score}점</div><div class='badge-clean {badge_cls}' style='margin-top:4px;'>{badge_text}</div></div></div><div class='score-bg'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>"
+    html_str += news_html
+    html_str += f"<div style='margin-top:20px;'><div class='label-text' style='margin-bottom:8px;'>투자 체크포인트</div><div class='check-container'>{checks_html}</div></div>"
+    html_str += f"<div style='margin-top:15px; padding-top:15px; border-top:1px dashed #F2F4F6; display:flex; justify-content:space-between; font-size:13px;'><div style='width:48%;'><div style='display:flex; justify-content:space-between; margin-bottom:4px;'><span style='color:#8B95A1;'>외국인</span><span style='color:{supply_f_col}; font-weight:600;'>{supply_f}</span></div><div style='display:flex; justify-content:space-between;'><span style='color:#8B95A1;'>기관</span><span style='color:{supply_i_col}; font-weight:600;'>{supply_i}</span></div></div><div style='width:48%; border-left:1px solid #F2F4F6; padding-left:15px;'><div style='display:flex; justify-content:space-between; margin-bottom:4px;'><span style='color:#8B95A1;'>RSI (14)</span><span style='color:{rsi_text_col}; font-weight:600;'>{rsi_val:.1f}</span></div><div class='rsi-container'><div class='rsi-bar' style='width:{rsi_width}%; background:{rsi_gradient};'></div></div><div style='display:flex; justify-content:space-between; margin-top:8px;'><span style='color:#8B95A1;'>볼린저</span><span style='color:#4E5968; font-weight:600;'>{item['bb_status']}</span></div></div></div></div>"
     
-    {news_html}
-    
-    <div style='margin-top:20px;'>
-        <div class='label-text' style='margin-bottom:8px;'>투자 체크포인트</div>
-        <div class='check-container'>{checks_html}</div>
-    </div>
-    <div style='margin-top:15px; padding-top:15px; border-top:1px dashed #F2F4F6; display:flex; justify-content:space-between; font-size:13px;'>
-            <div style='width:48%;'>
-            <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
-                <span style='color:#8B95A1;'>외국인</span><span style='color:{supply_f_col}; font-weight:600;'>{supply_f}</span>
-            </div>
-            <div style='display:flex; justify-content:space-between;'>
-                <span style='color:#8B95A1;'>기관</span><span style='color:{supply_i_col}; font-weight:600;'>{supply_i}</span>
-            </div>
-        </div>
-        <div style='width:48%; border-left:1px solid #F2F4F6; padding-left:15px;'>
-                <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
-                <span style='color:#8B95A1;'>RSI (14)</span><span style='color:{rsi_text_col}; font-weight:600;'>{rsi_val:.1f}</span>
-            </div>
-            <div class='rsi-container'><div class='rsi-bar' style='width:{rsi_width}%; background:{rsi_gradient};'></div></div>
-            <div style='display:flex; justify-content:space-between; margin-top:8px;'>
-                <span style='color:#8B95A1;'>볼린저</span><span style='color:#4E5968; font-weight:600;'>{item['bb_status']}</span>
-            </div>
-        </div>
-    </div>
-</div>
-"""
+    return html_str
 
 def create_bollinger_chart(df, name):
     chart_data = df.tail(60).reset_index()
