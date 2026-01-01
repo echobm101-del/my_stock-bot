@@ -4,14 +4,13 @@ import pandas as pd
 import datetime
 import requests
 from bs4 import BeautifulSoup
-import plotly.graph_objects as go
 import json
 import os
 import time
 from pykrx import stock
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V7.3", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="Pro Quant V7.4", page_icon="⚡", layout="wide")
 
 st.markdown("""
 <style>
@@ -81,7 +80,62 @@ def send_telegram_msg(token, chat_id, message):
         return True
     except: return False
 
-# --- [3. 분석 로직] ---
+# --- [3. HTML 생성 헬퍼 함수 (에러 방지용)] ---
+def create_card_html(item, sector, is_recomm=False):
+    """복잡한 HTML 문자열을 여기서 안전하게 생성합니다."""
+    border_cls = "border-buy" if item['pass'] >= 3 else ("border-sell" if item['pass'] <= 1 else "")
+    if is_recomm: border_cls = "border-buy"
+    
+    p_color = "text-up" if item['pass'] >= 3 else ("text-down" if item['pass'] <= 1 else "text-gray")
+    if is_recomm: p_color = "text-up"
+    
+    score_color = "#00E676" if item['score'] >= 75 else ("#FF5252" if item['score'] <= 25 else "#FFD700")
+    
+    checks_html = "".join([f"<div class='check-item'>{c}</div>" for c in item['checks']])
+    
+    supply_f = format(int(item['supply']['f']), ',')
+    supply_i = format(int(item['supply']['i']), ',')
+    supply_f_col = '#00E676' if item['supply']['f']>0 else '#FF5252'
+    supply_i_col = '#00E676' if item['supply']['i']>0 else '#FF5252'
+    price_fmt = format(item['price'], ',')
+    
+    badge_html = f"<span class='badge badge-sector'>{sector}</span>"
+    if is_recomm: badge_html = "<span class='badge badge-buy'>STRONG BUY</span>" + badge_html
+    
+    html = f"""
+    <div class='glass-card {border_cls}'>
+        <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
+            <div>
+                {badge_html}
+                <div style='margin-top:8px;'>
+                    <span class='stock-name'>{item.get('name', 'Unknown')}</span>
+                    <span class='stock-code'>{item['code']}</span>
+                </div>
+                <div class='big-price {p_color}'>{price_fmt}원</div>
+            </div>
+            <div style='text-align:right; width: 120px;'>
+                <div style='font-size:12px; color:#888;'>AI SCORE</div>
+                <div style='font-size:24px; font-weight:bold; color:{score_color};'>{item['score']}</div>
+                <div class='score-bg'><div class='score-fill' style='width:{item['score']}%; background:{score_color};'></div></div>
+            </div>
+        </div>
+        <div class='analysis-grid'>
+            <div>
+                <div style='color:#888; font-size:12px; margin-bottom:5px;'>CHECK POINTS</div>
+                {checks_html}
+            </div>
+            <div>
+                <div style='color:#888; font-size:12px; margin-bottom:5px;'>SUPPLY & TECH</div>
+                <div class='check-item'>외국인: <span style='margin-left:auto; color:{supply_f_col}'>{supply_f}</span></div>
+                <div class='check-item'>기관: <span style='margin-left:auto; color:{supply_i_col}'>{supply_i}</span></div>
+                <div class='check-item'>RSI (14): <span style='margin-left:auto;'>{item['rsi']:.1f}</span></div>
+            </div>
+        </div>
+    </div>
+    """
+    return html
+
+# --- [4. 분석 로직] ---
 @st.cache_data(ttl=3600)
 def get_global_macro():
     try:
@@ -114,7 +168,7 @@ def get_supply_demand(code):
         return {"score": sc, "f":f, "i":i}
     except: return {"score": 0, "f":0, "i":0}
 
-def analyze_precision(code):
+def analyze_precision(code, name_override=None):
     try:
         sup = get_supply_demand(code)
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=120))
@@ -134,6 +188,7 @@ def analyze_precision(code):
         if curr['Close'] >= curr['MA20']: checks.append("✅ 20일선 위 상승추세"); pass_cnt+=1
         else: checks.append("❌ 추세 하락세");
         
+        # 가격 부담 체크 (단순 이격도)
         if curr['Close'] <= df['MA20'].iloc[-1] * 1.15: checks.append("✅ 가격 부담 없음"); pass_cnt+=1
         else: checks.append("❌ 단기 급등 부담");
             
@@ -143,6 +198,7 @@ def analyze_precision(code):
         score = (pass_cnt * 25)
         
         return {
+            "name": name_override,
             "code": code, "price": curr['Close'], "checks": checks, "pass": pass_cnt, 
             "score": score, "supply": sup, "rsi": rsi.iloc[-1]
         }
@@ -158,16 +214,16 @@ def get_recommendations():
         
         res_list = []
         for c in candidates:
-            a = analyze_precision(c)
+            name = stock.get_market_ticker_name(c)
+            a = analyze_precision(c, name_override=name)
             if a and a['pass'] >= 3:
-                a['name'] = stock.get_market_ticker_name(c)
                 a['sector'] = get_sector_info(c)
                 res_list.append(a)
         res_list.sort(key=lambda x: x['score'], reverse=True)
         return res_list
     except: return []
 
-# --- [4. UI 렌더링] ---
+# --- [5. UI 렌더링] ---
 with st.sidebar:
     st.header("⚡ CONTROL")
     
@@ -178,12 +234,10 @@ with st.sidebar:
         if st.button("저장 및 테스트 발송"):
             save_json(SETTINGS_FILE, {"token": t_token, "chat_id": t_chat})
             if t_token and t_chat:
-                if send_telegram_msg(t_token, t_chat, "🚀 [PRO QUANT] 알림 봇이 연결되었습니다!"):
-                    st.success("메시지 전송 성공!")
-                else:
-                    st.error("전송 실패. 토큰을 확인하세요.")
-            else:
-                st.warning("토큰과 ID를 입력하세요.")
+                if send_telegram_msg(t_token, t_chat, "🚀 [PRO QUANT] 알림 봇 정상 작동중!"):
+                    st.success("전송 성공!")
+                else: st.error("전송 실패")
+            else: st.warning("정보를 입력하세요")
 
     auto_mode = st.checkbox("🔴 실시간 자동 감시", value=False)
     
@@ -204,10 +258,10 @@ with st.sidebar:
                 del st.session_state['watchlist'][name]
                 save_json(DATA_FILE, st.session_state['watchlist']); st.rerun()
 
-st.title("⚡ QUANT SNIPER V7.3")
-st.caption(f"High-Precision Trading Dashboard | {datetime.datetime.now().strftime('%Y-%m-%d')}")
+st.title("⚡ QUANT SNIPER V7.4")
+st.caption(f"Stable High-Precision Dashboard | {datetime.datetime.now().strftime('%Y-%m-%d')}")
 
-# 매크로 섹션
+# 매크로
 macro = get_global_macro()
 if macro:
     col1, col2, col3, col4 = st.columns(4)
@@ -231,30 +285,46 @@ with tab1:
     if not st.session_state['watchlist']: st.info("사이드바에서 종목을 추가하세요.")
     else:
         for name, info in st.session_state['watchlist'].items():
-            res = analyze_precision(info['code'])
+            res = analyze_precision(info['code'], name_override=name)
             if res:
-                border_cls = "border-buy" if res['pass'] >= 3 else ("border-sell" if res['pass'] <= 1 else "")
-                p_color = "text-up" if res['pass'] >= 3 else ("text-down" if res['pass'] <= 1 else "text-gray")
-                score_color = "#00E676" if res['score'] >= 75 else ("#FF5252" if res['score'] <= 25 else "#FFD700")
+                # 에러 원인이었던 HTML 생성을 함수로 분리하여 호출
+                card_html = create_card_html(res, get_sector_info(res['code']), is_recomm=False)
+                st.markdown(card_html, unsafe_allow_html=True)
                 
-                checks_html = "".join([f"<div class='check-item'>{c}</div>" for c in res['checks']])
-                supply_f = format(int(res['supply']['f']), ',')
-                supply_i = format(int(res['supply']['i']), ',')
-                supply_f_col = '#00E676' if res['supply']['f']>0 else '#FF5252'
-                supply_i_col = '#00E676' if res['supply']['i']>0 else '#FF5252'
-                sector_name = get_sector_info(res['code'])
-                price_fmt = format(res['price'], ',')
-                
-                st.markdown(f"""
-                <div class='glass-card {border_cls}'>
-                    <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
-                        <div>
-                            <span class='badge badge-sector'>{sector_name}</span>
-                            <div style='margin-top:8px;'>
-                                <span class='stock-name'>{name}</span>
-                                <span class='stock-code'>{res['code']}</span>
-                            </div>
-                            <div class='big-price {p_color}'>{price_fmt}원</div>
-                        </div>
-                        <div style='text-align:right; width: 120px;'>
-                            <div style='font
+                # 자동 알림
+                if auto_mode and t_token and t_chat:
+                    today = datetime.datetime.now().strftime("%Y%m%d")
+                    reasons_txt = "\n".join(res['checks'])
+                    price_fmt = format(res['price'], ',')
+                    
+                    if res['score'] >= 75:
+                        msg_key = f"{info['code']}_buy_{today}"
+                        if st.session_state['sent_alerts'].get(msg_key) != "sent":
+                            msg = f"🚀 [AI 매수] {name}\n가격: {price_fmt}원\n점수: {res['score']}점\n\n[근거]\n{reasons_txt}"
+                            if send_telegram_msg(t_token, t_chat, msg):
+                                st.session_state['sent_alerts'][msg_key] = "sent"
+                                
+                    elif res['score'] <= 25:
+                        msg_key = f"{info['code']}_sell_{today}"
+                        if st.session_state['sent_alerts'].get(msg_key) != "sent":
+                            msg = f"📉 [AI 매도] {name}\n가격: {price_fmt}원\n점수: {res['score']}점\n\n[근거]\n{reasons_txt}"
+                            if send_telegram_msg(t_token, t_chat, msg):
+                                st.session_state['sent_alerts'][msg_key] = "sent"
+
+with tab2:
+    if st.button("🔭 START SCANNING", use_container_width=True):
+        with st.spinner("AI 분석중..."):
+            recs = get_recommendations()
+            
+        if not recs:
+            st.warning("조건을 만족하는 종목이 없습니다.")
+        else:
+            st.success(f"{len(recs)}개의 타겟 발견!")
+            for item in recs:
+                # 에러 원인이었던 HTML 생성을 함수로 분리하여 호출
+                card_html = create_card_html(item, item['sector'], is_recomm=True)
+                st.markdown(card_html, unsafe_allow_html=True)
+
+if auto_mode:
+    time.sleep(60)
+    st.rerun()
