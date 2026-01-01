@@ -11,7 +11,7 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V13.0", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V13.1", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -142,7 +142,64 @@ def send_telegram_msg(message):
         return False
     except: return False
 
-# --- [3. 분석 및 UI 로직 (기존과 동일)] ---
+# --- [3. 분석 및 UI 로직] ---
+
+# [복구됨] 카드 디자인 생성 함수 (이게 빠져서 에러가 났었습니다!)
+def create_card_html(item, sector, is_recomm=False):
+    if not item: return ""
+    border_cls = "border-buy" if item['pass'] >= 3 else ("border-sell" if item['pass'] <= 1 else "")
+    if is_recomm: border_cls = "border-buy"
+    
+    p_color = "text-up" if item['pass'] >= 3 else ("text-down" if item['pass'] <= 1 else "text-gray")
+    if is_recomm: p_color = "text-up"
+    
+    score_color = "#00E676" if item['score'] >= 75 else ("#FF5252" if item['score'] <= 25 else "#FFD700")
+    
+    checks_html = "".join([f"<div class='check-item'>{c}</div>" for c in item['checks']])
+    
+    supply_f = format(int(item['supply']['f']), ',')
+    supply_i = format(int(item['supply']['i']), ',')
+    supply_f_col = '#00E676' if item['supply']['f']>0 else '#FF5252'
+    supply_i_col = '#00E676' if item['supply']['i']>0 else '#FF5252'
+    price_fmt = format(item['price'], ',')
+    
+    badge_html = f"<span class='badge badge-sector'>{sector}</span>"
+    if is_recomm: badge_html = "<span class='badge badge-buy'>STRONG BUY</span>" + badge_html
+    
+    html = f"""
+    <div class='glass-card {border_cls}'>
+        <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
+            <div>
+                {badge_html}
+                <div style='margin-top:8px;'>
+                    <span class='stock-name'>{item.get('name', 'Unknown')}</span>
+                    <span class='stock-code'>{item['code']}</span>
+                </div>
+                <div class='big-price {p_color}'>{price_fmt}원</div>
+            </div>
+            <div style='text-align:right; width: 120px;'>
+                <div style='font-size:12px; color:#888;'>AI SCORE</div>
+                <div style='font-size:24px; font-weight:bold; color:{score_color};'>{item['score']}</div>
+                <div class='score-bg'><div class='score-fill' style='width:{item['score']}%; background:{score_color};'></div></div>
+            </div>
+        </div>
+        <div class='analysis-grid'>
+            <div>
+                <div style='color:#888; font-size:12px; margin-bottom:5px;'>CHECK POINTS</div>
+                {checks_html}
+            </div>
+            <div>
+                <div style='color:#888; font-size:12px; margin-bottom:5px;'>SUPPLY & TECH</div>
+                <div class='check-item'>외국인: <span style='margin-left:auto; color:{supply_f_col}'>{supply_f}</span></div>
+                <div class='check-item'>기관: <span style='margin-left:auto; color:{supply_i_col}'>{supply_i}</span></div>
+                <div class='check-item'>RSI (14): <span style='margin-left:auto;'>{item['rsi']:.1f}</span></div>
+                <div class='check-item'>볼린저: <span style='margin-left:auto;'>{item['bb_status']}</span></div>
+            </div>
+        </div>
+    </div>
+    """
+    return html
+
 @st.cache_data(ttl=3600)
 def get_global_macro():
     try:
@@ -274,7 +331,7 @@ with st.sidebar:
         save_to_github({})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V13.0")
+st.title("🚀 QUANT SNIPER V13.1")
 st.caption(f"Fully Automated AI System | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 with st.expander("📘 범례 및 용어 설명 (모든 지표 포함)", expanded=False):
