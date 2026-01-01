@@ -7,7 +7,7 @@ import json
 import os
 import time
 import base64
-import altair as alt 
+import altair as alt
 from pykrx import stock
 import concurrent.futures
 
@@ -29,9 +29,9 @@ st.markdown("""
         margin-bottom: 16px; 
     }
     
-    /* 3. 색상 시스템 (한국형 기본 + RSI 요청사항 반영) */
-    .text-up { color: #F04452 !important; }   /* 빨강 (상승/과열) */
-    .text-down { color: #3182F6 !important; } /* 파랑 (하락/침체) */
+    /* 3. 색상 시스템 */
+    .text-up { color: #F04452 !important; }   /* 빨강 (상승/호재/과열) */
+    .text-down { color: #3182F6 !important; } /* 파랑 (하락/악재/침체) */
     .text-gray { color: #8B95A1 !important; } 
     
     /* 4. 텍스트 스타일 */
@@ -84,6 +84,7 @@ def get_krx_list():
         return df[['Code', 'Name', 'Sector']]
     except: 
         return pd.DataFrame()
+
 krx_df = get_krx_list()
 
 def get_sector_info(code):
@@ -160,7 +161,7 @@ def send_telegram_msg(message):
         return False
     except: return False
 
-# --- [3. 분석 및 UI 로직] ---
+# --- [3. 분석 및 계산 로직] ---
 
 def create_card_html(item, sector, is_recomm=False):
     if not item: return ""
@@ -183,17 +184,16 @@ def create_card_html(item, sector, is_recomm=False):
     supply_i_col = '#F04452' if item['supply']['i'] > 0 else '#3182F6'
     price_fmt = format(item['price'], ',')
     
-    # [RSI 그라데이션 - 요청사항: 저점(기회)=파랑, 고점(과열)=빨강]
     rsi_val = item['rsi']
     rsi_width = min(max(rsi_val, 0), 100)
     
-    if rsi_val <= 30: # 30 이하: 파랑 (기회)
+    if rsi_val <= 30: 
         rsi_text_col = "#3182F6" 
         rsi_gradient = "linear-gradient(90deg, #3182F6, #76B1FF)" 
-    elif rsi_val >= 70: # 70 이상: 빨강 (과열)
+    elif rsi_val >= 70: 
         rsi_text_col = "#F04452"
         rsi_gradient = "linear-gradient(90deg, #F04452, #FF8A9B)"
-    else: # 중립
+    else: 
         rsi_text_col = "#8B95A1"
         rsi_gradient = "linear-gradient(90deg, #8B95A1, #B0B8C1)"
     
@@ -262,10 +262,21 @@ def get_global_macro():
                 now = df['Close'].iloc[-1]; prev = df['Close'].iloc[-2]
                 chg = ((now - prev) / prev) * 100
                 res[n] = {"p": now, "c": chg}
-                if n == "S&P500": score += 1 if chg > 0 else -1
-                elif n == "USD/KRW": score += -1 if chg > 0.5 else (1 if chg < -0.5 else 0)
-                elif n == "US 10Y": score += -1 if chg > 1.0 else (1 if chg < -1.0 else 0)
-                elif n == "VIX": score += -2 if now > 20 else (1 if now < 15 else 0)
+                
+                # 점수 계산 로직 (범례와 일치)
+                if n == "S&P500": 
+                    # S&P 상승 = 긍정 (+1)
+                    score += 1 if chg > 0 else -1
+                elif n == "USD/KRW": 
+                    # 환율 급등(0.5%↑) = 부정 (-1)
+                    score += -1 if chg > 0.5 else (1 if chg < -0.5 else 0)
+                elif n == "US 10Y": 
+                    # 금리 급등(1.0%↑) = 부정 (-1)
+                    score += -1 if chg > 1.0 else (1 if chg < -1.0 else 0)
+                elif n == "VIX": 
+                    # 공포지수 20 이상 = 부정 (-2), 20 미만 = 긍정/안정
+                    score += -2 if now > 20 else (1 if now < 18 else 0)
+                    
         return {"data": res, "score": score}
     except: return None
 
@@ -286,32 +297,45 @@ def get_supply_demand(code):
 
 def analyze_precision(code, name_override=None):
     try:
+        sector = get_sector_info(code)
         sup = get_supply_demand(code)
-        df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=120))
-        if df.empty: return None
+        df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=150))
+        
+        if df.empty or len(df) < 60: return None
+        
         df['MA20'] = df['Close'].rolling(20).mean()
         df['Std'] = df['Close'].rolling(20).std()
         df['Upper'] = df['MA20'] + (df['Std'] * 2)
         df['Lower'] = df['MA20'] - (df['Std'] * 2)
+        
         delta = df['Close'].diff(1)
         rsi = 100 - (100/(1 + (delta.where(delta>0,0).rolling(14).mean() / -delta.where(delta<0,0).rolling(14).mean())))
-        df['RSI'] = rsi
+        df['RSI'] = rsi.fillna(50)
+        
         curr = df.iloc[-1]
         
         checks = []; pass_cnt = 0
         if sup['f']>0 or sup['i']>0: checks.append("큰손 유입"); pass_cnt+=1
         else: checks.append("수급 이탈")
+        
         if curr['Close']>=curr['MA20']: checks.append("상승 추세"); pass_cnt+=1
         else: checks.append("하락 추세")
+        
         bb_status = "중립"
-        if curr['Close']<=curr['Lower']*1.02: checks.append("저점 매수기회"); pass_cnt+=1; bb_status = "바닥권"
+        if curr['Close']<=curr['Lower']*1.05: checks.append("저점 매수기회"); pass_cnt+=1; bb_status = "바닥권"
         elif curr['Close']>=curr['Upper']*0.98: checks.append("고점 주의"); pass_cnt-=0.5; bb_status = "과열권"
         else: checks.append("안정적 흐름"); pass_cnt+=0.5; bb_status = "밴드 내"
-        if curr['RSI']<=70: checks.append("RSI 안정"); pass_cnt+=1
-        else: checks.append("RSI 과열"); pass_cnt-=0.5
         
+        if curr['RSI']<=30: checks.append("RSI 침체"); pass_cnt+=1
+        elif curr['RSI']>=70: checks.append("RSI 과열"); pass_cnt-=0.5
+        else: checks.append("RSI 안정"); pass_cnt+=0.5
+        
+        if not name_override:
+            try: name_override = krx_df[krx_df['Code'] == code]['Name'].values[0]
+            except: name_override = code
+
         return {
-            "name": name_override, "code": code, "price": curr['Close'], 
+            "name": name_override, "code": code, "sector": sector, "price": curr['Close'], 
             "checks": checks, "pass": pass_cnt, "score": min(pass_cnt*25, 100), 
             "supply": sup, "rsi": curr['RSI'], "bb_status": bb_status,
             "history": df
@@ -329,7 +353,21 @@ def analyze_portfolio_parallel(watchlist):
             except: continue
     return results
 
-# --- [5. UI 렌더링] ---
+def get_recommendations():
+    try:
+        if krx_df.empty: return []
+        top_codes = krx_df.head(50)[['Code', 'Name']]
+        targets = {row['Name']: {'code': row['Code']} for _, row in top_codes.iterrows()}
+        
+        results = analyze_portfolio_parallel(targets)
+        high_score_items = [res for res in results if res['score'] >= 75]
+        high_score_items.sort(key=lambda x: x['score'], reverse=True)
+        return high_score_items
+    except Exception as e:
+        st.error(f"검색 중 오류 발생: {e}")
+        return []
+
+# --- [4. UI 렌더링] ---
 with st.sidebar:
     st.header("⚡ 제어판")
     auto_mode = st.checkbox("🔴 실시간 자동 감시", value=False)
@@ -361,7 +399,6 @@ with st.sidebar:
 st.title("📈 Quant Sniper V16.5")
 st.caption(f"AI 기반 실시간 분석 시스템 | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
-# [범례 - 누락되었던 S&P, 유가, 금리 설명 완벽 복구]
 with st.expander("📘 지표 해석 가이드 (범례)", expanded=True):
     st.markdown("""
     <table class='legend-table'>
@@ -405,24 +442,46 @@ macro = get_global_macro()
 if macro:
     col1, col2, col3, col4, col5 = st.columns(5)
     m_data = macro['data']; score = macro['score']
+    
+    # 1. 시장 점수 표시 로직
     if score >= 1: m_state = "적극 투자"; m_cls = "badge-buy"; m_col = "text-up"
     elif score <= -1: m_state = "위험 관리"; m_cls = "badge-sell"; m_col = "text-down"
     else: m_state = "관망"; m_cls = "badge-neu"; m_col = "text-gray"
     
     with col1: st.markdown(f"<div class='macro-box'><div class='label-text'>시장 점수</div><div class='macro-val {m_col}'>{score}</div><div class='badge-clean {m_cls}'>{m_state}</div></div>", unsafe_allow_html=True)
     
+    # 2. 각 매크로 지표 표시 로직 (중요: 범례와 일치시킴)
     cols = [col2, col3, col4, col5]
     keys = ['S&P500', 'VIX', 'WTI', 'US 10Y']
     labels = ['S&P 500', 'VIX (공포)', 'WTI 유가', '미국채 10년']
+    
     for i, k in enumerate(keys):
-        val = m_data[k]['p']; chg = m_data[k]['c']
-        is_good = (chg > 0) if k == 'S&P500' else (chg < 0)
-        col = "text-up" if is_good else "text-down"
-        bg_cls = "badge-buy" if is_good else "badge-sell"
-        stt = "긍정" if is_good else "부정"
-        txt = f"{val:.2f}"; txt += "%" if k == 'US 10Y' else ""; txt = f"${val:.1f}" if k == 'WTI' else txt
-        with cols[i]:
-            st.markdown(f"<div class='macro-box'><div class='label-text'>{labels[i]}</div><div class='macro-val {col}'>{txt}</div><div class='badge-clean {bg_cls}'>{stt}</div></div>", unsafe_allow_html=True)
+        if k in m_data:
+            val = m_data[k]['p']; chg = m_data[k]['c']
+            
+            # [핵심 수정 부분] 지표별 호재/악재 판별 로직
+            if k == 'S&P500':
+                # 주가 상승(Red)이 호재
+                is_good = chg > 0
+            elif k == 'VIX':
+                # VIX는 수치가 낮아야(20 이하) 호재
+                is_good = val <= 20
+            else: # WTI, US 10Y
+                # 유가/금리는 하락(Blue)해야 증시에 호재
+                is_good = chg < 0
+
+            # 시각화 결정: '호재'이면 빨강(Red)/긍정, '악재'이면 파랑(Blue)/부정
+            col_class = "text-up" if is_good else "text-down" # 텍스트 색상
+            badge_class = "badge-buy" if is_good else "badge-sell" # 뱃지 배경색
+            status_text = "긍정" if is_good else "부정" # 뱃지 텍스트
+            
+            # 포맷팅
+            val_fmt = f"{val:.2f}"
+            if k == 'US 10Y': val_fmt += "%"
+            elif k == 'WTI': val_fmt = f"${val:.1f}"
+            
+            with cols[i]:
+                st.markdown(f"<div class='macro-box'><div class='label-text'>{labels[i]}</div><div class='macro-val {col_class}'>{val_fmt}</div><div class='badge-clean {badge_class}'>{status_text}</div></div>", unsafe_allow_html=True)
 
 st.write("")
 tab1, tab2 = st.tabs(["내 주식", "AI 발굴"])
@@ -432,7 +491,8 @@ with tab1:
     else:
         with st.spinner("분석 중..."): results = analyze_portfolio_parallel(st.session_state['watchlist'])
         for res in results:
-            st.markdown(create_card_html(res, get_sector_info(res['code']), False), unsafe_allow_html=True)
+            sec = res.get('sector', '기타')
+            st.markdown(create_card_html(res, sec, False), unsafe_allow_html=True)
             with st.expander(f"📊 {res['name']} 차트 더보기"):
                 st.altair_chart(create_bollinger_chart(res['history'], res['name']), use_container_width=True)
             if auto_mode:
@@ -446,13 +506,15 @@ with tab1:
                     st.session_state['sent_alerts'][msg_key+"_sell"] = "sent"
 
 with tab2:
-    if st.button("🔭 AI 유망 종목 스캔하기", use_container_width=True):
-        with st.spinner("전체 시장을 스캔하고 있습니다..."): recs = get_recommendations()
-        if not recs: st.warning("조건에 맞는 종목을 찾지 못했습니다.")
+    if st.button("🔭 AI 유망 종목 스캔하기 (Top 50)", use_container_width=True):
+        with st.spinner("시장 데이터 스캔 중... (시간이 걸릴 수 있습니다)"): 
+            recs = get_recommendations()
+        
+        if not recs: st.warning("조건에 맞는 유망 종목을 찾지 못했거나 데이터 수신 중입니다.")
         else:
             st.success(f"{len(recs)}개의 유망 종목 발견!")
             for item in recs:
-                st.markdown(create_card_html(item, item['sector'], True), unsafe_allow_html=True)
+                st.markdown(create_card_html(item, item.get('sector', '기타'), True), unsafe_allow_html=True)
                 with st.expander(f"📊 {item['name']} 차트"):
                     st.altair_chart(create_bollinger_chart(item['history'], item['name']), use_container_width=True)
 
