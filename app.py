@@ -13,7 +13,7 @@ import concurrent.futures
 from bs4 import BeautifulSoup
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V17.2", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Quant Sniper V17.3", page_icon="📈", layout="wide")
 
 st.markdown("""
 <style>
@@ -48,6 +48,10 @@ st.markdown("""
     .streamlit-expanderContent { background-color: #FFFFFF !important; border: 1px solid #F2F4F6; border-radius: 12px; }
     div.stButton > button { width: 100%; border-radius: 12px; font-weight: bold; border: none; background: #3182F6; color: white; padding: 12px 0; transition: 0.2s; }
     div.stButton > button:hover { background: #1B64DA; }
+    .strategy-box { background-color: #F2F4F6; border-radius: 12px; padding: 12px; font-size: 13px; margin-top: 12px; display: flex; justify-content: space-around; text-align: center; }
+    .strategy-item { display: flex; flex-direction: column; }
+    .strategy-label { color: #8B95A1; font-size: 11px; margin-bottom: 4px; }
+    .strategy-val { color: #333D4B; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -59,16 +63,11 @@ FILE_PATH = "my_watchlist_v7.json"
 @st.cache_data
 def get_krx_list():
     try: 
-        # KRX 전체 리스트 가져오기
         df = fdr.StockListing('KRX')
-        # 데이터가 비어있거나 컬럼이 없는 경우 방어 코드
         if df.empty: return pd.DataFrame()
-        
-        # Sector 컬럼이 없는 경우 대비 (최근 fdr 버전 이슈 대비)
         if 'Sector' not in df.columns:
             if 'Industry' in df.columns: df['Sector'] = df['Industry']
             else: df['Sector'] = '기타'
-            
         df['Sector'] = df['Sector'].fillna('기타')
         return df[['Code', 'Name', 'Sector']]
     except: 
@@ -151,7 +150,7 @@ def send_telegram_msg(message):
         return False
     except: return False
 
-# --- [3. 분석 로직 (V17.2 Rational Quant Logic)] ---
+# --- [3. 분석 로직 (V17.3 Strategy & Signals)] ---
 
 @st.cache_data(ttl=1200) 
 def get_news_sentiment(code):
@@ -159,12 +158,8 @@ def get_news_sentiment(code):
         url = f"https://finance.naver.com/item/news_news.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         resp = requests.get(url, headers=headers)
-        
-        # lxml이 없을 경우 대비
-        try:
-            soup = BeautifulSoup(resp.content, "lxml")
-        except:
-            soup = BeautifulSoup(resp.content, "html.parser")
+        try: soup = BeautifulSoup(resp.content, "lxml")
+        except: soup = BeautifulSoup(resp.content, "html.parser")
         
         titles = soup.select(".title .tit")
         dates = soup.select(".date")
@@ -199,17 +194,17 @@ def get_news_sentiment(code):
         return {"score": 0, "headline": "-"}
 
 def create_card_html(item, sector, is_recomm=False):
-    # --- [HTML 생성기: 줄바꿈 없이 한 줄로 연결하여 렌더링 오류 방지] ---
     if not item: return ""
     score = item['score']
     
-    if score >= 75:
-        score_color = "#F04452"; p_color = "text-up"; badge_cls = "badge-buy"; badge_text = "매수 추천"
-    elif score <= 25:
+    if score >= 80:
+        score_color = "#F04452"; p_color = "text-up"; badge_cls = "badge-buy"; badge_text = "강력 매수"
+    elif score >= 60:
+        score_color = "#F04452"; p_color = "text-up"; badge_cls = "badge-buy"; badge_text = "매수 긍정"
+    elif score <= 40:
         score_color = "#3182F6"; p_color = "text-down"; badge_cls = "badge-sell"; badge_text = "매도 권장"
     else:
-        score_color = "#F2A529" if score >= 50 else "#8B95A1"
-        p_color = "text-gray"; badge_cls = "badge-neu"; badge_text = "관망 필요"
+        score_color = "#8B95A1"; p_color = "text-gray"; badge_cls = "badge-neu"; badge_text = "관망 필요"
     
     if is_recomm: p_color = "text-up"; score_color = "#F04452"; badge_cls = "badge-buy"; badge_text = "강력 매수"
     
@@ -220,27 +215,27 @@ def create_card_html(item, sector, is_recomm=False):
     supply_i_col = '#F04452' if item['supply']['i'] > 0 else '#3182F6'
     price_fmt = format(item['price'], ',')
     
+    buy_price = format(int(item['strategy']['buy']), ',')
+    target_price = format(int(item['strategy']['target']), ',')
+    action_text = item['strategy']['action']
+    
     rsi_val = item['rsi']
     rsi_width = min(max(rsi_val, 0), 100)
-    
-    if rsi_val <= 30: 
-        rsi_text_col = "#3182F6"; rsi_gradient = "linear-gradient(90deg, #3182F6, #76B1FF)" 
-    elif rsi_val >= 70: 
-        rsi_text_col = "#F04452"; rsi_gradient = "linear-gradient(90deg, #F04452, #FF8A9B)"
-    else: 
-        rsi_text_col = "#8B95A1"; rsi_gradient = "linear-gradient(90deg, #8B95A1, #B0B8C1)"
+    if rsi_val <= 30: rsi_text_col = "#3182F6"; rsi_gradient = "linear-gradient(90deg, #3182F6, #76B1FF)" 
+    elif rsi_val >= 70: rsi_text_col = "#F04452"; rsi_gradient = "linear-gradient(90deg, #F04452, #FF8A9B)"
+    else: rsi_text_col = "#8B95A1"; rsi_gradient = "linear-gradient(90deg, #8B95A1, #B0B8C1)"
     
     news_html = ""
     if item['news']['headline'] != "-":
         n_col = "#F04452" if item['news']['score'] > 0 else ("#3182F6" if item['news']['score'] < 0 else "#8B95A1")
         safe_headline = item['news']['headline'][:28].replace("<", "&lt;").replace(">", "&gt;")
-        news_html = f"<div style='margin-top:10px; padding:10px; background:#F9FAFB; border-radius:12px; font-size:12px;'><span style='font-weight:bold; color:{n_col};'>📰 최근 뉴스 (5일내)</span><br><span style='color:#333;'>{safe_headline}...</span></div>"
+        news_html = f"<div style='margin-top:10px; padding:10px; background:#F9FAFB; border-radius:12px; font-size:12px;'><span style='font-weight:bold; color:{n_col};'>📰 최근 뉴스</span><br><span style='color:#333;'>{safe_headline}...</span></div>"
 
     html_str = f"<div class='toss-card'><div style='display:flex; justify-content:space-between; align-items:flex-start;'><div><span class='badge-clean badge-neu'>{sector}</span><div style='margin-top:8px;'><span class='stock-name'>{item.get('name', 'Unknown')}</span><span class='stock-code'>{item['code']}</span></div><div class='big-price {p_color}'>{price_fmt}원</div></div><div style='text-align:right;'><div class='label-text'>AI 진단</div><div style='font-size:24px; font-weight:800; color:{score_color};'>{score}점</div><div class='badge-clean {badge_cls}' style='margin-top:4px;'>{badge_text}</div></div></div><div class='score-bg'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>"
+    html_str += f"<div class='strategy-box'><div class='strategy-item'><span class='strategy-label'>매매 전략</span><span class='strategy-val' style='color:#3182F6;'>{action_text}</span></div><div style='width:1px; background:#DEE2E6;'></div><div class='strategy-item'><span class='strategy-label'>적정 매수가</span><span class='strategy-val'>{buy_price}</span></div><div style='width:1px; background:#DEE2E6;'></div><div class='strategy-item'><span class='strategy-label'>1차 목표가</span><span class='strategy-val' style='color:#F04452;'>{target_price}</span></div></div>"
     html_str += news_html
     html_str += f"<div style='margin-top:20px;'><div class='label-text' style='margin-bottom:8px;'>투자 체크포인트</div><div class='check-container'>{checks_html}</div></div>"
     html_str += f"<div style='margin-top:15px; padding-top:15px; border-top:1px dashed #F2F4F6; display:flex; justify-content:space-between; font-size:13px;'><div style='width:48%;'><div style='display:flex; justify-content:space-between; margin-bottom:4px;'><span style='color:#8B95A1;'>외국인</span><span style='color:{supply_f_col}; font-weight:600;'>{supply_f}</span></div><div style='display:flex; justify-content:space-between;'><span style='color:#8B95A1;'>기관</span><span style='color:{supply_i_col}; font-weight:600;'>{supply_i}</span></div></div><div style='width:48%; border-left:1px solid #F2F4F6; padding-left:15px;'><div style='display:flex; justify-content:space-between; margin-bottom:4px;'><span style='color:#8B95A1;'>RSI (14)</span><span style='color:{rsi_text_col}; font-weight:600;'>{rsi_val:.1f}</span></div><div class='rsi-container'><div class='rsi-bar' style='width:{rsi_width}%; background:{rsi_gradient};'></div></div><div style='display:flex; justify-content:space-between; margin-top:8px;'><span style='color:#8B95A1;'>볼린저</span><span style='color:#4E5968; font-weight:600;'>{item['bb_status']}</span></div></div></div></div>"
-    
     return html_str
 
 def create_bollinger_chart(df, name):
@@ -257,7 +252,6 @@ def get_global_macro():
     try:
         indices = {"USD/KRW": "USD/KRW", "WTI": "CL=F", "S&P500": "US500", "US 10Y": "^TNX", "VIX": "^VIX"}
         res = {}; score = 0
-        
         for n, c in indices.items():
             df = fdr.DataReader(c, datetime.datetime.now() - datetime.timedelta(days=100))
             if not df.empty and len(df) > 20:
@@ -267,7 +261,6 @@ def get_global_macro():
                 ma20 = df['Close'].rolling(20).mean().iloc[-1]
                 is_uptrend = now >= ma20
                 res[n] = {"p": now, "c": chg, "uptrend": is_uptrend}
-                
                 if n == "S&P500": score += 1 if is_uptrend else -1
                 elif n == "USD/KRW": score += -1 if chg > 0.5 else (1 if chg < -0.5 else 0)
                 elif n == "US 10Y": score += -1 if is_uptrend else 1
@@ -296,11 +289,9 @@ def analyze_precision(code, name_override=None):
         sup = get_supply_demand(code)
         news = get_news_sentiment(code)
         
-        # 1. 데이터 확보 (최소 60일)
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=150))
         if df.empty or len(df) < 60: return None
         
-        # 2. 펀더멘털 확인 (PBR)
         is_undervalued = False
         try:
             today_str = datetime.datetime.now().strftime("%Y%m%d")
@@ -312,17 +303,12 @@ def analyze_precision(code, name_override=None):
                 if 0 < pbr < 1.2: is_undervalued = True
         except: pass
 
-        # 3. 기술적 지표 계산
-        df['MA5'] = df['Close'].rolling(5).mean()    # 단기 생명선
-        df['MA20'] = df['Close'].rolling(20).mean()  # 세력선/추세선
-        df['MA60'] = df['Close'].rolling(60).mean()  # 수급선
-        
-        # 볼린저 밴드
+        df['MA5'] = df['Close'].rolling(5).mean()
+        df['MA20'] = df['Close'].rolling(20).mean()
         df['Std'] = df['Close'].rolling(20).std()
         df['Upper'] = df['MA20'] + (df['Std'] * 2)
         df['Lower'] = df['MA20'] - (df['Std'] * 2)
         
-        # RSI
         delta = df['Close'].diff(1)
         rsi = 100 - (100/(1 + (delta.where(delta>0,0).rolling(14).mean() / -delta.where(delta<0,0).rolling(14).mean())))
         df['RSI'] = rsi.fillna(50)
@@ -332,63 +318,56 @@ def analyze_precision(code, name_override=None):
         
         checks = []; pass_cnt = 0
         
-        # --- [평가 로직: 정석 퀀트 방식 V17.2] ---
-        
-        # 1. 추세 (Trend)
         if curr['Close'] > curr['MA20']:
             checks.append("추세 상승세"); pass_cnt += 1
-            if curr['MA5'] > curr['MA20']: # 골든크로스 상태
-                 pass_cnt += 0.5
+            if curr['MA5'] > curr['MA20']: pass_cnt += 0.5
         elif curr['Close'] > curr['MA5'] and curr['Close'] > prev['Close']:
-            checks.append("단기 반등세"); pass_cnt += 0.5 # 역배열이지만 단기 급반등
+            checks.append("단기 반등세"); pass_cnt += 0.5
         else:
             checks.append("추세 하락중")
 
-        # 2. 수급 (Supply) - 외국인 주도 반영
         net_buy = sup['f'] + sup['i']
-        if net_buy > 0:
-            checks.append("메이저 순매수"); pass_cnt += 1
-        elif sup['f'] > 0: # 기관은 팔아도 외국인이 사면 긍정
-            checks.append("외국인 매수중"); pass_cnt += 0.5
-        else:
-            checks.append("수급 부재")
+        if net_buy > 0: checks.append("메이저 순매수"); pass_cnt += 1
+        elif sup['f'] > 0: checks.append("외국인 매수중"); pass_cnt += 0.5
+        else: checks.append("수급 부재")
             
-        # 3. 모멘텀 & 밸류에이션 (RSI & PBR)
         bb_status = "밴드 내"
-        if curr['RSI'] <= 35:
-            checks.append("과매도(반등기회)"); pass_cnt += 1; bb_status = "바닥권"
+        if curr['RSI'] <= 35: checks.append("과매도(반등기회)"); pass_cnt += 1; bb_status = "바닥권"
         elif curr['RSI'] >= 70:
-            if is_undervalued: # 저평가 상태면 과열 아님 (재평가 구간)
-                checks.append("저평가 랠리"); pass_cnt += 1; bb_status = "상승가속"
-            else:
-                checks.append("과열 부담"); pass_cnt -= 0.5; bb_status = "과열권"
+            if is_undervalued: checks.append("저평가 랠리"); pass_cnt += 1; bb_status = "상승가속"
+            else: checks.append("과열 부담"); pass_cnt -= 0.5; bb_status = "과열권"
         else:
-            # RSI 평범할 때 PBR이 낮으면 가산점
             if is_undervalued: checks.append("가치주 메리트"); pass_cnt += 0.5
             else: checks.append("관망세"); bb_status = "중립"
 
-        # 4. 뉴스/재료 (Sentiment)
         if news['score'] >= 1:
-            if curr['Close'] > curr['MA5']: # 주가가 반응할 때만 뉴스 인정
-                checks.append("호재 반영중"); pass_cnt += 1.0
-            else:
-                checks.append("호재 있으나 약세"); pass_cnt += 0.5
-        elif news['score'] < 0:
-            checks.append("악재 발생"); pass_cnt -= 1.0
+            if curr['Close'] > curr['MA5']: checks.append("호재 반영중"); pass_cnt += 1.0
+            else: checks.append("호재 있으나 약세"); pass_cnt += 0.5
+        elif news['score'] < 0: checks.append("악재 발생"); pass_cnt -= 1.0
 
         if not name_override:
             try: name_override = krx_df[krx_df['Code'] == code]['Name'].values[0]
             except: name_override = code
 
-        # 점수 정규화 (최대 4.5점 -> 100점 만점 환산)
         final_score = min(max(pass_cnt * 22, 0), 100)
+        
+        buy_target = curr['MA20'] if curr['Close'] > curr['MA20'] else curr['Lower']
+        sell_target = curr['Upper']
+        stop_loss = buy_target * 0.97
+        
+        action = "관망"
+        if final_score >= 80: action = "적극 매수"
+        elif final_score >= 60: action = "분할 매수"
+        elif final_score <= 40: action = "매도/관망"
+        else: action = "중립"
+
+        strategy = {"buy": buy_target, "target": sell_target, "stop": stop_loss, "action": action}
 
         return {
             "name": name_override, "code": code, "sector": sector, "price": curr['Close'], 
             "checks": checks, "pass": pass_cnt, "score": int(final_score), 
             "supply": sup, "rsi": curr['RSI'], "bb_status": bb_status,
-            "news": news,
-            "history": df
+            "news": news, "history": df, "strategy": strategy
         }
     except: return None
 
@@ -409,7 +388,7 @@ def get_recommendations(target_df):
         limited_df = target_df.head(30)
         targets = {row['Name']: {'code': row['Code']} for _, row in limited_df.iterrows()}
         results = analyze_portfolio_parallel(targets)
-        high_score_items = [res for res in results if res['score'] >= 75]
+        high_score_items = [res for res in results if res['score'] >= 60]
         high_score_items.sort(key=lambda x: x['score'], reverse=True)
         return high_score_items
     except Exception as e:
@@ -445,7 +424,7 @@ with st.sidebar:
     if st.button("🗑️ 전체 초기화"):
         st.session_state['watchlist'] = {}; save_to_github({}); st.rerun()
 
-st.title("📈 Quant Sniper V17.2")
+st.title("📈 Quant Sniper V17.3")
 st.caption(f"AI 기반 실시간 분석 시스템 (재무/뉴스/수급) | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 with st.expander("📘 지표 해석 가이드 (범례)", expanded=True):
@@ -471,15 +450,11 @@ with st.expander("📘 지표 해석 가이드 (범례)", expanded=True):
         <tr><td colspan='2' class='legend-header' style='margin-top:10px;'>📊 종목 진단 지표</td></tr>
         <tr>
             <td><span class='legend-title'>AI 점수</span></td>
-            <td><b>75점↑:</b> <span class='badge-clean badge-buy'>매수 추천</span> (저평가/호재 시 과열 무시)</td>
+            <td><b>60점↑:</b> <span class='badge-clean badge-buy'>매수 긍정</span> (기준 완화)</td>
         </tr>
         <tr>
-            <td><span class='legend-title'>뉴스 분석</span></td>
-            <td><b>5일 이내</b> 뉴스만 분석. '수주/흑자' 등 호재시 가산점.</td>
-        </tr>
-         <tr>
-            <td><span class='legend-title'>텍스트 색상</span></td>
-            <td><span class='text-up'>빨강 숫자: 상승</span> / <span class='text-down'>파랑 숫자: 하락</span> (전일 대비)</td>
+            <td><span class='legend-title'>매매 전략</span></td>
+            <td><b>적정가/목표가/손절가</b>를 차트와 수급 기반으로 자동 계산</td>
         </tr>
     </table>
     """, unsafe_allow_html=True)
@@ -530,18 +505,14 @@ with tab1:
             if auto_mode:
                 today = datetime.datetime.now().strftime("%Y%m%d")
                 msg_key = f"{res['code']}_{today}"
-                if res['score'] >= 75 and st.session_state['sent_alerts'].get(msg_key+"_buy") != "sent":
-                    send_telegram_msg(f"🚀 [매수 추천] {res['name']} ({res['score']}점)\n현재가: {format(res['price'],',')}원")
+                if res['score'] >= 60 and st.session_state['sent_alerts'].get(msg_key+"_buy") != "sent":
+                    send_telegram_msg(f"🚀 [매수 긍정] {res['name']} ({res['score']}점)\n현재가: {format(res['price'],',')}원")
                     st.session_state['sent_alerts'][msg_key+"_buy"] = "sent"
-                elif res['score'] <= 25 and st.session_state['sent_alerts'].get(msg_key+"_sell") != "sent":
-                    send_telegram_msg(f"💧 [매도 권장] {res['name']} ({res['score']}점)\n현재가: {format(res['price'],',')}원")
-                    st.session_state['sent_alerts'][msg_key+"_sell"] = "sent"
 
 with tab2:
     st.subheader("🔭 조건별 유망 종목 스캔")
     st.caption("※ 실전 투자에 맞춘 테마 및 섹터 분류로 유망 종목을 발굴합니다.")
     
-    # [수정] 스캔 방식을 4가지 옵션으로 세분화
     scan_option = st.radio(
         "분석할 카테고리를 선택하세요:", 
         ["🏆 시가총액 상위 30위 (시장주도주)", 
@@ -561,7 +532,7 @@ with tab2:
             st.info("💡 한국 주식 시장을 이끄는 최상위 우량주 30개를 분석합니다.")
             target_df = krx_df.head(30)
             
-        # 2. 정책 및 시장 테마주 (이름 기반 검색)
+        # 2. 정책 및 시장 테마주
         elif "정책 및 시장 테마주" in scan_option:
             themes = {
                 "🤖 AI & 로봇": ["로봇", "AI", "인공지능", "레인보우", "두산로보틱스"],
@@ -575,14 +546,12 @@ with tab2:
             
             if selected_theme:
                 keywords = themes[selected_theme]
-                # 종목명에 키워드가 포함된 종목 필터링
                 mask = krx_df['Name'].str.contains('|'.join(keywords), case=False, na=False)
                 target_df = krx_df[mask]
                 st.write(f"🔍 '{selected_theme}' 관련 종목 {len(target_df)}개를 찾았습니다.")
 
-        # 3. 산업군별 완성업체 (대장주)
+        # 3. 산업군별 완성업체
         elif "산업군별 완성업체" in scan_option:
-            # 주요 산업의 대장주급(시총 상위)만 필터링하는 로직
             industries = {
                 "반도체/IT 완성": ["삼성전자", "SK하이닉스", "LG전자", "삼성전기", "LG디스플레이"],
                 "자동차 완성차": ["현대차", "기아", "KG모빌리티"],
@@ -597,7 +566,7 @@ with tab2:
                 target_df = krx_df[krx_df['Name'].isin(target_names)]
                 st.write(f"🏭 {selected_ind} 대표 기업 {len(target_df)}개를 분석합니다.")
 
-        # 4. 소부장 (업종 기반 필터링)
+        # 4. 소부장
         elif "산업군별 소부장" in scan_option:
             sobujang_sectors = {
                 "반도체 소부장": ["반도체 제조", "기계", "장비"],
@@ -630,7 +599,7 @@ with tab2:
                 recs = get_recommendations(final_targets)
             
             if not recs: 
-                st.warning("조건에 맞는 매수 추천(75점 이상) 종목을 찾지 못했습니다. 관망이 필요할 수 있습니다.")
+                st.warning("조건에 맞는 매수 긍정(60점 이상) 종목을 찾지 못했습니다. 관망이 필요할 수 있습니다.")
             else:
                 st.success(f"💎 {len(recs)}개의 유망 종목을 발견했습니다!")
                 for item in recs:
