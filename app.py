@@ -11,7 +11,7 @@ import altair as alt
 from pykrx import stock
 import concurrent.futures
 
-# --- [1. 설정 및 UI 스타일링 (토스 테마 + 그라데이션)] ---
+# --- [1. 설정 및 UI 스타일링 (토스 화이트 테마)] ---
 st.set_page_config(page_title="Quant Sniper V16.2", page_icon="📈", layout="wide")
 
 st.markdown("""
@@ -29,7 +29,7 @@ st.markdown("""
         margin-bottom: 16px; 
     }
     
-    /* 3. 색상 시스템 (한국형) */
+    /* 3. 색상 시스템 (한국형: 빨강=상승/매수, 파랑=하락/매도) */
     .text-up { color: #F04452 !important; }   
     .text-down { color: #3182F6 !important; } 
     .text-gray { color: #8B95A1 !important; } 
@@ -50,17 +50,17 @@ st.markdown("""
     .macro-box { background: #F9FAFB; border-radius: 16px; padding: 16px; text-align: center; height: 100%; border: 1px solid #F2F4F6; }
     .macro-val { font-size: 20px; font-weight: 800; color: #333D4B; margin-bottom: 8px; }
     
-    /* 7. 체크포인트 태그 */
+    /* 7. 체크포인트 및 바 */
     .check-container { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
     .check-tag { font-size: 12px; padding: 6px 12px; border-radius: 18px; background: #F2F4F6; color: #4E5968; font-weight: 600; display: flex; align-items: center; }
-    
-    /* 8. 게이지 및 RSI 바 스타일 */
     .score-bg { background: #F2F4F6; height: 8px; border-radius: 4px; overflow: hidden; margin-top: 10px; }
     .score-fill { height: 100%; border-radius: 4px; }
+    
+    /* 8. RSI 그라데이션 컨테이너 */
     .rsi-container { width: 100%; background-color: #F2F4F6; height: 10px; border-radius: 5px; margin-top: 8px; overflow: hidden; }
     .rsi-bar { height: 100%; border-radius: 5px; transition: width 0.5s ease-in-out; }
     
-    /* 범례 및 기타 */
+    /* 범례 */
     .legend-table { width: 100%; font-size: 14px; border-collapse: collapse; margin-top: 5px; }
     .legend-table td { padding: 12px; border-bottom: 1px solid #F2F4F6; color: #333D4B; vertical-align: middle; line-height: 1.5; }
     .legend-header { font-weight: 800; color: #191F28; background-color: #F9FAFB; text-align: center; padding: 10px; border-radius: 8px; margin-bottom: 10px; display: block;}
@@ -79,26 +79,38 @@ FILE_PATH = "my_watchlist_v7.json"
 
 @st.cache_data
 def get_krx_list():
-    try: df = fdr.StockListing('KRX'); return df[['Code', 'Name', 'Sector']]
-    except: return pd.DataFrame()
+    try: 
+        df = fdr.StockListing('KRX')
+        return df[['Code', 'Name', 'Sector']]
+    except: 
+        return pd.DataFrame()
 krx_df = get_krx_list()
 
 def get_sector_info(code):
-    try: row = krx_df[krx_df['Code'] == code]; return row.iloc[0]['Sector'] if not row.empty else "기타"
-    except: return "기타"
+    try: 
+        row = krx_df[krx_df['Code'] == code]
+        return row.iloc[0]['Sector'] if not row.empty else "기타"
+    except: 
+        return "기타"
 
+# [수정됨] 에러가 났던 부분을 줄바꿈하여 문법 오류 해결
 def load_local_json():
     if os.path.exists(FILE_PATH):
-        try: with open(FILE_PATH, "r", encoding="utf-8") as f: return json.load(f)
-        except: return {}
+        try:
+            with open(FILE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
     return {}
 
 def save_local_json(data):
-    with open(FILE_PATH, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=4)
+    with open(FILE_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 def load_from_github():
     try:
-        if "GITHUB_TOKEN" not in st.secrets: return load_local_json()
+        if "GITHUB_TOKEN" not in st.secrets:
+            return load_local_json()
         token = st.secrets["GITHUB_TOKEN"]
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
@@ -107,7 +119,8 @@ def load_from_github():
             content = base64.b64decode(r.json()['content']).decode('utf-8')
             return json.loads(content)
         return load_local_json()
-    except: return load_local_json()
+    except:
+        return load_local_json()
 
 def save_to_github(data):
     try:
@@ -119,13 +132,20 @@ def save_to_github(data):
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
         r = requests.get(url, headers=headers)
         sha = r.json().get('sha') if r.status_code == 200 else None
+        
         json_str = json.dumps(data, indent=4, ensure_ascii=False)
         b64_content = base64.b64encode(json_str.encode()).decode()
         payload = {"message": "Update watchlist from Pro Quant UI", "content": b64_content, "sha": sha}
+        
         put_r = requests.put(url, headers=headers, json=payload)
-        if put_r.status_code in [200, 201]: return True, "GitHub 서버 동기화 완료!"
-        else: save_local_json(data); return False, f"GitHub 저장 실패: {put_r.status_code} (로컬에 저장됨)"
-    except Exception as e: save_local_json(data); return False, f"에러 발생: {e} (로컬에 저장됨)"
+        if put_r.status_code in [200, 201]:
+            return True, "GitHub 서버 동기화 완료!"
+        else:
+            save_local_json(data)
+            return False, f"GitHub 저장 실패: {put_r.status_code} (로컬에 저장됨)"
+    except Exception as e:
+        save_local_json(data)
+        return False, f"에러 발생: {e} (로컬에 저장됨)"
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 if 'sent_alerts' not in st.session_state: st.session_state['sent_alerts'] = {}
@@ -164,19 +184,19 @@ def create_card_html(item, sector, is_recomm=False):
     supply_i_col = '#F04452' if item['supply']['i'] > 0 else '#3182F6'
     price_fmt = format(item['price'], ',')
     
-    # [NEW] RSI 그라데이션 바 복구 및 토스 스타일 적용
+    # [RSI 그라데이션 바 적용]
     rsi_val = item['rsi']
     rsi_width = min(max(rsi_val, 0), 100)
     
-    if rsi_val <= 30:
+    if rsi_val <= 30: # 침체(기회) -> 빨강 계열
         rsi_text_col = "#F04452"
-        rsi_gradient = "linear-gradient(90deg, #F04452, #FF8A9B)" # 부드러운 빨강
-    elif rsi_val >= 70:
+        rsi_gradient = "linear-gradient(90deg, #F04452, #FF8A9B)"
+    elif rsi_val >= 70: # 과열(주의) -> 파랑 계열
         rsi_text_col = "#3182F6"
-        rsi_gradient = "linear-gradient(90deg, #3182F6, #76B1FF)" # 부드러운 파랑
-    else:
+        rsi_gradient = "linear-gradient(90deg, #3182F6, #76B1FF)"
+    else: # 중립 -> 회색 계열
         rsi_text_col = "#8B95A1"
-        rsi_gradient = "linear-gradient(90deg, #8B95A1, #B0B8C1)" # 부드러운 회색
+        rsi_gradient = "linear-gradient(90deg, #8B95A1, #B0B8C1)"
     
     html = f"""
     <div class='toss-card'>
