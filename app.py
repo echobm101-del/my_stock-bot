@@ -11,7 +11,7 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V13.2", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V13.3", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -35,6 +35,7 @@ st.markdown("""
     .check-item { font-size: 13px; margin-bottom: 4px; display: flex; align-items: center; color: #ddd; }
     .score-bg { background: #333; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 8px; }
     .score-fill { height: 100%; border-radius: 3px; }
+    .strategy-badge { font-size: 14px; font-weight: bold; padding: 6px 12px; border-radius: 8px; display: inline-block; margin-top: 5px; text-align: center; width: 100%; }
     .streamlit-expanderContent { background-color: #1A1C24 !important; color: #F0F2F6 !important; border-radius: 10px; }
     .legend-table { width: 100%; font-size: 14px; border-collapse: collapse; margin-top: 5px; }
     .legend-table td { padding: 12px; border-bottom: 1px solid #444; color: #ddd; vertical-align: middle; line-height: 1.5; }
@@ -43,73 +44,100 @@ st.markdown("""
     .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; display: inline-block; margin-right: 5px; }
     .badge-sector { background: #333; color: #ccc; border: 1px solid #444; }
     .badge-buy { background: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
-    
-    /* [NEW] 전략 뱃지 스타일 */
-    .strategy-badge { font-size: 14px; font-weight: bold; padding: 6px 12px; border-radius: 8px; display: inline-block; margin-top: 5px; text-align: center; width: 100%; }
-
     div.stButton > button { width: 100%; border-radius: 10px; font-weight: bold; border: 1px solid #444; background: #1E222D; color: white; }
     div.stButton > button:hover { border-color: #00E676; color: #00E676; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- [2. 데이터 및 GitHub 연동] ---
-REPO_OWNER = "echobm101-del" # 팀장님 GitHub 아이디
+REPO_OWNER = "echobm101-del"
 REPO_NAME = "my_stock-bot"
 FILE_PATH = "my_watchlist_v7.json"
 
 @st.cache_data
 def get_krx_list():
-    try: df = fdr.StockListing('KRX'); return df[['Code', 'Name', 'Sector']]
-    except: return pd.DataFrame()
+    try:
+        df = fdr.StockListing('KRX')
+        return df[['Code', 'Name', 'Sector']]
+    except:
+        return pd.DataFrame()
+
 krx_df = get_krx_list()
 
 def get_sector_info(code):
-    try: row = krx_df[krx_df['Code'] == code]; return row.iloc[0]['Sector'] if not row.empty else "기타"
-    except: return "기타"
+    try:
+        row = krx_df[krx_df['Code'] == code]
+        if not row.empty:
+            return row.iloc[0]['Sector']
+        return "기타"
+    except:
+        return "기타"
+
+def load_local_json():
+    # [수정] 줄바꿈을 넣어 문법 오류 방지
+    if os.path.exists(FILE_PATH):
+        try:
+            with open(FILE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_local_json(data):
+    with open(FILE_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 def load_from_github():
     try:
-        if "GITHUB_TOKEN" not in st.secrets: return load_local_json()
+        if "GITHUB_TOKEN" not in st.secrets:
+            return load_local_json()
+        
         token = st.secrets["GITHUB_TOKEN"]
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+        
         r = requests.get(url, headers=headers)
         if r.status_code == 200:
             content = base64.b64decode(r.json()['content']).decode('utf-8')
             return json.loads(content)
         return load_local_json()
-    except: return load_local_json()
+    except:
+        return load_local_json()
 
 def save_to_github(data):
     try:
         if "GITHUB_TOKEN" not in st.secrets:
             save_local_json(data)
             return False, "GitHub 토큰이 설정되지 않았습니다. (로컬에만 저장됨)"
+            
         token = st.secrets["GITHUB_TOKEN"]
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+        
         r = requests.get(url, headers=headers)
         sha = r.json().get('sha') if r.status_code == 200 else None
+        
         json_str = json.dumps(data, indent=4, ensure_ascii=False)
         b64_content = base64.b64encode(json_str.encode()).decode()
-        payload = {"message": "Update watchlist from Pro Quant UI", "content": b64_content, "sha": sha}
+        
+        payload = {
+            "message": "Update watchlist from Pro Quant UI",
+            "content": b64_content,
+            "sha": sha
+        }
+        
         put_r = requests.put(url, headers=headers, json=payload)
-        if put_r.status_code in [200, 201]: return True, "GitHub 서버 동기화 완료!"
-        else: save_local_json(data); return False, f"GitHub 저장 실패: {put_r.status_code} (로컬에 저장됨)"
-    except Exception as e: save_local_json(data); return False, f"에러 발생: {e} (로컬에 저장됨)"
-
-def load_local_json():
-    if os.path.exists(FILE_PATH):
-        try: with open(FILE_PATH, "r", encoding="utf-8") as f: return json.load(f)
-        except: return {}
-    return {}
-
-def save_local_json(data):
-    with open(FILE_PATH, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=4)
+        if put_r.status_code in [200, 201]:
+            return True, "GitHub 서버 동기화 완료!"
+        else:
+            save_local_json(data)
+            return False, f"GitHub 저장 실패: {put_r.status_code} (로컬에 저장됨)"
+    except Exception as e:
+        save_local_json(data)
+        return False, f"에러 발생: {e} (로컬에 저장됨)"
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 if 'sent_alerts' not in st.session_state: st.session_state['sent_alerts'] = {}
-if 'routine_flags' not in st.session_state: st.session_state['routine_flags'] = {}
 
 def send_telegram_msg(message):
     try:
@@ -124,18 +152,16 @@ def send_telegram_msg(message):
 
 # --- [3. 분석 및 UI 로직] ---
 
-# [V13.2 수정] 매수/매도/관망 라벨 추가
 def create_card_html(item, sector, is_recomm=False):
     if not item: return ""
     
     score = item['score']
     
-    # 1. 테두리 및 텍스트 색상 결정
+    # 테두리, 색상, 뱃지 설정
     if score >= 75:
         border_cls = "border-buy"
         score_color = "#00E676"
         p_color = "text-up"
-        # 뱃지 설정 (매수)
         badge_text = "🚀 강력 매수"
         badge_bg = "rgba(0, 230, 118, 0.2)"
         badge_border = "#00E676"
@@ -144,7 +170,6 @@ def create_card_html(item, sector, is_recomm=False):
         border_cls = "border-sell"
         score_color = "#FF5252"
         p_color = "text-down"
-        # 뱃지 설정 (매도)
         badge_text = "📉 매도 권장"
         badge_bg = "rgba(255, 82, 82, 0.2)"
         badge_border = "#FF5252"
@@ -153,13 +178,11 @@ def create_card_html(item, sector, is_recomm=False):
         border_cls = ""
         score_color = "#FFD700"
         p_color = "text-gray"
-        # 뱃지 설정 (관망)
         badge_text = "👀 관망 (중립)"
         badge_bg = "rgba(255, 215, 0, 0.15)"
         badge_border = "#FFD700"
         badge_font = "#FFD700"
     
-    # 추천 탭일 경우 무조건 매수 스타일
     if is_recomm: 
         border_cls = "border-buy"
         p_color = "text-up"
@@ -195,7 +218,6 @@ def create_card_html(item, sector, is_recomm=False):
             </div>
         </div>
         <div class='score-bg' style='margin-top:10px; margin-bottom:15px;'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>
-        
         <div class='analysis-grid'>
             <div>
                 <div style='color:#888; font-size:12px; margin-bottom:5px;'>CHECK POINTS</div>
@@ -234,7 +256,8 @@ def get_global_macro():
 @st.cache_data(ttl=1800)
 def get_supply_demand(code):
     try:
-        e = datetime.datetime.now().strftime("%Y%m%d"); s = (datetime.datetime.now()-datetime.timedelta(days=7)).strftime("%Y%m%d")
+        e = datetime.datetime.now().strftime("%Y%m%d")
+        s = (datetime.datetime.now()-datetime.timedelta(days=7)).strftime("%Y%m%d")
         df = stock.get_market_investor_net_purchase_by_date(s, e, code).tail(3)
         if df.empty: return {"score": 0, "f":0, "i":0}
         f=df['외국인'].sum(); i=df['기관합계'].sum(); sc=0
@@ -307,11 +330,9 @@ def get_recommendations():
 with st.sidebar:
     st.header("⚡ CONTROL PANEL")
     
-    # [설정] 자동 감시
     auto_mode = st.checkbox("🔴 실시간 자동 감시 및 루틴 알림", value=False)
     
     st.divider()
-    # [설정] 종목 추가 (GitHub 연동)
     with st.expander("➕ 종목 추가 (자동 동기화)", expanded=True):
         n_name = st.text_input("종목명")
         n_code = st.text_input("코드")
@@ -344,24 +365,22 @@ with st.sidebar:
         save_to_github({})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V13.2")
+st.title("🚀 QUANT SNIPER V13.3")
 st.caption(f"Fully Automated AI System | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 with st.expander("📘 범례 및 용어 설명 (모든 지표 포함)", expanded=False):
     st.markdown("<table class='legend-table'><tr><td colspan='2' class='legend-header'>🌍 글로벌 시장 지표 (상단 5개 박스)</td></tr><tr><td class='legend-title'>MARKET SCORE</td><td>시장 종합 점수. <br><b>+1 이상:</b> 투자 적기 (Risk On) / <b>-1 이하:</b> 보수적 대응 필요 (Risk Off)</td></tr><tr><td class='legend-title'>🇺🇸 S&P 500</td><td>미국 증시 지수. 한국 시장의 선행 지표 (상승 시 호재).</td></tr><tr><td class='legend-title'>🇰🇷 USD/KRW</td><td>원/달러 환율. <b>상승 시:</b> 외국인 이탈 우려 (주가에 악재).</td></tr><tr><td class='legend-title'>🛢️ WTI CRUDE</td><td>국제 유가. <b>상승 시:</b> 인플레이션 및 기업 비용 증가 (주가에 악재).</td></tr><tr><td class='legend-title' style='color:#FF5252;'>😱 VIX (공포지수)</td><td>월가 공포 지수. <b>20 이상:</b> 공포(하락장), <b>15 이하:</b> 안정(상승장).</td></tr><tr><td class='legend-title'>🇺🇸 US 10Y</td><td>미국채 10년물 금리. <b>급등 시:</b> 기술주/성장주 하락 압력 (악재).</td></tr><tr><td colspan='2' class='legend-header' style='padding-top:15px;'>📊 정밀 진단 지표</td></tr><tr><td class='legend-title'>볼린저 밴드</td><td><b>하단 터치:</b> 과매도(매수 기회), <b>상단 돌파:</b> 과열(매도 검토).</td></tr><tr><td class='legend-title'>AI SCORE</td><td><b>75점 이상:</b> 강력 매수 / <b>25점 이하:</b> 매도 권장.</td></tr></table>", unsafe_allow_html=True)
 
-# 매크로
 macro = get_global_macro()
 if macro:
     col1, col2, col3, col4, col5 = st.columns(5)
     m_data = macro['data']; score = macro['score']
-    if score >= 1: m_state = "🚀 적극 투자 (Risk On)"; m_cls = "status-good"; m_col = "text-up"
-    elif score <= -1: m_state = "🐻 위험 관리 (Risk Off)"; m_cls = "status-bad"; m_col = "text-down"
-    else: m_state = "👀 관망 (Neutral)"; m_cls = "status-neutral"; m_col = "text-gray"
+    if score >= 1: m_state = "🚀 적극 투자"; m_cls = "status-good"; m_col = "text-up"
+    elif score <= -1: m_state = "🐻 위험 관리"; m_cls = "status-bad"; m_col = "text-down"
+    else: m_state = "👀 관망"; m_cls = "status-neutral"; m_col = "text-gray"
     
     with col1: st.markdown(f"<div class='macro-box'><div class='macro-label'>MARKET SCORE</div><div class='macro-val {m_col}'>{score}</div><div class='status-badge {m_cls}'>{m_state}</div></div>", unsafe_allow_html=True)
     
-    # 나머지 4개 지표 간소화 루프
     cols = [col2, col3, col4, col5]
     keys = ['S&P500', 'VIX', 'WTI', 'US 10Y']
     labels = ['🇺🇸 S&P 500', '😱 VIX (공포)', '🛢️ WTI CRUDE', '🇺🇸 US 10Y']
