@@ -11,54 +11,41 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V14.0", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V14.1", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #0E1117; color: #F0F2F6; font-family: 'Pretendard', sans-serif; }
-    
-    /* 카드 스타일 */
     .glass-card { background: rgba(38, 39, 48, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 24px; margin-bottom: 10px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3); }
     .border-buy { border-left: 5px solid #00E676 !important; }
     .border-sell { border-left: 5px solid #FF5252 !important; }
-    
     .text-up { color: #00E676; }
     .text-down { color: #FF5252; }
     .text-gray { color: #888; }
     .big-price { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
     .stock-name { font-size: 22px; font-weight: 700; color: #FFFFFF; }
     .stock-code { font-size: 14px; color: #888; margin-left: 8px; font-weight: 400; }
-    
     .macro-box { background: #1A1C24; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333; height: 100%; }
     .macro-label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 8px; font-weight: bold; }
     .macro-val { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 8px; }
-    
     .status-badge { font-size: 12px; font-weight: bold; padding: 4px 8px; border-radius: 6px; display: inline-block; width: 100%; }
     .status-good { background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid rgba(0, 230, 118, 0.3); }
     .status-bad { background-color: rgba(255, 82, 82, 0.15); color: #FF5252; border: 1px solid rgba(255, 82, 82, 0.3); }
     .status-neutral { background-color: rgba(136, 136, 136, 0.15); color: #aaa; border: 1px solid rgba(136, 136, 136, 0.3); }
-    
     .check-item { font-size: 13px; margin-bottom: 4px; display: flex; align-items: center; color: #ddd; }
     .score-bg { background: #333; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 8px; }
     .score-fill { height: 100%; border-radius: 3px; }
     .strategy-badge { font-size: 14px; font-weight: bold; padding: 6px 12px; border-radius: 8px; display: inline-block; margin-top: 5px; text-align: center; width: 100%; }
-    
-    /* RSI 게이지 스타일 */
     .rsi-container { width: 100%; background-color: #333; height: 8px; border-radius: 4px; margin-top: 5px; overflow: hidden; }
     .rsi-bar { height: 100%; border-radius: 4px; }
-    
     .streamlit-expanderContent { background-color: #1A1C24 !important; color: #F0F2F6 !important; border-radius: 10px; }
-    
-    /* 범례 테이블 */
     .legend-table { width: 100%; font-size: 14px; border-collapse: collapse; margin-top: 5px; }
     .legend-table td { padding: 12px; border-bottom: 1px solid #444; color: #ddd; vertical-align: middle; line-height: 1.5; }
     .legend-header { font-weight: bold; color: #FFD700; background-color: #262730; text-align: center; padding: 10px; border-radius: 5px; }
     .legend-title { font-weight: bold; color: #fff; width: 150px; background-color: #222; padding-left: 10px; border-radius: 4px; }
-    
     .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; display: inline-block; margin-right: 5px; }
     .badge-sector { background: #333; color: #ccc; border: 1px solid #444; }
     .badge-buy { background: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
-    
     div.stButton > button { width: 100%; border-radius: 10px; font-weight: bold; border: 1px solid #444; background: #1E222D; color: white; }
     div.stButton > button:hover { border-color: #00E676; color: #00E676; }
 </style>
@@ -195,60 +182,15 @@ def create_card_html(item, sector, is_recomm=False):
     sector_badge = f"<span class='badge badge-sector'>{sector}</span>"
     if is_recomm: sector_badge = "<span class='badge badge-buy'>STRONG BUY</span>" + sector_badge
     
-    # [NEW] RSI 시각화 (게이지 바)
+    # RSI 게이지 설정
     rsi_val = item['rsi']
     rsi_width = min(max(rsi_val, 0), 100)
-    # RSI 색상: 30이하(침체,좋음) -> 파랑, 70이상(과열,나쁨) -> 빨강
-    if rsi_val <= 30: rsi_color = "#00E676" # Green/Blueish (Buy signal)
-    elif rsi_val >= 70: rsi_color = "#FF5252" # Red (Sell signal)
-    else: rsi_color = "#888888" # Gray
+    if rsi_val <= 30: rsi_color = "#00E676"
+    elif rsi_val >= 70: rsi_color = "#FF5252"
+    else: rsi_color = "#888888"
     
-    rsi_html = f"""
-    <div style='display:flex; justify-content:space-between; font-size:12px; margin-top:5px; color:#ddd;'>
-        <span>RSI (14)</span>
-        <span style='color:{rsi_color}; font-weight:bold;'>{rsi_val:.1f}</span>
-    </div>
-    <div class='rsi-container'>
-        <div class='rsi-bar' style='width:{rsi_width}%; background-color:{rsi_color};'></div>
-    </div>
-    """
-
-    html = f"""
-    <div class='glass-card {border_cls}'>
-        <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
-            <div>
-                {sector_badge}
-                <div style='margin-top:8px;'>
-                    <span class='stock-name'>{item.get('name', 'Unknown')}</span>
-                    <span class='stock-code'>{item['code']}</span>
-                </div>
-                <div class='big-price {p_color}'>{price_fmt}원</div>
-            </div>
-            <div style='text-align:right; width: 130px;'>
-                <div style='font-size:12px; color:#888; margin-bottom:5px;'>AI SCORE</div>
-                <div style='font-size:28px; font-weight:800; color:{score_color}; line-height:1;'>{score}</div>
-                <div class='strategy-badge' style='background:{badge_bg}; border:1px solid {badge_border}; color:{badge_font};'>
-                    {badge_text}
-                </div>
-            </div>
-        </div>
-        <div class='score-bg' style='margin-top:10px; margin-bottom:15px;'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>
-        
-        <div class='analysis-grid'>
-            <div>
-                <div style='color:#888; font-size:12px; margin-bottom:5px;'>CHECK POINTS</div>
-                {checks_html}
-            </div>
-            <div>
-                <div style='color:#888; font-size:12px; margin-bottom:5px;'>SUPPLY & TECH</div>
-                <div class='check-item'>외국인: <span style='margin-left:auto; color:{supply_f_col}'>{supply_f}</span></div>
-                <div class='check-item'>기관: <span style='margin-left:auto; color:{supply_i_col}'>{supply_i}</span></div>
-                {rsi_html}
-                <div class='check-item' style='margin-top:5px;'>볼린저: <span style='margin-left:auto;'>{item['bb_status']}</span></div>
-            </div>
-        </div>
-    </div>
-    """
+    # HTML 생성 (들여쓰기 제거하여 오류 방지)
+    html = f"""<div class='glass-card {border_cls}'><div style='display:flex; justify-content:space-between; align-items:flex-start;'><div>{sector_badge}<div style='margin-top:8px;'><span class='stock-name'>{item.get('name', 'Unknown')}</span><span class='stock-code'>{item['code']}</span></div><div class='big-price {p_color}'>{price_fmt}원</div></div><div style='text-align:right; width: 130px;'><div style='font-size:12px; color:#888; margin-bottom:5px;'>AI SCORE</div><div style='font-size:28px; font-weight:800; color:{score_color}; line-height:1;'>{score}</div><div class='strategy-badge' style='background:{badge_bg}; border:1px solid {badge_border}; color:{badge_font};'>{badge_text}</div></div></div><div class='score-bg' style='margin-top:10px; margin-bottom:15px;'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div><div class='analysis-grid'><div><div style='color:#888; font-size:12px; margin-bottom:5px;'>CHECK POINTS</div>{checks_html}</div><div><div style='color:#888; font-size:12px; margin-bottom:5px;'>SUPPLY & TECH</div><div class='check-item'>외국인: <span style='margin-left:auto; color:{supply_f_col}'>{supply_f}</span></div><div class='check-item'>기관: <span style='margin-left:auto; color:{supply_i_col}'>{supply_i}</span></div><div style='display:flex; justify-content:space-between; font-size:12px; margin-top:5px; color:#ddd;'><span>RSI (14)</span><span style='color:{rsi_color}; font-weight:bold;'>{rsi_val:.1f}</span></div><div class='rsi-container'><div class='rsi-bar' style='width:{rsi_width}%; background-color:{rsi_color};'></div></div><div class='check-item' style='margin-top:5px;'>볼린저: <span style='margin-left:auto;'>{item['bb_status']}</span></div></div></div></div>"""
     return html
 
 @st.cache_data(ttl=3600)
@@ -393,7 +335,7 @@ with st.sidebar:
         save_to_github({})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V14.0")
+st.title("🚀 QUANT SNIPER V14.1")
 st.caption(f"Fully Automated AI System | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 with st.expander("📘 범례 및 용어 설명 (모든 지표 포함)", expanded=False):
@@ -438,10 +380,9 @@ with tab1:
         for res in results:
             st.markdown(create_card_html(res, get_sector_info(res['code']), False), unsafe_allow_html=True)
             
-            # [NEW] 볼린저 밴드 차트 열기
             with st.expander(f"📊 {res['name']} 상세 차트 보기 (클릭)"):
-                chart_df = res['history'][['Close', 'Upper', 'Lower']].tail(60) # 최근 60일 데이터
-                st.line_chart(chart_df, color=["#FFFFFF", "#FF5252", "#00E676"]) # 주가(흰색), 상단(빨강), 하단(초록)
+                chart_df = res['history'][['Close', 'Upper', 'Lower']].tail(60)
+                st.line_chart(chart_df, color=["#FFFFFF", "#FF5252", "#00E676"])
             
             if auto_mode:
                 today = datetime.datetime.now().strftime("%Y%m%d")
