@@ -10,7 +10,7 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V11.1", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V11.2", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -33,20 +33,31 @@ st.markdown("""
     .big-price { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
     .stock-name { font-size: 22px; font-weight: 700; color: #FFFFFF; }
     .stock-code { font-size: 14px; color: #888; margin-left: 8px; font-weight: 400; }
-    .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; display: inline-block; margin-right: 5px; }
-    .badge-sector { background: #333; color: #ccc; border: 1px solid #444; }
-    .badge-buy { background: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
-    .macro-box { background: #1A1C24; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333; }
-    .macro-label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 5px; font-weight: bold; }
-    .macro-val { font-size: 18px; font-weight: 700; color: #fff; }
-    .analysis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px; }
+    
+    /* 매크로 박스 스타일 개선 */
+    .macro-box { background: #1A1C24; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333; height: 100%; }
+    .macro-label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 8px; font-weight: bold; }
+    .macro-val { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 8px; }
+    
+    /* 상태 뱃지 스타일 */
+    .status-badge { font-size: 12px; font-weight: bold; padding: 4px 8px; border-radius: 6px; display: inline-block; width: 100%; }
+    .status-good { background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid rgba(0, 230, 118, 0.3); }
+    .status-bad { background-color: rgba(255, 82, 82, 0.15); color: #FF5252; border: 1px solid rgba(255, 82, 82, 0.3); }
+    .status-neutral { background-color: rgba(136, 136, 136, 0.15); color: #aaa; border: 1px solid rgba(136, 136, 136, 0.3); }
+
     .check-item { font-size: 13px; margin-bottom: 4px; display: flex; align-items: center; color: #ddd; }
     .score-bg { background: #333; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 8px; }
     .score-fill { height: 100%; border-radius: 3px; }
+    
     .legend-table { width: 100%; font-size: 14px; border-collapse: collapse; margin-top: 5px; }
     .legend-table td { padding: 12px; border-bottom: 1px solid #333; color: #ddd; vertical-align: middle; line-height: 1.5; }
     .legend-header { font-weight: bold; color: #FFD700; background-color: #262730; text-align: center; padding: 10px; }
     .legend-title { font-weight: bold; color: #fff; width: 160px; background-color: #1E1E1E; }
+    
+    .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; display: inline-block; margin-right: 5px; }
+    .badge-sector { background: #333; color: #ccc; border: 1px solid #444; }
+    .badge-buy { background: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
+    
     div.stButton > button { width: 100%; border-radius: 10px; font-weight: bold; border: 1px solid #444; background: #1E222D; color: white; }
     div.stButton > button:hover { border-color: #00E676; color: #00E676; }
 </style>
@@ -314,13 +325,11 @@ with st.sidebar:
         save_json(DATA_FILE, {})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V11.1")
-st.caption(f"Full-Stack Market Analysis System | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.title("🚀 QUANT SNIPER V11.2")
+st.caption(f"Visualized Market Intelligence | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-# [범례: 줄바꿈 오류 수정 버전]
 legend_html = """<table class='legend-table'><tr><td colspan="2" class='legend-header'>🌍 글로벌 시장 지표 (상단 5개 박스)</td></tr><tr><td class='legend-title'>MARKET SCORE</td><td>시장 종합 점수. <br><b>+1 이상:</b> 투자 적기 (Risk On) / <b>-1 이하:</b> 보수적 대응 필요 (Risk Off)</td></tr><tr><td class='legend-title' style='color:#FF5252;'>VIX (공포지수)</td><td>월가 공포 지수. <b>20 이상:</b> 공포(하락장), <b>15 이하:</b> 안정(상승장).</td></tr><tr><td class='legend-title'>US 10Y</td><td>미국채 10년물 금리. 급등 시 주식 시장에 악재.</td></tr><tr><td colspan="2" class='legend-header' style='padding-top:15px;'>📊 정밀 진단 지표</td></tr><tr><td class='legend-title'>볼린저 밴드</td><td><b>하단 터치:</b> 과매도(매수 기회), <b>상단 돌파:</b> 과열(매도 검토).</td></tr><tr><td class='legend-title'>AI SCORE</td><td><b>75점 이상:</b> 강력 매수 / <b>25점 이하:</b> 매도 권장.</td></tr></table>"""
-
-with st.expander("📘 범례 및 용어 설명 (여기를 눌러 확인하세요)", expanded=False):
+with st.expander("📘 범례 및 용어 설명", expanded=False):
     st.markdown(legend_html, unsafe_allow_html=True)
 
 # 매크로
@@ -328,20 +337,45 @@ macro = get_global_macro()
 if macro:
     col1, col2, col3, col4, col5 = st.columns(5)
     m_data = macro['data']
+    score = macro['score']
+    
+    # 1. Market Score
+    if score >= 1: m_state = "🚀 적극 투자 (Risk On)"; m_cls = "status-good"; m_col = "text-up"
+    elif score <= -1: m_state = "🐻 위험 관리 (Risk Off)"; m_cls = "status-bad"; m_col = "text-down"
+    else: m_state = "👀 관망 (Neutral)"; m_cls = "status-neutral"; m_col = "text-gray"
+    
     with col1:
-        st.markdown(f"<div class='macro-box'><div class='macro-label'>MARKET SCORE</div><div class='macro-val' style='color:{'#00E676' if macro['score']>=1 else '#FF5252'}'>{macro['score']}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='macro-box'><div class='macro-label'>MARKET SCORE</div><div class='macro-val {m_col}'>{score}</div><div class='status-badge {m_cls}'>{m_state}</div></div>", unsafe_allow_html=True)
+
+    # 2. S&P 500
+    sp_chg = m_data['S&P500']['c']
+    if sp_chg > 0: sp_state = "📈 상승 (긍정)"; sp_cls = "status-good"; sp_col = "text-up"
+    else: sp_state = "📉 하락 (부정)"; sp_cls = "status-bad"; sp_col = "text-down"
     with col2:
-        c_col = "text-up" if m_data['S&P500']['c'] > 0 else "text-down"
-        st.markdown(f"<div class='macro-box'><div class='macro-label'>🇺🇸 S&P 500</div><div class='macro-val {c_col}'>{m_data['S&P500']['c']:.2f}%</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='macro-box'><div class='macro-label'>🇺🇸 S&P 500</div><div class='macro-val {sp_col}'>{sp_chg:.2f}%</div><div class='status-badge {sp_cls}'>{sp_state}</div></div>", unsafe_allow_html=True)
+
+    # 3. VIX
+    vix = m_data['VIX']['p']
+    if vix >= 20: vx_state = "😱 공포 (현금확보)"; vx_cls = "status-bad"; vx_col = "text-down"
+    elif vix <= 15: vx_state = "😊 안정 (매수기회)"; vx_cls = "status-good"; vx_col = "text-up"
+    else: vx_state = "😐 보통"; vx_cls = "status-neutral"; vx_col = "text-gray"
     with col3:
-        c_col = "text-down" if m_data['VIX']['p'] > 20 else "text-up"
-        st.markdown(f"<div class='macro-box'><div class='macro-label'>😱 VIX (공포)</div><div class='macro-val {c_col}'>{m_data['VIX']['p']:.2f}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='macro-box'><div class='macro-label'>😱 VIX (공포)</div><div class='macro-val {vx_col}'>{vix:.2f}</div><div class='status-badge {vx_cls}'>{vx_state}</div></div>", unsafe_allow_html=True)
+
+    # 4. WTI
+    wti_chg = m_data['WTI']['c']
+    if wti_chg > 0: wt_state = "🔥 상승 (비용증가)"; wt_cls = "status-bad"; wt_col = "text-down" # 유가 상승은 보통 주식에 악재
+    else: wt_state = "💧 하락 (비용감소)"; wt_cls = "status-good"; wt_col = "text-up"
     with col4:
-        c_col = "text-up" if m_data['WTI']['c'] > 0 else "text-down"
-        st.markdown(f"<div class='macro-box'><div class='macro-label'>🛢️ WTI CRUDE</div><div class='macro-val {c_col}'>${m_data['WTI']['p']:.1f}</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='macro-box'><div class='macro-label'>🛢️ WTI CRUDE</div><div class='macro-val {wt_col}'>${m_data['WTI']['p']:.1f}</div><div class='status-badge {wt_cls}'>{wt_state}</div></div>", unsafe_allow_html=True)
+
+    # 5. US 10Y
+    us_chg = m_data['US 10Y']['c']
+    if us_chg > 1.0: us_state = "🚨 급등 (악재)"; us_cls = "status-bad"; us_col = "text-down"
+    elif us_chg < -1.0: us_state = "📉 하락 (호재)"; us_cls = "status-good"; us_col = "text-up"
+    else: us_state = "보합/안정"; us_cls = "status-neutral"; us_col = "text-gray"
     with col5:
-        c_col = "text-down" if m_data['US 10Y']['c'] > 0 else "text-up"
-        st.markdown(f"<div class='macro-box'><div class='macro-label'>🇺🇸 US 10Y</div><div class='macro-val {c_col}'>{m_data['US 10Y']['p']:.2f}%</div></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='macro-box'><div class='macro-label'>🇺🇸 US 10Y</div><div class='macro-val {us_col}'>{m_data['US 10Y']['p']:.2f}%</div><div class='status-badge {us_cls}'>{us_state}</div></div>", unsafe_allow_html=True)
 
 st.write("")
 tab1, tab2 = st.tabs(["📂 내 포트폴리오 (고속)", "🚀 AI 스나이퍼 발굴"])
@@ -362,50 +396,4 @@ with tab1:
                 price_fmt = format(res['price'], ',')
                 reasons_txt = "\n".join(res['checks'])
                 
-                if res['score'] >= 75:
-                    msg_key = f"{res['code']}_buy_{today}"
-                    if st.session_state['sent_alerts'].get(msg_key) != "sent":
-                        msg = f"🚀 [AI 매수 포착] {res['name']}\n가격: {price_fmt}원\n점수: {res['score']}점\n\n[이유]\n{reasons_txt}"
-                        if send_telegram_msg(t_token, t_chat, msg): st.session_state['sent_alerts'][msg_key] = "sent"
-                elif res['score'] <= 25:
-                    msg_key = f"{res['code']}_sell_{today}"
-                    if st.session_state['sent_alerts'].get(msg_key) != "sent":
-                        msg = f"📉 [AI 매도 경고] {res['name']}\n가격: {price_fmt}원\n점수: {res['score']}점\n\n[이유]\n{reasons_txt}"
-                        if send_telegram_msg(t_token, t_chat, msg): st.session_state['sent_alerts'][msg_key] = "sent"
-
-with tab2:
-    if st.button("🔭 START SCANNING", use_container_width=True):
-        with st.spinner("⚡ 전체 시장 스캔 중..."):
-            recs = get_recommendations()
-        if not recs:
-            st.warning("조건을 만족하는 종목이 없습니다.")
-        else:
-            st.success(f"{len(recs)}개의 타겟 발견!")
-            for item in recs:
-                card_html = create_card_html(item, item['sector'], is_recomm=True)
-                st.markdown(card_html, unsafe_allow_html=True)
-
-# [루틴 알림 (백업용)]
-if auto_mode and t_token and t_chat:
-    now = datetime.datetime.now()
-    today_str = now.strftime("%Y%m%d")
-    
-    if 8 <= now.hour < 9 and now.minute >= 50:
-        if st.session_state['routine_flags'].get(f"market_{today_str}") != "sent":
-            m_score = macro['score']
-            msg = f"🌅 [장전 시황 브리핑]\n\n📊 Market Score: {m_score}\n🇺🇸 S&P500: {macro['data']['S&P500']['c']:.2f}%\n😱 VIX: {macro['data']['VIX']['p']:.2f}\n"
-            if send_telegram_msg(t_token, t_chat, msg): st.session_state['routine_flags'][f"market_{today_str}"] = "sent"
-    
-    if now.hour == 14 and 30 <= now.minute <= 40:
-        if st.session_state['routine_flags'].get(f"sniper_{today_str}") != "sent":
-            recs = get_recommendations()
-            if recs:
-                msg = f"☕ [마감 전 AI 추천주]\n{recs[0]['name']}"
-                if send_telegram_msg(t_token, t_chat, msg): st.session_state['routine_flags'][f"sniper_{today_str}"] = "sent"
-
-if auto_mode:
-    st.markdown("---")
-    status_text = st.empty()
-    status_text.markdown(f"⏳ **AI 비서 가동 중... (PC가 켜져있을 때만 작동합니다)**")
-    time.sleep(60)
-    st.rerun()
+                if res['score'] >=
