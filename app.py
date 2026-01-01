@@ -30,8 +30,8 @@ st.markdown("""
     }
     
     /* 3. 색상 시스템 */
-    .text-up { color: #F04452 !important; }   /* 빨강 (상승/호재/과열) */
-    .text-down { color: #3182F6 !important; } /* 파랑 (하락/악재/침체) */
+    .text-up { color: #F04452 !important; }   /* 빨강 (상승/과열) */
+    .text-down { color: #3182F6 !important; } /* 파랑 (하락/침체) */
     .text-gray { color: #8B95A1 !important; } 
     
     /* 4. 텍스트 스타일 */
@@ -262,21 +262,10 @@ def get_global_macro():
                 now = df['Close'].iloc[-1]; prev = df['Close'].iloc[-2]
                 chg = ((now - prev) / prev) * 100
                 res[n] = {"p": now, "c": chg}
-                
-                # 점수 계산 로직 (범례와 일치)
-                if n == "S&P500": 
-                    # S&P 상승 = 긍정 (+1)
-                    score += 1 if chg > 0 else -1
-                elif n == "USD/KRW": 
-                    # 환율 급등(0.5%↑) = 부정 (-1)
-                    score += -1 if chg > 0.5 else (1 if chg < -0.5 else 0)
-                elif n == "US 10Y": 
-                    # 금리 급등(1.0%↑) = 부정 (-1)
-                    score += -1 if chg > 1.0 else (1 if chg < -1.0 else 0)
-                elif n == "VIX": 
-                    # 공포지수 20 이상 = 부정 (-2), 20 미만 = 긍정/안정
-                    score += -2 if now > 20 else (1 if now < 18 else 0)
-                    
+                if n == "S&P500": score += 1 if chg > 0 else -1
+                elif n == "USD/KRW": score += -1 if chg > 0.5 else (1 if chg < -0.5 else 0)
+                elif n == "US 10Y": score += -1 if chg > 1.0 else (1 if chg < -1.0 else 0)
+                elif n == "VIX": score += -2 if now > 20 else (1 if now < 15 else 0)
         return {"data": res, "score": score}
     except: return None
 
@@ -297,7 +286,9 @@ def get_supply_demand(code):
 
 def analyze_precision(code, name_override=None):
     try:
+        # 섹터 정보 확보
         sector = get_sector_info(code)
+        
         sup = get_supply_demand(code)
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=150))
         
@@ -330,6 +321,7 @@ def analyze_precision(code, name_override=None):
         elif curr['RSI']>=70: checks.append("RSI 과열"); pass_cnt-=0.5
         else: checks.append("RSI 안정"); pass_cnt+=0.5
         
+        # 이름이 없는 경우 krx_df에서 검색
         if not name_override:
             try: name_override = krx_df[krx_df['Code'] == code]['Name'].values[0]
             except: name_override = code
@@ -355,6 +347,7 @@ def analyze_portfolio_parallel(watchlist):
 
 def get_recommendations():
     try:
+        # 상위 50개 종목 스캔 (속도 최적화)
         if krx_df.empty: return []
         top_codes = krx_df.head(50)[['Code', 'Name']]
         targets = {row['Name']: {'code': row['Code']} for _, row in top_codes.iterrows()}
@@ -442,46 +435,25 @@ macro = get_global_macro()
 if macro:
     col1, col2, col3, col4, col5 = st.columns(5)
     m_data = macro['data']; score = macro['score']
-    
-    # 1. 시장 점수 표시 로직
     if score >= 1: m_state = "적극 투자"; m_cls = "badge-buy"; m_col = "text-up"
     elif score <= -1: m_state = "위험 관리"; m_cls = "badge-sell"; m_col = "text-down"
     else: m_state = "관망"; m_cls = "badge-neu"; m_col = "text-gray"
     
     with col1: st.markdown(f"<div class='macro-box'><div class='label-text'>시장 점수</div><div class='macro-val {m_col}'>{score}</div><div class='badge-clean {m_cls}'>{m_state}</div></div>", unsafe_allow_html=True)
     
-    # 2. 각 매크로 지표 표시 로직 (중요: 범례와 일치시킴)
     cols = [col2, col3, col4, col5]
     keys = ['S&P500', 'VIX', 'WTI', 'US 10Y']
     labels = ['S&P 500', 'VIX (공포)', 'WTI 유가', '미국채 10년']
-    
     for i, k in enumerate(keys):
         if k in m_data:
             val = m_data[k]['p']; chg = m_data[k]['c']
-            
-            # [핵심 수정 부분] 지표별 호재/악재 판별 로직
-            if k == 'S&P500':
-                # 주가 상승(Red)이 호재
-                is_good = chg > 0
-            elif k == 'VIX':
-                # VIX는 수치가 낮아야(20 이하) 호재
-                is_good = val <= 20
-            else: # WTI, US 10Y
-                # 유가/금리는 하락(Blue)해야 증시에 호재
-                is_good = chg < 0
-
-            # 시각화 결정: '호재'이면 빨강(Red)/긍정, '악재'이면 파랑(Blue)/부정
-            col_class = "text-up" if is_good else "text-down" # 텍스트 색상
-            badge_class = "badge-buy" if is_good else "badge-sell" # 뱃지 배경색
-            status_text = "긍정" if is_good else "부정" # 뱃지 텍스트
-            
-            # 포맷팅
-            val_fmt = f"{val:.2f}"
-            if k == 'US 10Y': val_fmt += "%"
-            elif k == 'WTI': val_fmt = f"${val:.1f}"
-            
+            is_good = (chg > 0) if k == 'S&P500' else (chg < 0)
+            col = "text-up" if is_good else "text-down"
+            bg_cls = "badge-buy" if is_good else "badge-sell"
+            stt = "긍정" if is_good else "부정"
+            txt = f"{val:.2f}"; txt += "%" if k == 'US 10Y' else ""; txt = f"${val:.1f}" if k == 'WTI' else txt
             with cols[i]:
-                st.markdown(f"<div class='macro-box'><div class='label-text'>{labels[i]}</div><div class='macro-val {col_class}'>{val_fmt}</div><div class='badge-clean {badge_class}'>{status_text}</div></div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='macro-box'><div class='label-text'>{labels[i]}</div><div class='macro-val {col}'>{txt}</div><div class='badge-clean {bg_cls}'>{stt}</div></div>", unsafe_allow_html=True)
 
 st.write("")
 tab1, tab2 = st.tabs(["내 주식", "AI 발굴"])
@@ -491,6 +463,7 @@ with tab1:
     else:
         with st.spinner("분석 중..."): results = analyze_portfolio_parallel(st.session_state['watchlist'])
         for res in results:
+            # sector 정보가 없으면 '기타'로 처리
             sec = res.get('sector', '기타')
             st.markdown(create_card_html(res, sec, False), unsafe_allow_html=True)
             with st.expander(f"📊 {res['name']} 차트 더보기"):
