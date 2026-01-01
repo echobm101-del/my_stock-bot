@@ -11,7 +11,7 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V13.1", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V13.2", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -43,6 +43,10 @@ st.markdown("""
     .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; display: inline-block; margin-right: 5px; }
     .badge-sector { background: #333; color: #ccc; border: 1px solid #444; }
     .badge-buy { background: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
+    
+    /* [NEW] 전략 뱃지 스타일 */
+    .strategy-badge { font-size: 14px; font-weight: bold; padding: 6px 12px; border-radius: 8px; display: inline-block; margin-top: 5px; text-align: center; width: 100%; }
+
     div.stButton > button { width: 100%; border-radius: 10px; font-weight: bold; border: 1px solid #444; background: #1E222D; color: white; }
     div.stButton > button:hover { border-color: #00E676; color: #00E676; }
 </style>
@@ -63,16 +67,12 @@ def get_sector_info(code):
     try: row = krx_df[krx_df['Code'] == code]; return row.iloc[0]['Sector'] if not row.empty else "기타"
     except: return "기타"
 
-# [NEW] GitHub에서 파일 읽어오기 (로봇과 동일한 데이터 공유)
 def load_from_github():
     try:
-        # Secrets에서 토큰 가져오기 (없으면 로컬 파일 시도)
         if "GITHUB_TOKEN" not in st.secrets: return load_local_json()
-        
         token = st.secrets["GITHUB_TOKEN"]
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        
         r = requests.get(url, headers=headers)
         if r.status_code == 200:
             content = base64.b64decode(r.json()['content']).decode('utf-8')
@@ -80,46 +80,27 @@ def load_from_github():
         return load_local_json()
     except: return load_local_json()
 
-# [NEW] GitHub에 파일 저장하기 (UI에서 추가하면 로봇에게 전달)
 def save_to_github(data):
     try:
         if "GITHUB_TOKEN" not in st.secrets:
             save_local_json(data)
             return False, "GitHub 토큰이 설정되지 않았습니다. (로컬에만 저장됨)"
-            
         token = st.secrets["GITHUB_TOKEN"]
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        
-        # 1. 현재 파일의 SHA 값 가져오기 (덮어쓰기 위해 필요)
         r = requests.get(url, headers=headers)
         sha = r.json().get('sha') if r.status_code == 200 else None
-        
-        # 2. 데이터 인코딩
         json_str = json.dumps(data, indent=4, ensure_ascii=False)
         b64_content = base64.b64encode(json_str.encode()).decode()
-        
-        # 3. 업데이트 요청
-        payload = {
-            "message": "Update watchlist from Pro Quant UI",
-            "content": b64_content,
-            "sha": sha
-        }
-        
+        payload = {"message": "Update watchlist from Pro Quant UI", "content": b64_content, "sha": sha}
         put_r = requests.put(url, headers=headers, json=payload)
-        if put_r.status_code in [200, 201]:
-            return True, "GitHub 서버 동기화 완료!"
-        else:
-            save_local_json(data)
-            return False, f"GitHub 저장 실패: {put_r.status_code} (로컬에 저장됨)"
-    except Exception as e:
-        save_local_json(data)
-        return False, f"에러 발생: {e} (로컬에 저장됨)"
+        if put_r.status_code in [200, 201]: return True, "GitHub 서버 동기화 완료!"
+        else: save_local_json(data); return False, f"GitHub 저장 실패: {put_r.status_code} (로컬에 저장됨)"
+    except Exception as e: save_local_json(data); return False, f"에러 발생: {e} (로컬에 저장됨)"
 
 def load_local_json():
     if os.path.exists(FILE_PATH):
-        try:
-            with open(FILE_PATH, "r", encoding="utf-8") as f: return json.load(f)
+        try: with open(FILE_PATH, "r", encoding="utf-8") as f: return json.load(f)
         except: return {}
     return {}
 
@@ -130,7 +111,6 @@ if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_fro
 if 'sent_alerts' not in st.session_state: st.session_state['sent_alerts'] = {}
 if 'routine_flags' not in st.session_state: st.session_state['routine_flags'] = {}
 
-# 텔레그램 함수
 def send_telegram_msg(message):
     try:
         if "TELEGRAM_TOKEN" in st.secrets and "CHAT_ID" in st.secrets:
@@ -144,16 +124,45 @@ def send_telegram_msg(message):
 
 # --- [3. 분석 및 UI 로직] ---
 
-# [복구됨] 카드 디자인 생성 함수 (이게 빠져서 에러가 났었습니다!)
+# [V13.2 수정] 매수/매도/관망 라벨 추가
 def create_card_html(item, sector, is_recomm=False):
     if not item: return ""
-    border_cls = "border-buy" if item['pass'] >= 3 else ("border-sell" if item['pass'] <= 1 else "")
-    if is_recomm: border_cls = "border-buy"
     
-    p_color = "text-up" if item['pass'] >= 3 else ("text-down" if item['pass'] <= 1 else "text-gray")
-    if is_recomm: p_color = "text-up"
+    score = item['score']
     
-    score_color = "#00E676" if item['score'] >= 75 else ("#FF5252" if item['score'] <= 25 else "#FFD700")
+    # 1. 테두리 및 텍스트 색상 결정
+    if score >= 75:
+        border_cls = "border-buy"
+        score_color = "#00E676"
+        p_color = "text-up"
+        # 뱃지 설정 (매수)
+        badge_text = "🚀 강력 매수"
+        badge_bg = "rgba(0, 230, 118, 0.2)"
+        badge_border = "#00E676"
+        badge_font = "#00E676"
+    elif score <= 25:
+        border_cls = "border-sell"
+        score_color = "#FF5252"
+        p_color = "text-down"
+        # 뱃지 설정 (매도)
+        badge_text = "📉 매도 권장"
+        badge_bg = "rgba(255, 82, 82, 0.2)"
+        badge_border = "#FF5252"
+        badge_font = "#FF5252"
+    else:
+        border_cls = ""
+        score_color = "#FFD700"
+        p_color = "text-gray"
+        # 뱃지 설정 (관망)
+        badge_text = "👀 관망 (중립)"
+        badge_bg = "rgba(255, 215, 0, 0.15)"
+        badge_border = "#FFD700"
+        badge_font = "#FFD700"
+    
+    # 추천 탭일 경우 무조건 매수 스타일
+    if is_recomm: 
+        border_cls = "border-buy"
+        p_color = "text-up"
     
     checks_html = "".join([f"<div class='check-item'>{c}</div>" for c in item['checks']])
     
@@ -163,26 +172,30 @@ def create_card_html(item, sector, is_recomm=False):
     supply_i_col = '#00E676' if item['supply']['i']>0 else '#FF5252'
     price_fmt = format(item['price'], ',')
     
-    badge_html = f"<span class='badge badge-sector'>{sector}</span>"
-    if is_recomm: badge_html = "<span class='badge badge-buy'>STRONG BUY</span>" + badge_html
+    sector_badge = f"<span class='badge badge-sector'>{sector}</span>"
+    if is_recomm: sector_badge = "<span class='badge badge-buy'>STRONG BUY</span>" + sector_badge
     
     html = f"""
     <div class='glass-card {border_cls}'>
         <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
             <div>
-                {badge_html}
+                {sector_badge}
                 <div style='margin-top:8px;'>
                     <span class='stock-name'>{item.get('name', 'Unknown')}</span>
                     <span class='stock-code'>{item['code']}</span>
                 </div>
                 <div class='big-price {p_color}'>{price_fmt}원</div>
             </div>
-            <div style='text-align:right; width: 120px;'>
-                <div style='font-size:12px; color:#888;'>AI SCORE</div>
-                <div style='font-size:24px; font-weight:bold; color:{score_color};'>{item['score']}</div>
-                <div class='score-bg'><div class='score-fill' style='width:{item['score']}%; background:{score_color};'></div></div>
+            <div style='text-align:right; width: 130px;'>
+                <div style='font-size:12px; color:#888; margin-bottom:5px;'>AI SCORE</div>
+                <div style='font-size:28px; font-weight:800; color:{score_color}; line-height:1;'>{score}</div>
+                <div class='strategy-badge' style='background:{badge_bg}; border:1px solid {badge_border}; color:{badge_font};'>
+                    {badge_text}
+                </div>
             </div>
         </div>
+        <div class='score-bg' style='margin-top:10px; margin-bottom:15px;'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>
+        
         <div class='analysis-grid'>
             <div>
                 <div style='color:#888; font-size:12px; margin-bottom:5px;'>CHECK POINTS</div>
@@ -331,7 +344,7 @@ with st.sidebar:
         save_to_github({})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V13.1")
+st.title("🚀 QUANT SNIPER V13.2")
 st.caption(f"Fully Automated AI System | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 with st.expander("📘 범례 및 용어 설명 (모든 지표 포함)", expanded=False):
