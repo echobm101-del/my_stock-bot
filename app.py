@@ -10,9 +10,11 @@ import base64
 import altair as alt
 from pykrx import stock
 import concurrent.futures
+from bs4 import BeautifulSoup
+import re
 
 # --- [1. 설정 및 UI 스타일링 (토스 화이트 테마)] ---
-st.set_page_config(page_title="Quant Sniper V16.9", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Quant Sniper V17.0", page_icon="📈", layout="wide")
 
 st.markdown("""
 <style>
@@ -164,6 +166,66 @@ def send_telegram_msg(message):
 
 # --- [3. 분석 및 계산 로직] ---
 
+# [NEW] 뉴스 크롤링 및 5일 제한 감성 분석 함수
+@st.cache_data(ttl=1200) # 20분마다 갱신
+def get_news_sentiment(code):
+    try:
+        url = f"https://finance.naver.com/item/news_news.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        resp = requests.get(url, headers=headers)
+        soup = BeautifulSoup(resp.content, "lxml") # lxml 파서 사용
+        
+        titles = soup.select(".title .tit")
+        dates = soup.select(".date")
+        
+        news_score = 0
+        latest_headline = "-"
+        
+        # 키워드 사전 (맥락 고려)
+        good_keywords = ["수주", "계약", "체결", "흑자", "최대", "개선", "성장", "호조", "개발", "승인", "공급", "적자 축소", "흑자 전환"]
+        bad_keywords = ["횡령", "배임", "구속", "압수수색", "적자 지속", "하향", "불확실", "우려", "급락", "약세", "손실"]
+        
+        today = datetime.datetime.now()
+        count = 0
+        
+        for i in range(len(titles)):
+            if count >= 10: break # 최대 10개만 분석
+            
+            t_text = titles[i].get_text().strip()
+            d_text = dates[i].get_text().strip()
+            
+            # 1. 5일 이내인지 날짜 확인
+            try:
+                # 네이버 뉴스 날짜 포맷 'YYYY.MM.DD HH:MM'
+                news_date = datetime.datetime.strptime(d_text, "%Y.%m.%d %H:%M")
+                diff = (today - news_date).days
+                
+                if diff > 5: continue # 5일 지났으면 패스 (매우 중요)
+            except:
+                continue
+                
+            if count == 0: latest_headline = t_text # 최신 뉴스 저장
+            
+            # 2. 정교한 키워드 매칭
+            # 좋은 단어 찾기
+            for k in good_keywords:
+                if k in t_text:
+                    news_score += 1
+                    break # 중복 점수 방지
+            
+            # 나쁜 단어 찾기 (가중치 높게)
+            for k in bad_keywords:
+                if k in t_text:
+                    news_score -= 2 # 악재는 더 민감하게
+                    break
+            
+            count += 1
+            
+        return {"score": news_score, "headline": latest_headline}
+    except:
+        return {"score": 0, "headline": "-"}
+
+
 def create_card_html(item, sector, is_recomm=False):
     if not item: return ""
     score = item['score']
@@ -198,6 +260,17 @@ def create_card_html(item, sector, is_recomm=False):
         rsi_text_col = "#8B95A1"
         rsi_gradient = "linear-gradient(90deg, #8B95A1, #B0B8C1)"
     
+    # 뉴스 정보 표시 추가
+    news_html = ""
+    if item['news']['headline'] != "-":
+        n_col = "#F04452" if item['news']['score'] > 0 else ("#3182F6" if item['news']['score'] < 0 else "#8B95A1")
+        news_html = f"""
+        <div style='margin-top:10px; padding:10px; background:#F9FAFB; border-radius:12px; font-size:12px;'>
+            <span style='font-weight:bold; color:{n_col};'>📰 최근 뉴스 (5일내)</span><br>
+            <span style='color:#333;'>{item['news']['headline'][:25]}...</span>
+        </div>
+        """
+
     html = f"""
     <div class='toss-card'>
         <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
@@ -216,6 +289,9 @@ def create_card_html(item, sector, is_recomm=False):
             </div>
         </div>
         <div class='score-bg'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>
+        
+        {news_html}
+        
         <div style='margin-top:20px;'>
             <div class='label-text' style='margin-bottom:8px;'>투자 체크포인트</div>
             <div class='check-container'>{checks_html}</div>
@@ -265,17 +341,13 @@ def get_global_macro():
                 prev = df['Close'].iloc[-2]
                 chg = ((now - prev) / prev) * 100
                 ma20 = df['Close'].rolling(20).mean().iloc[-1]
-                
-                # 추세 판단 (MA20 기준)
                 is_uptrend = now >= ma20
-                
                 res[n] = {"p": now, "c": chg, "uptrend": is_uptrend}
                 
-                # 점수 계산
                 if n == "S&P500": score += 1 if is_uptrend else -1
                 elif n == "USD/KRW": score += -1 if chg > 0.5 else (1 if chg < -0.5 else 0)
                 elif n == "US 10Y": score += -1 if is_uptrend else 1
-                elif n == "VIX": score += -2 if now > 20 else 1 # VIX 절대값 기준
+                elif n == "VIX": score += -2 if now > 20 else 1
         return {"data": res, "score": score}
     except: return None
 
@@ -298,30 +370,28 @@ def analyze_precision(code, name_override=None):
     try:
         sector = get_sector_info(code)
         sup = get_supply_demand(code)
-        df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=150))
         
+        # [NEW] 뉴스 분석 호출 (5일 제한)
+        news = get_news_sentiment(code)
+        
+        df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=150))
         if df.empty or len(df) < 60: return None
         
-        # [NEW] 펀더멘탈(PBR) 체크 - 우량주 보호 로직
+        # [NEW] 펀더멘탈(PBR/PER) 체크
         is_undervalued = False
         try:
-            # 오늘 날짜 기준 PBR 조회
             today_str = datetime.datetime.now().strftime("%Y%m%d")
-            # pykrx의 get_market_fundamental_by_ticker 사용
             fund_df = stock.get_market_fundamental_by_ticker(today_str, code)
             
-            # PBR 값 확인 (데이터가 있는 경우에만)
-            if not fund_df.empty and 'PBR' in fund_df.index:
-                pbr = fund_df.loc['PBR']
-                # PBR이 1.2 미만이면 저평가로 간주
-                if pbr > 0 and pbr < 1.2:
-                    is_undervalued = True
-            elif not fund_df.empty and 'PBR' in fund_df.columns: # 포맷 대응
-                 pbr = fund_df['PBR'].iloc[0]
-                 if pbr > 0 and pbr < 1.2:
-                    is_undervalued = True
-        except:
-            pass # 펀더멘탈 데이터 조회 실패 시 무시
+            pbr = 0
+            if not fund_df.empty:
+                # 인덱스나 컬럼 형태로 PBR 찾기
+                if 'PBR' in fund_df.index: pbr = fund_df.loc['PBR']
+                elif 'PBR' in fund_df.columns: pbr = fund_df['PBR'].iloc[0]
+                
+                # PBR 1.2 미만이면 저평가
+                if 0 < pbr < 1.2: is_undervalued = True
+        except: pass
 
         df['MA20'] = df['Close'].rolling(20).mean()
         df['Std'] = df['Close'].rolling(20).std()
@@ -343,22 +413,28 @@ def analyze_precision(code, name_override=None):
         bb_status = "중립"
         if curr['Close']<=curr['Lower']*1.05: checks.append("저점 매수기회"); pass_cnt+=1; bb_status = "바닥권"
         elif curr['Close']>=curr['Upper']*0.98: 
-            # [수정] 고점이지만 저평가 상태라면?
+            # 1. 저평가 보호 로직
             if is_undervalued:
-                checks.append("고점이나 저평가"); pass_cnt+=0 # 점수 깎지 않음
+                checks.append("고점이나 저평가"); pass_cnt+=0 
                 bb_status = "과열(보유)"
+            # 2. 뉴스 호재 보호 로직 (뉴스가 좋으면 기술적 고점 무시)
+            elif news['score'] >= 1:
+                checks.append("호재로 상승중"); pass_cnt+=0.5
+                bb_status = "모멘텀"
             else:
                 checks.append("고점 주의"); pass_cnt-=0.5; bb_status = "과열권"
         else: checks.append("안정적 흐름"); pass_cnt+=0.5; bb_status = "밴드 내"
         
         if curr['RSI']<=30: checks.append("RSI 침체"); pass_cnt+=1
         elif curr['RSI']>=70: 
-            # [수정] RSI 과열이지만 저평가라면?
-            if is_undervalued:
-                checks.append("과열(실적우수)"); pass_cnt+=0 # 점수 깎지 않음
-            else:
-                checks.append("RSI 과열"); pass_cnt-=0.5
+            if is_undervalued: checks.append("과열(실적우수)"); pass_cnt+=0
+            elif news['score'] >= 1: checks.append("강한 매수세"); pass_cnt+=0.5
+            else: checks.append("RSI 과열"); pass_cnt-=0.5
         else: checks.append("RSI 안정"); pass_cnt+=0.5
+        
+        # [NEW] 뉴스 점수 반영
+        if news['score'] >= 2: checks.append("강력 호재 발생"); pass_cnt += 1
+        elif news['score'] < 0: checks.append("악재 주의"); pass_cnt -= 1
         
         if not name_override:
             try: name_override = krx_df[krx_df['Code'] == code]['Name'].values[0]
@@ -366,8 +442,9 @@ def analyze_precision(code, name_override=None):
 
         return {
             "name": name_override, "code": code, "sector": sector, "price": curr['Close'], 
-            "checks": checks, "pass": pass_cnt, "score": min(pass_cnt*25, 100), 
+            "checks": checks, "pass": pass_cnt, "score": min(max(pass_cnt*25, 0), 100), 
             "supply": sup, "rsi": curr['RSI'], "bb_status": bb_status,
+            "news": news, # 뉴스 정보 포함
             "history": df
         }
     except: return None
@@ -386,8 +463,8 @@ def analyze_portfolio_parallel(watchlist):
 def get_recommendations(target_df):
     try:
         if target_df.empty: return []
-        # 속도를 위해 최대 50개 제한
-        limited_df = target_df.head(50)
+        # 속도 최적화: 30개로 제한 (뉴스 크롤링 부하 고려)
+        limited_df = target_df.head(30)
         targets = {row['Name']: {'code': row['Code']} for _, row in limited_df.iterrows()}
         
         results = analyze_portfolio_parallel(targets)
@@ -427,8 +504,8 @@ with st.sidebar:
     if st.button("🗑️ 전체 초기화"):
         st.session_state['watchlist'] = {}; save_to_github({}); st.rerun()
 
-st.title("📈 Quant Sniper V16.9")
-st.caption(f"AI 기반 실시간 분석 시스템 | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
+st.title("📈 Quant Sniper V17.0")
+st.caption(f"AI 기반 실시간 분석 시스템 (재무/뉴스 반영) | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 with st.expander("📘 지표 해석 가이드 (범례)", expanded=True):
     st.markdown("""
@@ -456,11 +533,8 @@ with st.expander("📘 지표 해석 가이드 (범례)", expanded=True):
             <td><b>75점↑:</b> <span class='badge-clean badge-buy'>매수 추천 (빨강)</span> / <b>25점↓:</b> <span class='badge-clean badge-sell'>매도 권장 (파랑)</span></td>
         </tr>
         <tr>
-            <td><span class='legend-title'>RSI (14)</span></td>
-            <td>
-                <b>30이하 (기회):</b> <span style='color:#3182F6; font-weight:bold;'>부드러운 파랑 그라데이션</span> (침체/저점매수)<br>
-                <b>70이상 (주의):</b> <span style='color:#F04452; font-weight:bold;'>부드러운 빨강 그라데이션</span> (과열/고점매도)
-            </td>
+            <td><span class='legend-title'>뉴스 분석</span></td>
+            <td><b>5일 이내</b> 뉴스만 분석. '수주/흑자' 등 호재시 가산점, '횡령/적자지속' 등 악재시 감점.</td>
         </tr>
          <tr>
             <td><span class='legend-title'>텍스트 색상</span></td>
@@ -488,22 +562,18 @@ if macro:
         if k in m_data:
             val = m_data[k]['p']; chg = m_data[k]['c']; is_uptrend = m_data[k]['uptrend']
             
-            # --- [긍정/부정 판단: 뱃지 색상] ---
             if k == 'S&P500':
-                is_good = is_uptrend # S&P는 상승추세여야 긍정
+                is_good = is_uptrend
                 status_text = "상승추세" if is_good else "하락추세"
             elif k == 'VIX':
-                is_good = val <= 20 # VIX는 20 이하여야 긍정
+                is_good = val <= 20
                 status_text = "안정권" if is_good else "공포구간"
             else:
-                is_good = not is_uptrend # 유가/금리는 하락추세여야 긍정
+                is_good = not is_uptrend
                 status_text = "하락안정" if is_good else "상승주의"
             
-            bg_cls = "badge-buy" if is_good else "badge-sell" # 긍정=Red, 부정=Blue
-            
-            # --- [텍스트 색상: 전일비 등락] ---
+            bg_cls = "badge-buy" if is_good else "badge-sell"
             val_col = "text-up" if chg > 0 else "text-down"
-            
             txt = f"{val:.2f}"; txt += "%" if k == 'US 10Y' else ""; txt = f"${val:.1f}" if k == 'WTI' else txt
             
             with cols[i]:
@@ -515,7 +585,7 @@ tab1, tab2 = st.tabs(["내 주식", "AI 발굴"])
 with tab1:
     if not st.session_state['watchlist']: st.info("👈 왼쪽에서 관심 종목을 추가해주세요.")
     else:
-        with st.spinner("분석 중..."): results = analyze_portfolio_parallel(st.session_state['watchlist'])
+        with st.spinner("분석 중 (차트+재무+뉴스)..."): results = analyze_portfolio_parallel(st.session_state['watchlist'])
         for res in results:
             sec = res.get('sector', '기타')
             st.markdown(create_card_html(res, sec, False), unsafe_allow_html=True)
@@ -533,32 +603,32 @@ with tab1:
 
 with tab2:
     st.subheader("🔭 조건별 유망 종목 스캔")
+    st.caption("※ 뉴스 크롤링으로 인해 속도가 다소 느릴 수 있습니다. (최대 30개 분석)")
     
     scan_option = st.radio(
         "스캔 방식을 선택하세요:", 
-        ["🏆 시가총액 상위 50위", "🏢 특정 섹터(업종)별 보기"],
+        ["🏆 시가총액 상위 30위", "🏢 특정 섹터(업종)별 보기"],
         horizontal=True
     )
     
     target_df = pd.DataFrame()
     
-    if scan_option == "🏆 시가총액 상위 50위":
-        st.caption("한국 주식 시장에서 가장 규모가 큰 우량주 50개를 분석합니다.")
-        target_df = krx_df.head(50)
+    if scan_option == "🏆 시가총액 상위 30위":
+        st.caption("한국 주식 시장에서 가장 규모가 큰 우량주 30개를 정밀 분석합니다.")
+        target_df = krx_df.head(30)
         
     elif scan_option == "🏢 특정 섹터(업종)별 보기":
         sectors = sorted(krx_df['Sector'].dropna().unique().tolist())
         selected_sector = st.selectbox("분석할 섹터를 선택해주세요:", sectors)
         
         if selected_sector:
-            st.caption(f"'{selected_sector}' 섹터에 속한 종목들을 분석합니다. (최대 50개)")
             target_df = krx_df[krx_df['Sector'] == selected_sector]
 
     if st.button("🚀 AI 스캔 시작", use_container_width=True):
         if target_df.empty:
             st.warning("분석할 종목이 없습니다.")
         else:
-            with st.spinner(f"AI가 {len(target_df.head(50))}개 종목을 정밀 분석 중입니다..."): 
+            with st.spinner(f"AI가 {len(target_df.head(30))}개 종목의 차트, 재무, 뉴스를 분석 중입니다..."): 
                 recs = get_recommendations(target_df)
             
             if not recs: 
