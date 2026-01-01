@@ -8,10 +8,10 @@ import json
 import os
 import time
 from pykrx import stock
-import concurrent.futures # 병렬 처리 핵심 모듈
+import concurrent.futures 
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V8.5", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V8.6", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -61,8 +61,9 @@ st.markdown("""
     
     /* 범례 테이블 스타일 */
     .legend-table { width: 100%; font-size: 13px; border-collapse: collapse; margin-top: 10px; }
-    .legend-table td { padding: 8px; border-bottom: 1px solid #333; color: #ccc; }
-    .legend-header { font-weight: bold; color: #FFD700; border-bottom: 2px solid #555; }
+    .legend-table td { padding: 10px; border-bottom: 1px solid #333; color: #ccc; vertical-align: middle; }
+    .legend-header { font-weight: bold; color: #FFD700; background-color: #262730; text-align: center; }
+    .legend-title { font-weight: bold; color: #fff; width: 140px; }
     
     div.stButton > button { width: 100%; border-radius: 10px; font-weight: bold; border: 1px solid #444; background: #1E222D; color: white; }
     div.stButton > button:hover { border-color: #00E676; color: #00E676; }
@@ -156,7 +157,7 @@ def create_card_html(item, sector, is_recomm=False):
     """
     return html
 
-# --- [4. 분석 로직 (병렬 처리 + 캐싱)] ---
+# --- [4. 분석 로직] ---
 @st.cache_data(ttl=3600)
 def get_global_macro():
     try:
@@ -213,180 +214,3 @@ def analyze_precision(code, name_override=None):
         else: checks.append("❌ 단기 급등 부담");
             
         if rsi.iloc[-1] <= 70: checks.append("✅ RSI 안정권"); pass_cnt+=1
-        else: checks.append("❌ 과매수 구간");
-        
-        score = (pass_cnt * 25)
-        
-        return {
-            "name": name_override,
-            "code": code, "price": curr['Close'], "checks": checks, "pass": pass_cnt, 
-            "score": score, "supply": sup, "rsi": rsi.iloc[-1]
-        }
-    except: return None
-
-# [속도 최적화] 병렬 처리 함수
-def analyze_portfolio_parallel(watchlist):
-    results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        future_to_stock = {
-            executor.submit(analyze_precision, info['code'], name): (name, info) 
-            for name, info in watchlist.items()
-        }
-        for future in concurrent.futures.as_completed(future_to_stock):
-            try:
-                res = future.result()
-                if res: results.append(res)
-            except: continue
-    return results
-
-@st.cache_data(ttl=3600)
-def get_recommendations():
-    try:
-        t = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y%m%d")
-        f_list = stock.get_market_net_purchases_of_equities_by_ticker(t, t, "KOSPI", "외국인").head(10).index.tolist()
-        i_list = stock.get_market_net_purchases_of_equities_by_ticker(t, t, "KOSPI", "기관합계").head(10).index.tolist()
-        candidates = list(set(f_list + i_list))
-        
-        res_list = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            future_to_code = {executor.submit(analyze_precision, c, stock.get_market_ticker_name(c)): c for c in candidates}
-            for future in concurrent.futures.as_completed(future_to_code):
-                try:
-                    a = future.result()
-                    if a and a['pass'] >= 3:
-                        a['sector'] = get_sector_info(a['code'])
-                        res_list.append(a)
-                except: continue
-        res_list.sort(key=lambda x: x['score'], reverse=True)
-        return res_list
-    except: return []
-
-# --- [5. UI 렌더링] ---
-with st.sidebar:
-    st.header("⚡ CONTROL PANEL")
-    
-    with st.expander("🔔 텔레그램 알림 설정"):
-        t_token = st.text_input("Bot Token", value=settings.get("token", ""), type="password")
-        t_chat = st.text_input("Chat ID", value=settings.get("chat_id", ""))
-        if st.button("설정 저장 및 테스트"):
-            save_json(SETTINGS_FILE, {"token": t_token, "chat_id": t_chat})
-            if send_telegram_msg(t_token, t_chat, "🚀 [SYSTEM] 알림 봇 연결 확인 완료"): st.success("성공")
-            else: st.error("실패")
-
-    auto_mode = st.checkbox("🔴 실시간 자동 감시 (60초)", value=False)
-    
-    st.divider()
-    with st.expander("➕ 종목 추가 (중복 방지)", expanded=True):
-        n_name = st.text_input("종목명")
-        n_code = st.text_input("코드")
-        if st.button("추가"):
-            clean_name = n_name.strip()
-            clean_code = n_code.strip()
-            existing_codes = [v['code'] for v in st.session_state['watchlist'].values()]
-            if clean_code in existing_codes: st.error("이미 존재하는 종목입니다.")
-            elif clean_name and clean_code:
-                st.session_state['watchlist'][clean_name] = {"code": clean_code}
-                save_json(DATA_FILE, st.session_state['watchlist']); st.rerun()
-
-    if st.session_state['watchlist']:
-        st.caption(f"WATCHLIST ({len(st.session_state['watchlist'])}개)")
-        for name in list(st.session_state['watchlist'].keys()):
-            c1, c2 = st.columns([3,1])
-            c1.markdown(f"<span style='color:#ddd'>{name}</span>", unsafe_allow_html=True)
-            if c2.button("✕", key=f"del_{name}"):
-                del st.session_state['watchlist'][name]
-                save_json(DATA_FILE, st.session_state['watchlist']); st.rerun()
-                
-    st.divider()
-    if st.button("🗑️ 데이터 초기화"):
-        st.session_state['watchlist'] = {}
-        save_json(DATA_FILE, {})
-        st.rerun()
-
-st.title("🚀 QUANT SNIPER V8.5")
-st.caption(f"Automated High-Frequency Trading Dashboard | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-# [요청 1] 범례(Legend) 복구 - 깔끔하게 Expander로 처리
-with st.expander("📘 범례 및 용어 설명 (Legend)", expanded=False):
-    st.markdown("""
-    <table class='legend-table'>
-        <tr><td class='legend-header'>구분</td><td class='legend-header'>설명</td></tr>
-        <tr><td><b>AI SCORE</b></td><td><b>75점 이상:</b> 강력 매수 (Strong Buy) <br> <b>25점 이하:</b> 매도 권장 (Sell)</td></tr>
-        <tr><td><b>수급 (Supply)</b></td><td>외국인/기관이 최근 3일간 순매수하면 긍정적 시그널</td></tr>
-        <tr><td><b>RSI (14)</b></td><td>상대강도지수. <b>70 이상:</b> 과매수(비쌈), <b>30 이하:</b> 과매도(쌈)</td></tr>
-        <tr><td><b>이동평균선</b></td><td><b>20일선 위:</b> 상승 추세, <b>아래:</b> 하락 추세</td></tr>
-    </table>
-    """, unsafe_allow_html=True)
-
-# 매크로
-macro = get_global_macro()
-if macro:
-    col1, col2, col3, col4 = st.columns(4)
-    m_data = macro['data']
-    with col1:
-        st.markdown(f"<div class='macro-box'><div class='macro-label'>MARKET SCORE</div><div class='macro-val' style='color:{'#00E676' if macro['score']>=1 else '#FF5252'}'>{macro['score']}</div></div>", unsafe_allow_html=True)
-    with col2:
-        c_col = "text-up" if m_data['S&P500']['c'] > 0 else "text-down"
-        st.markdown(f"<div class='macro-box'><div class='macro-label'>🇺🇸 S&P 500</div><div class='macro-val {c_col}'>{m_data['S&P500']['c']:.2f}%</div></div>", unsafe_allow_html=True)
-    with col3:
-        c_col = "text-up" if m_data['USD/KRW']['c'] > 0 else "text-down"
-        st.markdown(f"<div class='macro-box'><div class='macro-label'>🇰🇷 USD/KRW</div><div class='macro-val {c_col}'>{format(m_data['USD/KRW']['p'], ',.0f')}</div></div>", unsafe_allow_html=True)
-    with col4:
-        c_col = "text-up" if m_data['WTI']['c'] > 0 else "text-down"
-        st.markdown(f"<div class='macro-box'><div class='macro-label'>🛢️ WTI CRUDE</div><div class='macro-val {c_col}'>${m_data['WTI']['p']:.1f}</div></div>", unsafe_allow_html=True)
-
-st.write("")
-tab1, tab2 = st.tabs(["📂 내 포트폴리오 (고속)", "🚀 AI 스나이퍼 발굴"])
-
-with tab1:
-    if not st.session_state['watchlist']: st.info("사이드바에서 종목을 추가하세요.")
-    else:
-        # [요청 2] 속도 최적화 (멀티스레딩)
-        with st.spinner("⚡ AI 엔진 가동 중... (Parallel Processing)"):
-            results = analyze_portfolio_parallel(st.session_state['watchlist'])
-        
-        for res in results:
-            card_html = create_card_html(res, get_sector_info(res['code']), is_recomm=False)
-            st.markdown(card_html, unsafe_allow_html=True)
-            
-            # [요청 3] 자동화 알림 로직 (중복 방지 강화)
-            if auto_mode and t_token and t_chat:
-                today = datetime.datetime.now().strftime("%Y%m%d")
-                price_fmt = format(res['price'], ',')
-                reasons_txt = "\n".join(res['checks'])
-                
-                # 매수 알림
-                if res['score'] >= 75:
-                    msg_key = f"{res['code']}_buy_{today}"
-                    if st.session_state['sent_alerts'].get(msg_key) != "sent":
-                        msg = f"🚀 [AI 매수 포착] {res['name']}\n가격: {price_fmt}원\n점수: {res['score']}점\n\n[이유]\n{reasons_txt}"
-                        if send_telegram_msg(t_token, t_chat, msg):
-                            st.session_state['sent_alerts'][msg_key] = "sent"
-                
-                # 매도 알림
-                elif res['score'] <= 25:
-                    msg_key = f"{res['code']}_sell_{today}"
-                    if st.session_state['sent_alerts'].get(msg_key) != "sent":
-                        msg = f"📉 [AI 매도 경고] {res['name']}\n가격: {price_fmt}원\n점수: {res['score']}점\n\n[이유]\n{reasons_txt}"
-                        if send_telegram_msg(t_token, t_chat, msg):
-                            st.session_state['sent_alerts'][msg_key] = "sent"
-
-with tab2:
-    if st.button("🔭 START SCANNING", use_container_width=True):
-        with st.spinner("⚡ 전체 시장 스캔 중..."):
-            recs = get_recommendations()
-        if not recs:
-            st.warning("조건을 만족하는 종목이 없습니다.")
-        else:
-            st.success(f"{len(recs)}개의 타겟 발견!")
-            for item in recs:
-                card_html = create_card_html(item, item['sector'], is_recomm=True)
-                st.markdown(card_html, unsafe_allow_html=True)
-
-# [요청 3] 자동화 기능 개선 (상태 표시 및 새로고침)
-if auto_mode:
-    st.markdown("---")
-    status_text = st.empty() # 상태바 자리 확보
-    status_text.markdown("⏳ **실시간 감시 중... (60초 후 자동 갱신)**")
-    time.sleep(60)
-    st.rerun()
