@@ -59,11 +59,16 @@ FILE_PATH = "my_watchlist_v7.json"
 @st.cache_data
 def get_krx_list():
     try: 
+        # KRX 전체 리스트 가져오기
         df = fdr.StockListing('KRX')
+        # 데이터가 비어있거나 컬럼이 없는 경우 방어 코드
         if df.empty: return pd.DataFrame()
+        
+        # Sector 컬럼이 없는 경우 대비 (최근 fdr 버전 이슈 대비)
         if 'Sector' not in df.columns:
             if 'Industry' in df.columns: df['Sector'] = df['Industry']
             else: df['Sector'] = '기타'
+            
         df['Sector'] = df['Sector'].fillna('기타')
         return df[['Code', 'Name', 'Sector']]
     except: 
@@ -154,7 +159,12 @@ def get_news_sentiment(code):
         url = f"https://finance.naver.com/item/news_news.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         resp = requests.get(url, headers=headers)
-        soup = BeautifulSoup(resp.content, "lxml") 
+        
+        # lxml이 없을 경우 대비
+        try:
+            soup = BeautifulSoup(resp.content, "lxml")
+        except:
+            soup = BeautifulSoup(resp.content, "html.parser")
         
         titles = soup.select(".title .tit")
         dates = soup.select(".date")
@@ -529,35 +539,98 @@ with tab1:
 
 with tab2:
     st.subheader("🔭 조건별 유망 종목 스캔")
-    st.caption("※ 뉴스 크롤링으로 인해 속도가 다소 느릴 수 있습니다. (최대 30개 분석)")
+    st.caption("※ 실전 투자에 맞춘 테마 및 섹터 분류로 유망 종목을 발굴합니다.")
     
-    scan_option = st.radio("스캔 방식을 선택하세요:", ["🏆 시가총액 상위 30위", "🏢 특정 섹터(업종)별 보기"], horizontal=True)
+    # [수정] 스캔 방식을 4가지 옵션으로 세분화
+    scan_option = st.radio(
+        "분석할 카테고리를 선택하세요:", 
+        ["🏆 시가총액 상위 30위 (시장주도주)", 
+         "1. 🏛️ 정책 및 시장 테마주", 
+         "2. 🏭 산업군별 완성업체 (대장주)", 
+         "3. 🔩 산업군별 소부장 (소재/부품/장비)"], 
+        horizontal=False
+    )
+
     target_df = pd.DataFrame()
     
-    if not krx_df.empty:
-        if scan_option == "🏆 시가총액 상위 30위":
-            st.caption("한국 주식 시장에서 가장 규모가 큰 우량주 30개를 정밀 분석합니다.")
-            target_df = krx_df.head(30)
-        elif scan_option == "🏢 특정 섹터(업종)별 보기":
-            try:
-                sectors = sorted(krx_df['Sector'].dropna().unique().tolist())
-                selected_sector = st.selectbox("분석할 섹터를 선택해주세요:", sectors)
-                if selected_sector:
-                    target_df = krx_df[krx_df['Sector'] == selected_sector]
-            except Exception as e:
-                st.error(f"섹터 정보를 불러오는 중 오류가 발생했습니다: {e}")
+    if krx_df.empty:
+        st.warning("시장 데이터를 불러오는 중입니다. 잠시만 기다려주세요.")
     else:
-        st.warning("시장 데이터를 불러오지 못했습니다. 잠시 후 다시 시도하거나 requirements.txt를 확인해주세요.")
+        # 1. 시가총액 상위 30위
+        if "시가총액 상위" in scan_option:
+            st.info("💡 한국 주식 시장을 이끄는 최상위 우량주 30개를 분석합니다.")
+            target_df = krx_df.head(30)
+            
+        # 2. 정책 및 시장 테마주 (이름 기반 검색)
+        elif "정책 및 시장 테마주" in scan_option:
+            themes = {
+                "🤖 AI & 로봇": ["로봇", "AI", "인공지능", "레인보우", "두산로보틱스"],
+                "🔋 2차전지 & 전기차": ["에코프로", "엘앤에프", "LG에너지", "포스코퓨처", "삼성SDI", "천보"],
+                "🚀 방산 & 우주항공": ["한화에어로", "LIG넥스원", "한국항공우주", "현대로템", "쎄트렉아이"],
+                "🧬 비만치료제 & 바이오": ["한미약품", "페트론", "인벤티지랩", "알테오젠", "HLB"],
+                "☢️ 원전 & 전력설비": ["두산에너빌리티", "한전기술", "LS ELECTRIC", "효성중공업", "일진전기"],
+                "🪙 STO & 가상자산": ["서울옥션", "케이옥션", "갤럭시", "위메이드"]
+            }
+            selected_theme = st.selectbox("관심있는 테마를 선택하세요:", list(themes.keys()))
+            
+            if selected_theme:
+                keywords = themes[selected_theme]
+                # 종목명에 키워드가 포함된 종목 필터링
+                mask = krx_df['Name'].str.contains('|'.join(keywords), case=False, na=False)
+                target_df = krx_df[mask]
+                st.write(f"🔍 '{selected_theme}' 관련 종목 {len(target_df)}개를 찾았습니다.")
+
+        # 3. 산업군별 완성업체 (대장주)
+        elif "산업군별 완성업체" in scan_option:
+            # 주요 산업의 대장주급(시총 상위)만 필터링하는 로직
+            industries = {
+                "반도체/IT 완성": ["삼성전자", "SK하이닉스", "LG전자", "삼성전기", "LG디스플레이"],
+                "자동차 완성차": ["현대차", "기아", "KG모빌리티"],
+                "제약/바이오 대장": ["삼성바이오로직스", "셀트리온", "유한양행", "SK바이오팜"],
+                "인터넷/게임 플랫폼": ["NAVER", "카카오", "크래프톤", "엔씨소프트", "넷마블"],
+                "조선/중공업": ["HD현대중공업", "삼성중공업", "한화오션", "한국조선해양"]
+            }
+            selected_ind = st.selectbox("산업군을 선택하세요:", list(industries.keys()))
+            
+            if selected_ind:
+                target_names = industries[selected_ind]
+                target_df = krx_df[krx_df['Name'].isin(target_names)]
+                st.write(f"🏭 {selected_ind} 대표 기업 {len(target_df)}개를 분석합니다.")
+
+        # 4. 소부장 (업종 기반 필터링)
+        elif "산업군별 소부장" in scan_option:
+            sobujang_sectors = {
+                "반도체 소부장": ["반도체 제조", "기계", "장비"],
+                "2차전지 소재/부품": ["화학", "전자부품"],
+                "디스플레이/IT부품": ["전자부품", "광학"],
+                "자동차 부품": ["자동차신품부품"]
+            }
+            selected_sub = st.selectbox("소부장 섹터를 선택하세요:", list(sobujang_sectors.keys()))
+            
+            if selected_sub:
+                clean_df = krx_df.dropna(subset=['Sector'])
+                if "반도체" in selected_sub:
+                     mask = clean_df['Sector'].str.contains('반도체|기계|장비', na=False) | clean_df['Name'].str.contains('반도체|테크|머티리얼', na=False)
+                elif "2차전지" in selected_sub:
+                     mask = clean_df['Sector'].str.contains('화학|전기제품', na=False) | clean_df['Name'].str.contains('에코프로|엘앤에프|코스모', na=False)
+                elif "자동차" in selected_sub:
+                     mask = clean_df['Sector'].str.contains('자동차', na=False) & ~clean_df['Name'].isin(['현대차', '기아'])
+                else:
+                     mask = clean_df['Sector'].str.contains('부품|장비|기계', na=False)
+
+                target_df = clean_df[mask].head(30)
+                st.write(f"🔩 {selected_sub} 관련 유망 종목(최대 30개)을 스캔합니다.")
 
     if st.button("🚀 AI 스캔 시작", use_container_width=True):
         if target_df.empty:
-            st.warning("분석할 종목이 없습니다.")
+            st.warning("분석할 종목을 찾지 못했습니다. 다른 카테고리를 선택해주세요.")
         else:
-            with st.spinner(f"AI가 {len(target_df.head(30))}개 종목을 정밀 분석 중입니다..."): 
-                recs = get_recommendations(target_df)
+            with st.spinner(f"AI가 선별된 {len(target_df)}개 기업을 정밀 분석 중입니다..."): 
+                final_targets = target_df.head(20)
+                recs = get_recommendations(final_targets)
             
             if not recs: 
-                st.warning("조건에 맞는 매수 추천(75점 이상) 종목을 찾지 못했습니다.")
+                st.warning("조건에 맞는 매수 추천(75점 이상) 종목을 찾지 못했습니다. 관망이 필요할 수 있습니다.")
             else:
                 st.success(f"💎 {len(recs)}개의 유망 종목을 발견했습니다!")
                 for item in recs:
