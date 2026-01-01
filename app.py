@@ -10,7 +10,7 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V11.2", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V11.3", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -34,12 +34,10 @@ st.markdown("""
     .stock-name { font-size: 22px; font-weight: 700; color: #FFFFFF; }
     .stock-code { font-size: 14px; color: #888; margin-left: 8px; font-weight: 400; }
     
-    /* 매크로 박스 스타일 개선 */
     .macro-box { background: #1A1C24; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333; height: 100%; }
     .macro-label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 8px; font-weight: bold; }
     .macro-val { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 8px; }
     
-    /* 상태 뱃지 스타일 */
     .status-badge { font-size: 12px; font-weight: bold; padding: 4px 8px; border-radius: 6px; display: inline-block; width: 100%; }
     .status-good { background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid rgba(0, 230, 118, 0.3); }
     .status-bad { background-color: rgba(255, 82, 82, 0.15); color: #FF5252; border: 1px solid rgba(255, 82, 82, 0.3); }
@@ -325,7 +323,7 @@ with st.sidebar:
         save_json(DATA_FILE, {})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V11.2")
+st.title("🚀 QUANT SNIPER V11.3")
 st.caption(f"Visualized Market Intelligence | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 legend_html = """<table class='legend-table'><tr><td colspan="2" class='legend-header'>🌍 글로벌 시장 지표 (상단 5개 박스)</td></tr><tr><td class='legend-title'>MARKET SCORE</td><td>시장 종합 점수. <br><b>+1 이상:</b> 투자 적기 (Risk On) / <b>-1 이하:</b> 보수적 대응 필요 (Risk Off)</td></tr><tr><td class='legend-title' style='color:#FF5252;'>VIX (공포지수)</td><td>월가 공포 지수. <b>20 이상:</b> 공포(하락장), <b>15 이하:</b> 안정(상승장).</td></tr><tr><td class='legend-title'>US 10Y</td><td>미국채 10년물 금리. 급등 시 주식 시장에 악재.</td></tr><tr><td colspan="2" class='legend-header' style='padding-top:15px;'>📊 정밀 진단 지표</td></tr><tr><td class='legend-title'>볼린저 밴드</td><td><b>하단 터치:</b> 과매도(매수 기회), <b>상단 돌파:</b> 과열(매도 검토).</td></tr><tr><td class='legend-title'>AI SCORE</td><td><b>75점 이상:</b> 강력 매수 / <b>25점 이하:</b> 매도 권장.</td></tr></table>"""
@@ -364,7 +362,7 @@ if macro:
 
     # 4. WTI
     wti_chg = m_data['WTI']['c']
-    if wti_chg > 0: wt_state = "🔥 상승 (비용증가)"; wt_cls = "status-bad"; wt_col = "text-down" # 유가 상승은 보통 주식에 악재
+    if wti_chg > 0: wt_state = "🔥 상승 (비용증가)"; wt_cls = "status-bad"; wt_col = "text-down" 
     else: wt_state = "💧 하락 (비용감소)"; wt_cls = "status-good"; wt_col = "text-up"
     with col4:
         st.markdown(f"<div class='macro-box'><div class='macro-label'>🛢️ WTI CRUDE</div><div class='macro-val {wt_col}'>${m_data['WTI']['p']:.1f}</div><div class='status-badge {wt_cls}'>{wt_state}</div></div>", unsafe_allow_html=True)
@@ -390,10 +388,57 @@ with tab1:
             card_html = create_card_html(res, get_sector_info(res['code']), is_recomm=False)
             st.markdown(card_html, unsafe_allow_html=True)
             
-            # [자동매매 시그널 알림]
+            # [자동매매 시그널 알림 - 에러 수정된 부분]
             if auto_mode and t_token and t_chat:
                 today = datetime.datetime.now().strftime("%Y%m%d")
                 price_fmt = format(res['price'], ',')
                 reasons_txt = "\n".join(res['checks'])
                 
-                if res['score'] >=
+                # 여기 숫자가 빠졌던 부분을 확실히 복구했습니다!
+                if res['score'] >= 75:
+                    msg_key = f"{res['code']}_buy_{today}"
+                    if st.session_state['sent_alerts'].get(msg_key) != "sent":
+                        msg = f"🚀 [AI 매수 포착] {res['name']}\n가격: {price_fmt}원\n점수: {res['score']}점\n\n[이유]\n{reasons_txt}"
+                        if send_telegram_msg(t_token, t_chat, msg): st.session_state['sent_alerts'][msg_key] = "sent"
+                elif res['score'] <= 25:
+                    msg_key = f"{res['code']}_sell_{today}"
+                    if st.session_state['sent_alerts'].get(msg_key) != "sent":
+                        msg = f"📉 [AI 매도 경고] {res['name']}\n가격: {price_fmt}원\n점수: {res['score']}점\n\n[이유]\n{reasons_txt}"
+                        if send_telegram_msg(t_token, t_chat, msg): st.session_state['sent_alerts'][msg_key] = "sent"
+
+with tab2:
+    if st.button("🔭 START SCANNING", use_container_width=True):
+        with st.spinner("⚡ 전체 시장 스캔 중..."):
+            recs = get_recommendations()
+        if not recs:
+            st.warning("조건을 만족하는 종목이 없습니다.")
+        else:
+            st.success(f"{len(recs)}개의 타겟 발견!")
+            for item in recs:
+                card_html = create_card_html(item, item['sector'], is_recomm=True)
+                st.markdown(card_html, unsafe_allow_html=True)
+
+# [루틴 알림]
+if auto_mode and t_token and t_chat:
+    now = datetime.datetime.now()
+    today_str = now.strftime("%Y%m%d")
+    
+    if 8 <= now.hour < 9 and now.minute >= 50:
+        if st.session_state['routine_flags'].get(f"market_{today_str}") != "sent":
+            m_score = macro['score']
+            msg = f"🌅 [장전 시황 브리핑]\n\n📊 Market Score: {m_score}\n🇺🇸 S&P500: {macro['data']['S&P500']['c']:.2f}%\n😱 VIX: {macro['data']['VIX']['p']:.2f}\n"
+            if send_telegram_msg(t_token, t_chat, msg): st.session_state['routine_flags'][f"market_{today_str}"] = "sent"
+    
+    if now.hour == 14 and 30 <= now.minute <= 40:
+        if st.session_state['routine_flags'].get(f"sniper_{today_str}") != "sent":
+            recs = get_recommendations()
+            if recs:
+                msg = f"☕ [마감 전 AI 추천주]\n{recs[0]['name']}"
+                if send_telegram_msg(t_token, t_chat, msg): st.session_state['routine_flags'][f"sniper_{today_str}"] = "sent"
+
+if auto_mode:
+    st.markdown("---")
+    status_text = st.empty()
+    status_text.markdown(f"⏳ **AI 비서 가동 중... (PC가 켜져있을 때만 작동합니다)**")
+    time.sleep(60)
+    st.rerun()
