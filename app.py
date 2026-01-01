@@ -11,39 +11,54 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V13.3", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V14.0", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #0E1117; color: #F0F2F6; font-family: 'Pretendard', sans-serif; }
-    .glass-card { background: rgba(38, 39, 48, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 24px; margin-bottom: 20px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3); }
+    
+    /* 카드 스타일 */
+    .glass-card { background: rgba(38, 39, 48, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 24px; margin-bottom: 10px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3); }
     .border-buy { border-left: 5px solid #00E676 !important; }
     .border-sell { border-left: 5px solid #FF5252 !important; }
+    
     .text-up { color: #00E676; }
     .text-down { color: #FF5252; }
     .text-gray { color: #888; }
     .big-price { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
     .stock-name { font-size: 22px; font-weight: 700; color: #FFFFFF; }
     .stock-code { font-size: 14px; color: #888; margin-left: 8px; font-weight: 400; }
+    
     .macro-box { background: #1A1C24; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333; height: 100%; }
     .macro-label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 8px; font-weight: bold; }
     .macro-val { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 8px; }
+    
     .status-badge { font-size: 12px; font-weight: bold; padding: 4px 8px; border-radius: 6px; display: inline-block; width: 100%; }
     .status-good { background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid rgba(0, 230, 118, 0.3); }
     .status-bad { background-color: rgba(255, 82, 82, 0.15); color: #FF5252; border: 1px solid rgba(255, 82, 82, 0.3); }
     .status-neutral { background-color: rgba(136, 136, 136, 0.15); color: #aaa; border: 1px solid rgba(136, 136, 136, 0.3); }
+    
     .check-item { font-size: 13px; margin-bottom: 4px; display: flex; align-items: center; color: #ddd; }
     .score-bg { background: #333; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 8px; }
     .score-fill { height: 100%; border-radius: 3px; }
     .strategy-badge { font-size: 14px; font-weight: bold; padding: 6px 12px; border-radius: 8px; display: inline-block; margin-top: 5px; text-align: center; width: 100%; }
+    
+    /* RSI 게이지 스타일 */
+    .rsi-container { width: 100%; background-color: #333; height: 8px; border-radius: 4px; margin-top: 5px; overflow: hidden; }
+    .rsi-bar { height: 100%; border-radius: 4px; }
+    
     .streamlit-expanderContent { background-color: #1A1C24 !important; color: #F0F2F6 !important; border-radius: 10px; }
+    
+    /* 범례 테이블 */
     .legend-table { width: 100%; font-size: 14px; border-collapse: collapse; margin-top: 5px; }
     .legend-table td { padding: 12px; border-bottom: 1px solid #444; color: #ddd; vertical-align: middle; line-height: 1.5; }
     .legend-header { font-weight: bold; color: #FFD700; background-color: #262730; text-align: center; padding: 10px; border-radius: 5px; }
     .legend-title { font-weight: bold; color: #fff; width: 150px; background-color: #222; padding-left: 10px; border-radius: 4px; }
+    
     .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; display: inline-block; margin-right: 5px; }
     .badge-sector { background: #333; color: #ccc; border: 1px solid #444; }
     .badge-buy { background: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
+    
     div.stButton > button { width: 100%; border-radius: 10px; font-weight: bold; border: 1px solid #444; background: #1E222D; color: white; }
     div.stButton > button:hover { border-color: #00E676; color: #00E676; }
 </style>
@@ -74,7 +89,6 @@ def get_sector_info(code):
         return "기타"
 
 def load_local_json():
-    # [수정] 줄바꿈을 넣어 문법 오류 방지
     if os.path.exists(FILE_PATH):
         try:
             with open(FILE_PATH, "r", encoding="utf-8") as f:
@@ -157,35 +171,18 @@ def create_card_html(item, sector, is_recomm=False):
     
     score = item['score']
     
-    # 테두리, 색상, 뱃지 설정
+    # 뱃지 및 색상 설정
     if score >= 75:
-        border_cls = "border-buy"
-        score_color = "#00E676"
-        p_color = "text-up"
-        badge_text = "🚀 강력 매수"
-        badge_bg = "rgba(0, 230, 118, 0.2)"
-        badge_border = "#00E676"
-        badge_font = "#00E676"
+        border_cls = "border-buy"; score_color = "#00E676"; p_color = "text-up"
+        badge_text = "🚀 강력 매수"; badge_bg = "rgba(0, 230, 118, 0.2)"; badge_border = "#00E676"; badge_font = "#00E676"
     elif score <= 25:
-        border_cls = "border-sell"
-        score_color = "#FF5252"
-        p_color = "text-down"
-        badge_text = "📉 매도 권장"
-        badge_bg = "rgba(255, 82, 82, 0.2)"
-        badge_border = "#FF5252"
-        badge_font = "#FF5252"
+        border_cls = "border-sell"; score_color = "#FF5252"; p_color = "text-down"
+        badge_text = "📉 매도 권장"; badge_bg = "rgba(255, 82, 82, 0.2)"; badge_border = "#FF5252"; badge_font = "#FF5252"
     else:
-        border_cls = ""
-        score_color = "#FFD700"
-        p_color = "text-gray"
-        badge_text = "👀 관망 (중립)"
-        badge_bg = "rgba(255, 215, 0, 0.15)"
-        badge_border = "#FFD700"
-        badge_font = "#FFD700"
+        border_cls = ""; score_color = "#FFD700"; p_color = "text-gray"
+        badge_text = "👀 관망 (중립)"; badge_bg = "rgba(255, 215, 0, 0.15)"; badge_border = "#FFD700"; badge_font = "#FFD700"
     
-    if is_recomm: 
-        border_cls = "border-buy"
-        p_color = "text-up"
+    if is_recomm: border_cls = "border-buy"; p_color = "text-up"
     
     checks_html = "".join([f"<div class='check-item'>{c}</div>" for c in item['checks']])
     
@@ -198,6 +195,24 @@ def create_card_html(item, sector, is_recomm=False):
     sector_badge = f"<span class='badge badge-sector'>{sector}</span>"
     if is_recomm: sector_badge = "<span class='badge badge-buy'>STRONG BUY</span>" + sector_badge
     
+    # [NEW] RSI 시각화 (게이지 바)
+    rsi_val = item['rsi']
+    rsi_width = min(max(rsi_val, 0), 100)
+    # RSI 색상: 30이하(침체,좋음) -> 파랑, 70이상(과열,나쁨) -> 빨강
+    if rsi_val <= 30: rsi_color = "#00E676" # Green/Blueish (Buy signal)
+    elif rsi_val >= 70: rsi_color = "#FF5252" # Red (Sell signal)
+    else: rsi_color = "#888888" # Gray
+    
+    rsi_html = f"""
+    <div style='display:flex; justify-content:space-between; font-size:12px; margin-top:5px; color:#ddd;'>
+        <span>RSI (14)</span>
+        <span style='color:{rsi_color}; font-weight:bold;'>{rsi_val:.1f}</span>
+    </div>
+    <div class='rsi-container'>
+        <div class='rsi-bar' style='width:{rsi_width}%; background-color:{rsi_color};'></div>
+    </div>
+    """
+
     html = f"""
     <div class='glass-card {border_cls}'>
         <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
@@ -218,6 +233,7 @@ def create_card_html(item, sector, is_recomm=False):
             </div>
         </div>
         <div class='score-bg' style='margin-top:10px; margin-bottom:15px;'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>
+        
         <div class='analysis-grid'>
             <div>
                 <div style='color:#888; font-size:12px; margin-bottom:5px;'>CHECK POINTS</div>
@@ -227,8 +243,8 @@ def create_card_html(item, sector, is_recomm=False):
                 <div style='color:#888; font-size:12px; margin-bottom:5px;'>SUPPLY & TECH</div>
                 <div class='check-item'>외국인: <span style='margin-left:auto; color:{supply_f_col}'>{supply_f}</span></div>
                 <div class='check-item'>기관: <span style='margin-left:auto; color:{supply_i_col}'>{supply_i}</span></div>
-                <div class='check-item'>RSI (14): <span style='margin-left:auto;'>{item['rsi']:.1f}</span></div>
-                <div class='check-item'>볼린저: <span style='margin-left:auto;'>{item['bb_status']}</span></div>
+                {rsi_html}
+                <div class='check-item' style='margin-top:5px;'>볼린저: <span style='margin-left:auto;'>{item['bb_status']}</span></div>
             </div>
         </div>
     </div>
@@ -271,28 +287,40 @@ def get_supply_demand(code):
 def analyze_precision(code, name_override=None):
     try:
         sup = get_supply_demand(code)
+        # 차트용 데이터 확보를 위해 history 저장
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=120))
         if df.empty: return None
-        curr = df.iloc[-1]
-        ma20 = df['Close'].rolling(20).mean().iloc[-1]
-        std = df['Close'].rolling(20).std().iloc[-1]
-        upper = ma20 + (std*2); lower = ma20 - (std*2)
+        
+        # 지표 계산
+        df['MA20'] = df['Close'].rolling(20).mean()
+        df['Std'] = df['Close'].rolling(20).std()
+        df['Upper'] = df['MA20'] + (df['Std'] * 2)
+        df['Lower'] = df['MA20'] - (df['Std'] * 2)
+        
         delta = df['Close'].diff(1)
-        rsi = 100 - (100/(1 + (delta.where(delta>0,0).rolling(14).mean().iloc[-1] / -delta.where(delta<0,0).rolling(14).mean().iloc[-1])))
+        rsi = 100 - (100/(1 + (delta.where(delta>0,0).rolling(14).mean() / -delta.where(delta<0,0).rolling(14).mean())))
+        df['RSI'] = rsi # DataFrame에 RSI 저장
+        
+        curr = df.iloc[-1]
         
         checks = []; pass_cnt = 0
         if sup['f']>0 or sup['i']>0: checks.append("✅ 메이저 수급 유입"); pass_cnt+=1
         else: checks.append("❌ 수급 이탈")
-        if curr['Close']>=ma20: checks.append("✅ 20일선 위"); pass_cnt+=1
+        if curr['Close']>=curr['MA20']: checks.append("✅ 20일선 위"); pass_cnt+=1
         else: checks.append("❌ 추세 하락세")
         bb_status = "중립"
-        if curr['Close']<=lower*1.02: checks.append("✅ 볼린저 하단(기회)"); pass_cnt+=1; bb_status = "하단 지지"
-        elif curr['Close']>=upper*0.98: checks.append("⚠️ 볼린저 상단(과열)"); pass_cnt-=0.5; bb_status = "상단 저항"
+        if curr['Close']<=curr['Lower']*1.02: checks.append("✅ 볼린저 하단(기회)"); pass_cnt+=1; bb_status = "하단 지지"
+        elif curr['Close']>=curr['Upper']*0.98: checks.append("⚠️ 볼린저 상단(과열)"); pass_cnt-=0.5; bb_status = "상단 저항"
         else: checks.append("✅ 밴드 내"); pass_cnt+=0.5; bb_status = "밴드 내"
-        if rsi<=70: checks.append("✅ RSI 안정"); pass_cnt+=1
+        if curr['RSI']<=70: checks.append("✅ RSI 안정"); pass_cnt+=1
         else: checks.append("❌ RSI 과열")
         
-        return {"name": name_override, "code": code, "price": curr['Close'], "checks": checks, "pass": pass_cnt, "score": min(pass_cnt*25, 100), "supply": sup, "rsi": rsi, "bb_status": bb_status}
+        return {
+            "name": name_override, "code": code, "price": curr['Close'], 
+            "checks": checks, "pass": pass_cnt, "score": min(pass_cnt*25, 100), 
+            "supply": sup, "rsi": curr['RSI'], "bb_status": bb_status,
+            "history": df # 차트 그리기를 위해 전체 데이터 반환
+        }
     except: return None
 
 def analyze_portfolio_parallel(watchlist):
@@ -365,7 +393,7 @@ with st.sidebar:
         save_to_github({})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V13.3")
+st.title("🚀 QUANT SNIPER V14.0")
 st.caption(f"Fully Automated AI System | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 with st.expander("📘 범례 및 용어 설명 (모든 지표 포함)", expanded=False):
@@ -409,6 +437,12 @@ with tab1:
         with st.spinner("⚡ AI 엔진 가동 중..."): results = analyze_portfolio_parallel(st.session_state['watchlist'])
         for res in results:
             st.markdown(create_card_html(res, get_sector_info(res['code']), False), unsafe_allow_html=True)
+            
+            # [NEW] 볼린저 밴드 차트 열기
+            with st.expander(f"📊 {res['name']} 상세 차트 보기 (클릭)"):
+                chart_df = res['history'][['Close', 'Upper', 'Lower']].tail(60) # 최근 60일 데이터
+                st.line_chart(chart_df, color=["#FFFFFF", "#FF5252", "#00E676"]) # 주가(흰색), 상단(빨강), 하단(초록)
+            
             if auto_mode:
                 today = datetime.datetime.now().strftime("%Y%m%d")
                 msg_key = f"{res['code']}_{today}"
@@ -425,7 +459,11 @@ with tab2:
         if not recs: st.warning("조건을 만족하는 종목이 없습니다.")
         else:
             st.success(f"{len(recs)}개의 타겟 발견!")
-            for item in recs: st.markdown(create_card_html(item, item['sector'], True), unsafe_allow_html=True)
+            for item in recs:
+                st.markdown(create_card_html(item, item['sector'], True), unsafe_allow_html=True)
+                with st.expander(f"📊 {item['name']} 상세 차트 보기"):
+                    chart_df = item['history'][['Close', 'Upper', 'Lower']].tail(60)
+                    st.line_chart(chart_df, color=["#FFFFFF", "#FF5252", "#00E676"])
 
 if auto_mode:
     st.markdown("---")
