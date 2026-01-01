@@ -10,7 +10,7 @@ from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V11.0", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V11.1", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -284,7 +284,6 @@ with st.sidebar:
             if send_telegram_msg(t_token, t_chat, "🚀 [SYSTEM] 알림 봇 연결 확인 완료"): st.success("성공")
             else: st.error("실패")
 
-    # 자동 모드 체크박스 (GitHub Actions를 쓰더라도 화면 켜둘 때 유용함)
     auto_mode = st.checkbox("🔴 실시간 자동 감시 및 루틴 알림", value=False)
     
     st.divider()
@@ -315,21 +314,12 @@ with st.sidebar:
         save_json(DATA_FILE, {})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V11.0")
+st.title("🚀 QUANT SNIPER V11.1")
 st.caption(f"Full-Stack Market Analysis System | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-legend_html = """
-<table class='legend-table'>
-    <tr><td colspan="2" class='legend-header'>🌍 글로벌 시장 지표 (상단 5개 박스)</td></tr>
-    <tr><td class='legend-title'>MARKET SCORE</td><td>시장 종합 점수. <br><b>+1 이상:</b> 투자 적기 (Risk On) / <b>-1 이하:</b> 보수적 대응 필요 (Risk Off)</td></tr>
-    <tr><td class='legend-title' style='color:#FF5252;'>VIX (공포지수)</td><td>월가 공포 지수. <b>20 이상:</b> 공포(하락장), <b>15 이하:</b> 안정(상승장).</td></tr>
-    <tr><td class='legend-title'>US 10Y</td><td>미국채 10년물 금리. 급등 시 주식 시장에 악재.</td></tr>
-    
-    <tr><td colspan="2" class='legend-header' style='padding-top:15px;'>📊 정밀 진단 지표</td></tr>
-    <tr><td class='legend-title'>볼린저 밴드</td><td><b>하단 터치:</b> 과매도(매수 기회), <b>상단 돌파:</b> 과열(매도 검토).</td></tr>
-    <tr><td class='legend-title'>AI SCORE</td><td><b>75점 이상:</b> 강력 매수 / <b>25점 이하:</b> 매도 권장.</td></tr>
-</table>
-"""
+# [범례: 줄바꿈 오류 수정 버전]
+legend_html = """<table class='legend-table'><tr><td colspan="2" class='legend-header'>🌍 글로벌 시장 지표 (상단 5개 박스)</td></tr><tr><td class='legend-title'>MARKET SCORE</td><td>시장 종합 점수. <br><b>+1 이상:</b> 투자 적기 (Risk On) / <b>-1 이하:</b> 보수적 대응 필요 (Risk Off)</td></tr><tr><td class='legend-title' style='color:#FF5252;'>VIX (공포지수)</td><td>월가 공포 지수. <b>20 이상:</b> 공포(하락장), <b>15 이하:</b> 안정(상승장).</td></tr><tr><td class='legend-title'>US 10Y</td><td>미국채 10년물 금리. 급등 시 주식 시장에 악재.</td></tr><tr><td colspan="2" class='legend-header' style='padding-top:15px;'>📊 정밀 진단 지표</td></tr><tr><td class='legend-title'>볼린저 밴드</td><td><b>하단 터치:</b> 과매도(매수 기회), <b>상단 돌파:</b> 과열(매도 검토).</td></tr><tr><td class='legend-title'>AI SCORE</td><td><b>75점 이상:</b> 강력 매수 / <b>25점 이하:</b> 매도 권장.</td></tr></table>"""
+
 with st.expander("📘 범례 및 용어 설명 (여기를 눌러 확인하세요)", expanded=False):
     st.markdown(legend_html, unsafe_allow_html=True)
 
@@ -366,7 +356,7 @@ with tab1:
             card_html = create_card_html(res, get_sector_info(res['code']), is_recomm=False)
             st.markdown(card_html, unsafe_allow_html=True)
             
-            # [화면이 켜져있을 때 알림 로직]
+            # [자동매매 시그널 알림]
             if auto_mode and t_token and t_chat:
                 today = datetime.datetime.now().strftime("%Y%m%d")
                 price_fmt = format(res['price'], ',')
@@ -395,19 +385,17 @@ with tab2:
                 card_html = create_card_html(item, item['sector'], is_recomm=True)
                 st.markdown(card_html, unsafe_allow_html=True)
 
-# [NEW] 루틴별 자동 알림 시스템 (화면이 켜져있을 때만 작동하는 백업용 루틴)
+# [루틴 알림 (백업용)]
 if auto_mode and t_token and t_chat:
     now = datetime.datetime.now()
     today_str = now.strftime("%Y%m%d")
     
-    # 1. 아침 시황 브리핑 (08:50 ~ 08:59 사이)
     if 8 <= now.hour < 9 and now.minute >= 50:
         if st.session_state['routine_flags'].get(f"market_{today_str}") != "sent":
             m_score = macro['score']
             msg = f"🌅 [장전 시황 브리핑]\n\n📊 Market Score: {m_score}\n🇺🇸 S&P500: {macro['data']['S&P500']['c']:.2f}%\n😱 VIX: {macro['data']['VIX']['p']:.2f}\n"
             if send_telegram_msg(t_token, t_chat, msg): st.session_state['routine_flags'][f"market_{today_str}"] = "sent"
     
-    # 2. 오후 추천 (14:30 ~ 14:40 사이)
     if now.hour == 14 and 30 <= now.minute <= 40:
         if st.session_state['routine_flags'].get(f"sniper_{today_str}") != "sent":
             recs = get_recommendations()
