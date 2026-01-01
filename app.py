@@ -10,15 +10,12 @@ import os
 import time
 from pykrx import stock
 
-# --- [1. 설정 및 고급 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V7", page_icon="⚡", layout="wide")
+# --- [1. 설정 및 UI 스타일링] ---
+st.set_page_config(page_title="Pro Quant V7.3", page_icon="⚡", layout="wide")
 
 st.markdown("""
 <style>
-    /* 전체 배경: 모던 다크 그레이 */
     .stApp { background-color: #0E1117; color: #F0F2F6; font-family: 'Pretendard', sans-serif; }
-    
-    /* 카드 디자인: 글래스모피즘 (반투명 + 블러) */
     .glass-card {
         background: rgba(38, 39, 48, 0.6);
         backdrop-filter: blur(10px);
@@ -28,54 +25,26 @@ st.markdown("""
         padding: 24px;
         margin-bottom: 20px;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-        transition: transform 0.2s ease-in-out;
     }
-    .glass-card:hover { transform: translateY(-3px); border-color: rgba(255, 255, 255, 0.2); }
-    
-    /* 매수/매도 강조 테두리 */
     .border-buy { border-left: 5px solid #00E676 !important; }
     .border-sell { border-left: 5px solid #FF5252 !important; }
-    
-    /* 텍스트 스타일 */
     .big-price { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
     .stock-name { font-size: 22px; font-weight: 700; color: #FFFFFF; }
     .stock-code { font-size: 14px; color: #888; margin-left: 8px; font-weight: 400; }
-    
-    /* 색상 유틸리티 */
-    .text-up { color: #00E676; }   /* 형광 초록 */
-    .text-down { color: #FF5252; } /* 형광 빨강 */
+    .text-up { color: #00E676; }
+    .text-down { color: #FF5252; }
     .text-gray { color: #888; }
-    
-    /* 뱃지 스타일 */
-    .badge {
-        padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; display: inline-block; margin-right: 5px;
-    }
+    .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; display: inline-block; margin-right: 5px; }
     .badge-sector { background: #333; color: #ccc; border: 1px solid #444; }
     .badge-buy { background: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
-    .badge-sell { background: rgba(255, 82, 82, 0.2); color: #FF5252; border: 1px solid #FF5252; }
-    
-    /* 매크로 지표 박스 */
-    .macro-box {
-        background: #1A1C24; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333;
-    }
+    .macro-box { background: #1A1C24; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333; }
     .macro-label { font-size: 12px; color: #888; text-transform: uppercase; margin-bottom: 5px; }
     .macro-val { font-size: 20px; font-weight: 700; color: #fff; }
-    
-    /* 점수 게이지 바 */
+    .analysis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px; }
+    .check-item { font-size: 13px; margin-bottom: 4px; display: flex; align-items: center; color: #ddd; }
     .score-bg { background: #333; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 8px; }
     .score-fill { height: 100%; border-radius: 3px; }
-    
-    /* 분석 박스 */
-    .analysis-grid {
-        display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px;
-        background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px;
-    }
-    .check-item { font-size: 13px; margin-bottom: 4px; display: flex; align-items: center; }
-    
-    /* 버튼 커스텀 */
-    div.stButton > button {
-        width: 100%; border-radius: 10px; font-weight: bold; border: 1px solid #444; background: #1E222D; color: white;
-    }
+    div.stButton > button { width: 100%; border-radius: 10px; font-weight: bold; border: 1px solid #444; background: #1E222D; color: white; }
     div.stButton > button:hover { border-color: #00E676; color: #00E676; }
 </style>
 """, unsafe_allow_html=True)
@@ -103,8 +72,16 @@ def save_json(file, data):
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_json(DATA_FILE)
 settings = load_json(SETTINGS_FILE)
+if 'sent_alerts' not in st.session_state: st.session_state['sent_alerts'] = {}
 
-# --- [3. 분석 로직 (V6 스나이퍼 로직 유지)] ---
+def send_telegram_msg(token, chat_id, message):
+    try:
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        requests.get(url, params={"chat_id": chat_id, "text": message})
+        return True
+    except: return False
+
+# --- [3. 분석 로직] ---
 @st.cache_data(ttl=3600)
 def get_global_macro():
     try:
@@ -143,38 +120,31 @@ def analyze_precision(code):
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=120))
         if df.empty: return None
         
-        # 지표 계산
         df['MA20'] = df['Close'].rolling(20).mean()
         delta = df['Close'].diff(1)
         rsi = 100 - (100/(1 + (delta.where(delta>0,0).rolling(14).mean() / -delta.where(delta<0,0).rolling(14).mean())))
-        exp12 = df['Close'].ewm(span=12, adjust=False).mean()
-        exp26 = df['Close'].ewm(span=26, adjust=False).mean()
-        macd = exp12 - exp26
-        signal = macd.ewm(span=9, adjust=False).mean()
-        
         curr = df.iloc[-1]
         
         checks = []
         pass_cnt = 0
         
-        # 4중 필터
         if sup['f'] > 0 or sup['i'] > 0: checks.append("✅ 메이저 수급 유입"); pass_cnt+=1
         else: checks.append("❌ 수급 이탈");
         
         if curr['Close'] >= curr['MA20']: checks.append("✅ 20일선 위 상승추세"); pass_cnt+=1
         else: checks.append("❌ 추세 하락세");
         
-        if curr['Close'] <= df['MA20'].iloc[-1] * 1.15: checks.append("✅ 가격 부담 없음"); pass_cnt+=1 # 이격도 체크로 변경
+        if curr['Close'] <= df['MA20'].iloc[-1] * 1.15: checks.append("✅ 가격 부담 없음"); pass_cnt+=1
         else: checks.append("❌ 단기 급등 부담");
             
         if rsi.iloc[-1] <= 70: checks.append("✅ RSI 안정권"); pass_cnt+=1
         else: checks.append("❌ 과매수 구간");
         
-        score = (pass_cnt * 25) # 100점 만점
+        score = (pass_cnt * 25)
         
         return {
             "code": code, "price": curr['Close'], "checks": checks, "pass": pass_cnt, 
-            "score": score, "supply": sup, "rsi": rsi.iloc[-1], "df": df
+            "score": score, "supply": sup, "rsi": rsi.iloc[-1]
         }
     except: return None
 
@@ -201,11 +171,22 @@ def get_recommendations():
 with st.sidebar:
     st.header("⚡ CONTROL")
     
-    with st.expander("🔔 알림 설정"):
-        t_token = st.text_input("Token", type="password")
-        t_chat = st.text_input("Chat ID")
-        if st.button("Save"): save_json(SETTINGS_FILE, {"token": t_token, "chat_id": t_chat})
+    with st.expander("🔔 알림 설정", expanded=False):
+        t_token = st.text_input("Bot Token", value=settings.get("token", ""), type="password")
+        t_chat = st.text_input("Chat ID", value=settings.get("chat_id", ""))
+        
+        if st.button("저장 및 테스트 발송"):
+            save_json(SETTINGS_FILE, {"token": t_token, "chat_id": t_chat})
+            if t_token and t_chat:
+                if send_telegram_msg(t_token, t_chat, "🚀 [PRO QUANT] 알림 봇이 연결되었습니다!"):
+                    st.success("메시지 전송 성공!")
+                else:
+                    st.error("전송 실패. 토큰을 확인하세요.")
+            else:
+                st.warning("토큰과 ID를 입력하세요.")
 
+    auto_mode = st.checkbox("🔴 실시간 자동 감시", value=False)
+    
     st.divider()
     with st.expander("➕ 종목 추가", expanded=True):
         n_name = st.text_input("종목명")
@@ -223,8 +204,7 @@ with st.sidebar:
                 del st.session_state['watchlist'][name]
                 save_json(DATA_FILE, st.session_state['watchlist']); st.rerun()
 
-# 메인 헤더
-st.title("⚡ QUANT SNIPER V7")
+st.title("⚡ QUANT SNIPER V7.3")
 st.caption(f"High-Precision Trading Dashboard | {datetime.datetime.now().strftime('%Y-%m-%d')}")
 
 # 매크로 섹션
@@ -232,7 +212,6 @@ macro = get_global_macro()
 if macro:
     col1, col2, col3, col4 = st.columns(4)
     m_data = macro['data']
-    
     with col1:
         st.markdown(f"<div class='macro-box'><div class='macro-label'>MARKET SCORE</div><div class='macro-val' style='color:{'#00E676' if macro['score']>=1 else '#FF5252'}'>{macro['score']}</div></div>", unsafe_allow_html=True)
     with col2:
@@ -248,83 +227,34 @@ if macro:
 st.write("")
 tab1, tab2 = st.tabs(["📂 포트폴리오", "🚀 AI 스나이퍼 발굴"])
 
-# [탭 1] 내 종목 카드 렌더링
 with tab1:
     if not st.session_state['watchlist']: st.info("사이드바에서 종목을 추가하세요.")
     else:
         for name, info in st.session_state['watchlist'].items():
             res = analyze_precision(info['code'])
             if res:
-                # 색상 및 스타일 결정
                 border_cls = "border-buy" if res['pass'] >= 3 else ("border-sell" if res['pass'] <= 1 else "")
                 p_color = "text-up" if res['pass'] >= 3 else ("text-down" if res['pass'] <= 1 else "text-gray")
                 score_color = "#00E676" if res['score'] >= 75 else ("#FF5252" if res['score'] <= 25 else "#FFD700")
                 
-                # HTML 렌더링
+                checks_html = "".join([f"<div class='check-item'>{c}</div>" for c in res['checks']])
+                supply_f = format(int(res['supply']['f']), ',')
+                supply_i = format(int(res['supply']['i']), ',')
+                supply_f_col = '#00E676' if res['supply']['f']>0 else '#FF5252'
+                supply_i_col = '#00E676' if res['supply']['i']>0 else '#FF5252'
+                sector_name = get_sector_info(res['code'])
+                price_fmt = format(res['price'], ',')
+                
                 st.markdown(f"""
                 <div class='glass-card {border_cls}'>
                     <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
                         <div>
-                            <span class='badge badge-sector'>{get_sector_info(res['code'])}</span>
+                            <span class='badge badge-sector'>{sector_name}</span>
                             <div style='margin-top:8px;'>
                                 <span class='stock-name'>{name}</span>
                                 <span class='stock-code'>{res['code']}</span>
                             </div>
-                            <div class='big-price {p_color}'>{format(res['price'], ',')}원</div>
+                            <div class='big-price {p_color}'>{price_fmt}원</div>
                         </div>
                         <div style='text-align:right; width: 120px;'>
-                            <div style='font-size:12px; color:#888;'>AI SCORE</div>
-                            <div style='font-size:24px; font-weight:bold; color:{score_color};'>{res['score']}</div>
-                            <div class='score-bg'><div class='score-fill' style='width:{res['score']}%; background:{score_color};'></div></div>
-                        </div>
-                    </div>
-                    
-                    <div class='analysis-grid'>
-                        <div>
-                            <div style='color:#888; font-size:12px; margin-bottom:5px;'>CHECK POINTS</div>
-                            {''.join([f"<div class='check-item'>{c}</div>" for c in res['checks']])}
-                        </div>
-                        <div>
-                            <div style='color:#888; font-size:12px; margin-bottom:5px;'>SUPPLY & TECH</div>
-                            <div class='check-item'>외국인: <span style='margin-left:auto; color:{'#00E676' if res['supply']['f']>0 else '#FF5252'}'>{format(int(res['supply']['f']), ',')}</span></div>
-                            <div class='check-item'>기관: <span style='margin-left:auto; color:{'#00E676' if res['supply']['i']>0 else '#FF5252'}'>{format(int(res['supply']['i']), ',')}</span></div>
-                            <div class='check-item'>RSI (14): <span style='margin-left:auto;'>{res['rsi']:.1f}</span></div>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-# [탭 2] AI 추천
-with tab2:
-    if st.button("🔭 START SCANNING (Click)", use_container_width=True):
-        with st.spinner("AI가 수급과 추세를 정밀 분석중입니다..."):
-            recs = get_recommendations()
-            
-        if not recs:
-            st.warning("조건을 만족하는 완벽한 종목을 찾지 못했습니다.")
-        else:
-            st.success(f"{len(recs)}개의 타겟 발견!")
-            for item in recs:
-                st.markdown(f"""
-                <div class='glass-card border-buy'>
-                    <div style='display:flex; justify-content:space-between;'>
-                        <div>
-                            <span class='badge badge-buy'>STRONG BUY</span>
-                            <span class='stock-name' style='margin-left:10px;'>{item['name']}</span>
-                            <span class='badge badge-sector'>{item['sector']}</span>
-                        </div>
-                        <div class='text-up' style='font-weight:bold; font-size:20px;'>{format(item['price'], ',')}원</div>
-                    </div>
-                    <hr style='border-color:rgba(255,255,255,0.1); margin:15px 0;'>
-                    <div style='display:grid; grid-template-columns:1fr 1fr; gap:10px;'>
-                        <div style='font-size:13px; color:#ccc;'>
-                            {'<br>'.join(item['checks'])}
-                        </div>
-                        <div style='text-align:right; font-size:13px;'>
-                            <div style='color:#888;'>MAJOR SUPPLY</div>
-                            <div>F: {format(int(item['supply']['f']), ',')}</div>
-                            <div>I: {format(int(item['supply']['i']), ',')}</div>
-                        </div>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                            <div style='font
