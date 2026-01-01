@@ -6,3 +6,4 @@ altair
 pykrx
 beautifulsoup4
 setuptools
+lxml
