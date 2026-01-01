@@ -11,10 +11,9 @@ import altair as alt
 from pykrx import stock
 import concurrent.futures
 from bs4 import BeautifulSoup
-# import html  <-- 삭제 (내장 함수로 대체하여 호환성 높임)
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V17.1", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Quant Sniper V17.2", page_icon="📈", layout="wide")
 
 st.markdown("""
 <style>
@@ -147,7 +146,7 @@ def send_telegram_msg(message):
         return False
     except: return False
 
-# --- [3. 분석 로직] ---
+# --- [3. 분석 로직 (V17.2 Rational Quant Logic)] ---
 
 @st.cache_data(ttl=1200) 
 def get_news_sentiment(code):
@@ -224,11 +223,9 @@ def create_card_html(item, sector, is_recomm=False):
     news_html = ""
     if item['news']['headline'] != "-":
         n_col = "#F04452" if item['news']['score'] > 0 else ("#3182F6" if item['news']['score'] < 0 else "#8B95A1")
-        # html.escape 대신 간단한 치환 사용 (Import 에러 방지)
         safe_headline = item['news']['headline'][:28].replace("<", "&lt;").replace(">", "&gt;")
         news_html = f"<div style='margin-top:10px; padding:10px; background:#F9FAFB; border-radius:12px; font-size:12px;'><span style='font-weight:bold; color:{n_col};'>📰 최근 뉴스 (5일내)</span><br><span style='color:#333;'>{safe_headline}...</span></div>"
 
-    # [핵심 수정] 모든 HTML을 하나의 긴 문자열(String)로 연결합니다. (f-string 내 들여쓰기 원천 차단)
     html_str = f"<div class='toss-card'><div style='display:flex; justify-content:space-between; align-items:flex-start;'><div><span class='badge-clean badge-neu'>{sector}</span><div style='margin-top:8px;'><span class='stock-name'>{item.get('name', 'Unknown')}</span><span class='stock-code'>{item['code']}</span></div><div class='big-price {p_color}'>{price_fmt}원</div></div><div style='text-align:right;'><div class='label-text'>AI 진단</div><div style='font-size:24px; font-weight:800; color:{score_color};'>{score}점</div><div class='badge-clean {badge_cls}' style='margin-top:4px;'>{badge_text}</div></div></div><div class='score-bg'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>"
     html_str += news_html
     html_str += f"<div style='margin-top:20px;'><div class='label-text' style='margin-bottom:8px;'>투자 체크포인트</div><div class='check-container'>{checks_html}</div></div>"
@@ -289,9 +286,11 @@ def analyze_precision(code, name_override=None):
         sup = get_supply_demand(code)
         news = get_news_sentiment(code)
         
+        # 1. 데이터 확보 (최소 60일)
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=150))
         if df.empty or len(df) < 60: return None
         
+        # 2. 펀더멘털 확인 (PBR)
         is_undervalued = False
         try:
             today_str = datetime.datetime.now().strftime("%Y%m%d")
@@ -303,51 +302,80 @@ def analyze_precision(code, name_override=None):
                 if 0 < pbr < 1.2: is_undervalued = True
         except: pass
 
-        df['MA20'] = df['Close'].rolling(20).mean()
+        # 3. 기술적 지표 계산
+        df['MA5'] = df['Close'].rolling(5).mean()    # 단기 생명선
+        df['MA20'] = df['Close'].rolling(20).mean()  # 세력선/추세선
+        df['MA60'] = df['Close'].rolling(60).mean()  # 수급선
+        
+        # 볼린저 밴드
         df['Std'] = df['Close'].rolling(20).std()
         df['Upper'] = df['MA20'] + (df['Std'] * 2)
         df['Lower'] = df['MA20'] - (df['Std'] * 2)
         
+        # RSI
         delta = df['Close'].diff(1)
         rsi = 100 - (100/(1 + (delta.where(delta>0,0).rolling(14).mean() / -delta.where(delta<0,0).rolling(14).mean())))
         df['RSI'] = rsi.fillna(50)
+        
         curr = df.iloc[-1]
+        prev = df.iloc[-2]
         
         checks = []; pass_cnt = 0
-        if sup['f']>0 or sup['i']>0: checks.append("큰손 유입"); pass_cnt+=1
-        else: checks.append("수급 이탈")
         
-        if curr['Close']>=curr['MA20']: checks.append("상승 추세"); pass_cnt+=1
-        else: checks.append("하락 추세")
+        # --- [평가 로직: 정석 퀀트 방식 V17.2] ---
         
-        bb_status = "중립"
-        if curr['Close']<=curr['Lower']*1.05: checks.append("저점 매수기회"); pass_cnt+=1; bb_status = "바닥권"
-        elif curr['Close']>=curr['Upper']*0.98: 
-            if is_undervalued:
-                checks.append("고점이나 저평가"); pass_cnt+=0; bb_status = "과열(보유)"
-            elif news['score'] >= 1:
-                checks.append("호재로 상승중"); pass_cnt+=0.5; bb_status = "모멘텀"
+        # 1. 추세 (Trend)
+        if curr['Close'] > curr['MA20']:
+            checks.append("추세 상승세"); pass_cnt += 1
+            if curr['MA5'] > curr['MA20']: # 골든크로스 상태
+                 pass_cnt += 0.5
+        elif curr['Close'] > curr['MA5'] and curr['Close'] > prev['Close']:
+            checks.append("단기 반등세"); pass_cnt += 0.5 # 역배열이지만 단기 급반등
+        else:
+            checks.append("추세 하락중")
+
+        # 2. 수급 (Supply) - 외국인 주도 반영
+        net_buy = sup['f'] + sup['i']
+        if net_buy > 0:
+            checks.append("메이저 순매수"); pass_cnt += 1
+        elif sup['f'] > 0: # 기관은 팔아도 외국인이 사면 긍정
+            checks.append("외국인 매수중"); pass_cnt += 0.5
+        else:
+            checks.append("수급 부재")
+            
+        # 3. 모멘텀 & 밸류에이션 (RSI & PBR)
+        bb_status = "밴드 내"
+        if curr['RSI'] <= 35:
+            checks.append("과매도(반등기회)"); pass_cnt += 1; bb_status = "바닥권"
+        elif curr['RSI'] >= 70:
+            if is_undervalued: # 저평가 상태면 과열 아님 (재평가 구간)
+                checks.append("저평가 랠리"); pass_cnt += 1; bb_status = "상승가속"
             else:
-                checks.append("고점 주의"); pass_cnt-=0.5; bb_status = "과열권"
-        else: checks.append("안정적 흐름"); pass_cnt+=0.5; bb_status = "밴드 내"
-        
-        if curr['RSI']<=30: checks.append("RSI 침체"); pass_cnt+=1
-        elif curr['RSI']>=70: 
-            if is_undervalued: checks.append("과열(실적우수)"); pass_cnt+=0
-            elif news['score'] >= 1: checks.append("강한 매수세"); pass_cnt+=0.5
-            else: checks.append("RSI 과열"); pass_cnt-=0.5
-        else: checks.append("RSI 안정"); pass_cnt+=0.5
-        
-        if news['score'] >= 2: checks.append("강력 호재 발생"); pass_cnt += 1
-        elif news['score'] < 0: checks.append("악재 주의"); pass_cnt -= 1
-        
+                checks.append("과열 부담"); pass_cnt -= 0.5; bb_status = "과열권"
+        else:
+            # RSI 평범할 때 PBR이 낮으면 가산점
+            if is_undervalued: checks.append("가치주 메리트"); pass_cnt += 0.5
+            else: checks.append("관망세"); bb_status = "중립"
+
+        # 4. 뉴스/재료 (Sentiment)
+        if news['score'] >= 1:
+            if curr['Close'] > curr['MA5']: # 주가가 반응할 때만 뉴스 인정
+                checks.append("호재 반영중"); pass_cnt += 1.0
+            else:
+                checks.append("호재 있으나 약세"); pass_cnt += 0.5
+        elif news['score'] < 0:
+            checks.append("악재 발생"); pass_cnt -= 1.0
+
         if not name_override:
             try: name_override = krx_df[krx_df['Code'] == code]['Name'].values[0]
             except: name_override = code
 
+        # 점수 정규화 (최대 4.5점 -> 100점 만점 환산)
+        final_score = min(max(pass_cnt * 22, 0), 100)
+
         return {
             "name": name_override, "code": code, "sector": sector, "price": curr['Close'], 
-            "checks": checks, "pass": pass_cnt, "score": min(max(pass_cnt*25, 0), 100), 
+            "checks": checks, "pass": pass_cnt, "score": int(final_score), 
             "supply": sup, "rsi": curr['RSI'], "bb_status": bb_status,
             "news": news,
             "history": df
@@ -407,7 +435,7 @@ with st.sidebar:
     if st.button("🗑️ 전체 초기화"):
         st.session_state['watchlist'] = {}; save_to_github({}); st.rerun()
 
-st.title("📈 Quant Sniper V17.1")
+st.title("📈 Quant Sniper V17.2")
 st.caption(f"AI 기반 실시간 분석 시스템 (재무/뉴스/수급) | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}")
 
 with st.expander("📘 지표 해석 가이드 (범례)", expanded=True):
