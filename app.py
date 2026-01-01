@@ -288,3 +288,43 @@ else:
             if supply['reasons']: final_reasons.extend(supply['reasons'])
             
         # 최종 판단
+        decision = "관망"
+        badge_color = "gray"
+        if total_score >= 2.5: decision = "🔥 강력 매수"; badge_color = "#FF4B4B"
+        elif total_score >= 1.5: decision = "✅ 매수 추천"; badge_color = "#FF8888"
+        elif total_score <= -1.5: decision = "⛔ 매도 권장"; badge_color = "#4B88FF"
+        
+        # UI 표시
+        st.markdown(f"""
+        <div style='background-color:#262730; padding:20px; border-radius:10px; margin-bottom:15px; border:1px solid #333;'>
+            <div style='display:flex; justify-content:space-between;'>
+                <div>
+                    <span style='font-size:24px; font-weight:bold;'>{name}</span> 
+                    <span style='background:#444; padding:2px 8px; border-radius:10px; font-size:12px;'>{sector}</span>
+                    <div style='font-size:28px; font-weight:bold; color:{'#FF4B4B' if basic['change']=='상승' else '#4B88FF'};'>{format(price, ',')}원</div>
+                </div>
+                <div style='text-align:right;'>
+                    <div style='font-size:18px; font-weight:bold; color:{badge_color};'>{decision}</div>
+                    <div style='font-size:12px; color:#aaa; margin-top:5px;'>종합 점수: {total_score}점</div>
+                </div>
+            </div>
+            <div style='background-color:#1E1E1E; padding:10px; border-radius:5px; margin-top:10px; font-size:13px; color:#ddd;'>
+                <b>⚖️ 수급 분석 (최근 3일)</b><br>
+                외국인: <span style='color:{'#FF4B4B' if supply['foreigner']>0 else '#4B88FF'}'>{format(int(supply['foreigner']), ',')}주</span> | 
+                기관: <span style='color:{'#FF4B4B' if supply['institution']>0 else '#4B88FF'}'>{format(int(supply['institution']), ',')}주</span><br>
+                <span style='color:#FFD700;'>👉 {', '.join(supply['reasons']) if supply['reasons'] else '수급 특이사항 없음'}</span>
+            </div>
+            <div style='margin-top:10px; font-size:13px; color:#aaa;'>
+                근거: {', '.join(final_reasons) if final_reasons else '판단 보류'}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        with st.expander(f"📊 {name} 상세 차트 및 뉴스"):
+            c1, c2 = st.columns([2, 1])
+            with c1: st.plotly_chart(draw_chart(tech['df'], tech['bb_lower'], tech['bb_upper']), use_container_width=True)
+            with c2:
+                if news['news_list']:
+                    for n in news['news_list']:
+                        st.write(f"- [{n['title']}]({n['link']})")
+                else: st.write("관련 뉴스 없음")
