@@ -11,8 +11,7 @@ import altair as alt
 from pykrx import stock
 import concurrent.futures
 from bs4 import BeautifulSoup
-import html 
-import textwrap # [수정] HTML 들여쓰기 문제 해결용
+import html
 
 # --- [1. 설정 및 UI 스타일링] ---
 st.set_page_config(page_title="Quant Sniper V17.1", page_icon="📈", layout="wide")
@@ -63,7 +62,7 @@ def get_krx_list():
     try: 
         # KRX 전체 리스트 가져오기
         df = fdr.StockListing('KRX')
-        # [수정] 데이터가 비어있거나 컬럼이 없는 경우 방어 코드
+        # 데이터가 비어있거나 컬럼이 없는 경우 방어 코드
         if df.empty: return pd.DataFrame()
         
         # Sector 컬럼이 없는 경우 대비 (최근 fdr 버전 이슈 대비)
@@ -234,7 +233,6 @@ def create_card_html(item, sector, is_recomm=False):
     news_html = ""
     if item['news']['headline'] != "-":
         n_col = "#F04452" if item['news']['score'] > 0 else ("#3182F6" if item['news']['score'] < 0 else "#8B95A1")
-        # [수정] HTML escape 처리로 특수문자 오류 방지
         safe_headline = html.escape(item['news']['headline'][:28])
         news_html = f"""
         <div style='margin-top:10px; padding:10px; background:#F9FAFB; border-radius:12px; font-size:12px;'>
@@ -243,53 +241,53 @@ def create_card_html(item, sector, is_recomm=False):
         </div>
         """
 
-    # [수정] textwrap.dedent를 사용하여 들여쓰기로 인한 HTML 깨짐(Raw Code 노출) 문제 해결
-    return textwrap.dedent(f"""
-    <div class='toss-card'>
-        <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
-            <div>
-                <span class='badge-clean badge-neu'>{sector}</span>
-                <div style='margin-top:8px;'>
-                    <span class='stock-name'>{item.get('name', 'Unknown')}</span>
-                    <span class='stock-code'>{item['code']}</span>
-                </div>
-                <div class='big-price {p_color}'>{price_fmt}원</div>
+    # 수정된 부분: 들여쓰기를 제거한 Flush Left 문자열
+    return f"""
+<div class='toss-card'>
+    <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
+        <div>
+            <span class='badge-clean badge-neu'>{sector}</span>
+            <div style='margin-top:8px;'>
+                <span class='stock-name'>{item.get('name', 'Unknown')}</span>
+                <span class='stock-code'>{item['code']}</span>
             </div>
-            <div style='text-align:right;'>
-                <div class='label-text'>AI 진단</div>
-                <div style='font-size:24px; font-weight:800; color:{score_color};'>{score}점</div>
-                <div class='badge-clean {badge_cls}' style='margin-top:4px;'>{badge_text}</div>
+            <div class='big-price {p_color}'>{price_fmt}원</div>
+        </div>
+        <div style='text-align:right;'>
+            <div class='label-text'>AI 진단</div>
+            <div style='font-size:24px; font-weight:800; color:{score_color};'>{score}점</div>
+            <div class='badge-clean {badge_cls}' style='margin-top:4px;'>{badge_text}</div>
+        </div>
+    </div>
+    <div class='score-bg'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>
+    
+    {news_html}
+    
+    <div style='margin-top:20px;'>
+        <div class='label-text' style='margin-bottom:8px;'>투자 체크포인트</div>
+        <div class='check-container'>{checks_html}</div>
+    </div>
+    <div style='margin-top:15px; padding-top:15px; border-top:1px dashed #F2F4F6; display:flex; justify-content:space-between; font-size:13px;'>
+            <div style='width:48%;'>
+            <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
+                <span style='color:#8B95A1;'>외국인</span><span style='color:{supply_f_col}; font-weight:600;'>{supply_f}</span>
+            </div>
+            <div style='display:flex; justify-content:space-between;'>
+                <span style='color:#8B95A1;'>기관</span><span style='color:{supply_i_col}; font-weight:600;'>{supply_i}</span>
             </div>
         </div>
-        <div class='score-bg'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>
-        
-        {news_html}
-        
-        <div style='margin-top:20px;'>
-            <div class='label-text' style='margin-bottom:8px;'>투자 체크포인트</div>
-            <div class='check-container'>{checks_html}</div>
-        </div>
-        <div style='margin-top:15px; padding-top:15px; border-top:1px dashed #F2F4F6; display:flex; justify-content:space-between; font-size:13px;'>
-             <div style='width:48%;'>
+        <div style='width:48%; border-left:1px solid #F2F4F6; padding-left:15px;'>
                 <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
-                    <span style='color:#8B95A1;'>외국인</span><span style='color:{supply_f_col}; font-weight:600;'>{supply_f}</span>
-                </div>
-                <div style='display:flex; justify-content:space-between;'>
-                    <span style='color:#8B95A1;'>기관</span><span style='color:{supply_i_col}; font-weight:600;'>{supply_i}</span>
-                </div>
+                <span style='color:#8B95A1;'>RSI (14)</span><span style='color:{rsi_text_col}; font-weight:600;'>{rsi_val:.1f}</span>
             </div>
-            <div style='width:48%; border-left:1px solid #F2F4F6; padding-left:15px;'>
-                 <div style='display:flex; justify-content:space-between; margin-bottom:4px;'>
-                    <span style='color:#8B95A1;'>RSI (14)</span><span style='color:{rsi_text_col}; font-weight:600;'>{rsi_val:.1f}</span>
-                </div>
-                <div class='rsi-container'><div class='rsi-bar' style='width:{rsi_width}%; background:{rsi_gradient};'></div></div>
-                <div style='display:flex; justify-content:space-between; margin-top:8px;'>
-                    <span style='color:#8B95A1;'>볼린저</span><span style='color:#4E5968; font-weight:600;'>{item['bb_status']}</span>
-                </div>
+            <div class='rsi-container'><div class='rsi-bar' style='width:{rsi_width}%; background:{rsi_gradient};'></div></div>
+            <div style='display:flex; justify-content:space-between; margin-top:8px;'>
+                <span style='color:#8B95A1;'>볼린저</span><span style='color:#4E5968; font-weight:600;'>{item['bb_status']}</span>
             </div>
         </div>
     </div>
-    """)
+</div>
+"""
 
 def create_bollinger_chart(df, name):
     chart_data = df.tail(60).reset_index()
@@ -561,14 +559,12 @@ with tab2:
     scan_option = st.radio("스캔 방식을 선택하세요:", ["🏆 시가총액 상위 30위", "🏢 특정 섹터(업종)별 보기"], horizontal=True)
     target_df = pd.DataFrame()
     
-    # [수정] KeyError 방지를 위해 krx_df가 비어있지 않은지 먼저 확인
     if not krx_df.empty:
         if scan_option == "🏆 시가총액 상위 30위":
             st.caption("한국 주식 시장에서 가장 규모가 큰 우량주 30개를 정밀 분석합니다.")
             target_df = krx_df.head(30)
         elif scan_option == "🏢 특정 섹터(업종)별 보기":
             try:
-                # dropna()로 None 값 제거 후 리스트 변환
                 sectors = sorted(krx_df['Sector'].dropna().unique().tolist())
                 selected_sector = st.selectbox("분석할 섹터를 선택해주세요:", sectors)
                 if selected_sector:
