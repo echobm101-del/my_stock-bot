@@ -7,24 +7,32 @@ import json
 import os
 import time
 import base64
+import altair as alt # [NEW] 고급 차트용 라이브러리
 from pykrx import stock
 import concurrent.futures
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Pro Quant V14.1", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Pro Quant V15.0", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #0E1117; color: #F0F2F6; font-family: 'Pretendard', sans-serif; }
-    .glass-card { background: rgba(38, 39, 48, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 24px; margin-bottom: 10px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3); }
+    
+    /* 카드 디자인 */
+    .glass-card { background: rgba(38, 39, 48, 0.6); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 24px; margin-bottom: 15px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3); }
     .border-buy { border-left: 5px solid #00E676 !important; }
     .border-sell { border-left: 5px solid #FF5252 !important; }
+    
+    /* 텍스트 색상 */
     .text-up { color: #00E676; }
     .text-down { color: #FF5252; }
     .text-gray { color: #888; }
+    
     .big-price { font-size: 32px; font-weight: 800; letter-spacing: -1px; }
     .stock-name { font-size: 22px; font-weight: 700; color: #FFFFFF; }
     .stock-code { font-size: 14px; color: #888; margin-left: 8px; font-weight: 400; }
+    
+    /* 상단 매크로 박스 */
     .macro-box { background: #1A1C24; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #333; height: 100%; }
     .macro-label { font-size: 11px; color: #888; text-transform: uppercase; margin-bottom: 8px; font-weight: bold; }
     .macro-val { font-size: 20px; font-weight: 800; color: #fff; margin-bottom: 8px; }
@@ -32,20 +40,25 @@ st.markdown("""
     .status-good { background-color: rgba(0, 230, 118, 0.15); color: #00E676; border: 1px solid rgba(0, 230, 118, 0.3); }
     .status-bad { background-color: rgba(255, 82, 82, 0.15); color: #FF5252; border: 1px solid rgba(255, 82, 82, 0.3); }
     .status-neutral { background-color: rgba(136, 136, 136, 0.15); color: #aaa; border: 1px solid rgba(136, 136, 136, 0.3); }
-    .check-item { font-size: 13px; margin-bottom: 4px; display: flex; align-items: center; color: #ddd; }
+    
+    /* [NEW] 체크포인트 가로 배치 스타일 */
+    .check-container { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .check-tag { font-size: 12px; padding: 5px 10px; border-radius: 20px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #ddd; display: flex; align-items: center; }
+    
     .score-bg { background: #333; height: 6px; border-radius: 3px; overflow: hidden; margin-top: 8px; }
     .score-fill { height: 100%; border-radius: 3px; }
     .strategy-badge { font-size: 14px; font-weight: bold; padding: 6px 12px; border-radius: 8px; display: inline-block; margin-top: 5px; text-align: center; width: 100%; }
-    .rsi-container { width: 100%; background-color: #333; height: 8px; border-radius: 4px; margin-top: 5px; overflow: hidden; }
-    .rsi-bar { height: 100%; border-radius: 4px; }
-    .streamlit-expanderContent { background-color: #1A1C24 !important; color: #F0F2F6 !important; border-radius: 10px; }
-    .legend-table { width: 100%; font-size: 14px; border-collapse: collapse; margin-top: 5px; }
-    .legend-table td { padding: 12px; border-bottom: 1px solid #444; color: #ddd; vertical-align: middle; line-height: 1.5; }
-    .legend-header { font-weight: bold; color: #FFD700; background-color: #262730; text-align: center; padding: 10px; border-radius: 5px; }
-    .legend-title { font-weight: bold; color: #fff; width: 150px; background-color: #222; padding-left: 10px; border-radius: 4px; }
+    
+    /* RSI 게이지 스타일 */
+    .rsi-container { width: 100%; background-color: #333; height: 10px; border-radius: 5px; margin-top: 5px; overflow: hidden; }
+    .rsi-bar { height: 100%; border-radius: 5px; transition: width 0.5s ease-in-out; }
+    
+    .check-item-simple { font-size: 13px; margin-bottom: 4px; color: #ddd; display: flex; justify-content: space-between; }
+
     .badge { padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; display: inline-block; margin-right: 5px; }
     .badge-sector { background: #333; color: #ccc; border: 1px solid #444; }
     .badge-buy { background: rgba(0, 230, 118, 0.2); color: #00E676; border: 1px solid #00E676; }
+    
     div.stButton > button { width: 100%; border-radius: 10px; font-weight: bold; border: 1px solid #444; background: #1E222D; color: white; }
     div.stButton > button:hover { border-color: #00E676; color: #00E676; }
 </style>
@@ -58,84 +71,53 @@ FILE_PATH = "my_watchlist_v7.json"
 
 @st.cache_data
 def get_krx_list():
-    try:
-        df = fdr.StockListing('KRX')
-        return df[['Code', 'Name', 'Sector']]
-    except:
-        return pd.DataFrame()
-
+    try: df = fdr.StockListing('KRX'); return df[['Code', 'Name', 'Sector']]
+    except: return pd.DataFrame()
 krx_df = get_krx_list()
 
 def get_sector_info(code):
-    try:
-        row = krx_df[krx_df['Code'] == code]
-        if not row.empty:
-            return row.iloc[0]['Sector']
-        return "기타"
-    except:
-        return "기타"
+    try: row = krx_df[krx_df['Code'] == code]; return row.iloc[0]['Sector'] if not row.empty else "기타"
+    except: return "기타"
 
 def load_local_json():
     if os.path.exists(FILE_PATH):
-        try:
-            with open(FILE_PATH, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return {}
+        try: with open(FILE_PATH, "r", encoding="utf-8") as f: return json.load(f)
+        except: return {}
     return {}
 
 def save_local_json(data):
-    with open(FILE_PATH, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=4)
+    with open(FILE_PATH, "w", encoding="utf-8") as f: json.dump(data, f, ensure_ascii=False, indent=4)
 
 def load_from_github():
     try:
-        if "GITHUB_TOKEN" not in st.secrets:
-            return load_local_json()
-        
+        if "GITHUB_TOKEN" not in st.secrets: return load_local_json()
         token = st.secrets["GITHUB_TOKEN"]
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        
         r = requests.get(url, headers=headers)
         if r.status_code == 200:
             content = base64.b64decode(r.json()['content']).decode('utf-8')
             return json.loads(content)
         return load_local_json()
-    except:
-        return load_local_json()
+    except: return load_local_json()
 
 def save_to_github(data):
     try:
         if "GITHUB_TOKEN" not in st.secrets:
             save_local_json(data)
             return False, "GitHub 토큰이 설정되지 않았습니다. (로컬에만 저장됨)"
-            
         token = st.secrets["GITHUB_TOKEN"]
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        
         r = requests.get(url, headers=headers)
         sha = r.json().get('sha') if r.status_code == 200 else None
-        
         json_str = json.dumps(data, indent=4, ensure_ascii=False)
         b64_content = base64.b64encode(json_str.encode()).decode()
-        
-        payload = {
-            "message": "Update watchlist from Pro Quant UI",
-            "content": b64_content,
-            "sha": sha
-        }
-        
+        payload = {"message": "Update watchlist from Pro Quant UI", "content": b64_content, "sha": sha}
         put_r = requests.put(url, headers=headers, json=payload)
-        if put_r.status_code in [200, 201]:
-            return True, "GitHub 서버 동기화 완료!"
-        else:
-            save_local_json(data)
-            return False, f"GitHub 저장 실패: {put_r.status_code} (로컬에 저장됨)"
-    except Exception as e:
-        save_local_json(data)
-        return False, f"에러 발생: {e} (로컬에 저장됨)"
+        if put_r.status_code in [200, 201]: return True, "GitHub 서버 동기화 완료!"
+        else: save_local_json(data); return False, f"GitHub 저장 실패: {put_r.status_code} (로컬에 저장됨)"
+    except Exception as e: save_local_json(data); return False, f"에러 발생: {e} (로컬에 저장됨)"
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 if 'sent_alerts' not in st.session_state: st.session_state['sent_alerts'] = {}
@@ -171,7 +153,8 @@ def create_card_html(item, sector, is_recomm=False):
     
     if is_recomm: border_cls = "border-buy"; p_color = "text-up"
     
-    checks_html = "".join([f"<div class='check-item'>{c}</div>" for c in item['checks']])
+    # [NEW] 체크포인트 가로 배치 (Check Tags)
+    checks_html = "".join([f"<div class='check-tag'>{c}</div>" for c in item['checks']])
     
     supply_f = format(int(item['supply']['f']), ',')
     supply_i = format(int(item['supply']['i']), ',')
@@ -182,16 +165,99 @@ def create_card_html(item, sector, is_recomm=False):
     sector_badge = f"<span class='badge badge-sector'>{sector}</span>"
     if is_recomm: sector_badge = "<span class='badge badge-buy'>STRONG BUY</span>" + sector_badge
     
-    # RSI 게이지 설정
+    # [NEW] RSI 그라데이션 (Gradient)
     rsi_val = item['rsi']
     rsi_width = min(max(rsi_val, 0), 100)
-    if rsi_val <= 30: rsi_color = "#00E676"
-    elif rsi_val >= 70: rsi_color = "#FF5252"
-    else: rsi_color = "#888888"
     
-    # HTML 생성 (들여쓰기 제거하여 오류 방지)
-    html = f"""<div class='glass-card {border_cls}'><div style='display:flex; justify-content:space-between; align-items:flex-start;'><div>{sector_badge}<div style='margin-top:8px;'><span class='stock-name'>{item.get('name', 'Unknown')}</span><span class='stock-code'>{item['code']}</span></div><div class='big-price {p_color}'>{price_fmt}원</div></div><div style='text-align:right; width: 130px;'><div style='font-size:12px; color:#888; margin-bottom:5px;'>AI SCORE</div><div style='font-size:28px; font-weight:800; color:{score_color}; line-height:1;'>{score}</div><div class='strategy-badge' style='background:{badge_bg}; border:1px solid {badge_border}; color:{badge_font};'>{badge_text}</div></div></div><div class='score-bg' style='margin-top:10px; margin-bottom:15px;'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div><div class='analysis-grid'><div><div style='color:#888; font-size:12px; margin-bottom:5px;'>CHECK POINTS</div>{checks_html}</div><div><div style='color:#888; font-size:12px; margin-bottom:5px;'>SUPPLY & TECH</div><div class='check-item'>외국인: <span style='margin-left:auto; color:{supply_f_col}'>{supply_f}</span></div><div class='check-item'>기관: <span style='margin-left:auto; color:{supply_i_col}'>{supply_i}</span></div><div style='display:flex; justify-content:space-between; font-size:12px; margin-top:5px; color:#ddd;'><span>RSI (14)</span><span style='color:{rsi_color}; font-weight:bold;'>{rsi_val:.1f}</span></div><div class='rsi-container'><div class='rsi-bar' style='width:{rsi_width}%; background-color:{rsi_color};'></div></div><div class='check-item' style='margin-top:5px;'>볼린저: <span style='margin-left:auto;'>{item['bb_status']}</span></div></div></div></div>"""
+    # 그라데이션 색상 결정
+    if rsi_val <= 30: 
+        rsi_gradient = "linear-gradient(90deg, #00C853, #69F0AE)" # 진한초록 -> 밝은초록
+        rsi_text_col = "#00E676"
+    elif rsi_val >= 70:
+        rsi_gradient = "linear-gradient(90deg, #D50000, #FF5252)" # 진한빨강 -> 밝은빨강
+        rsi_text_col = "#FF5252"
+    else:
+        rsi_gradient = "linear-gradient(90deg, #757575, #BDBDBD)" # 회색
+        rsi_text_col = "#aaa"
+    
+    # HTML 생성
+    html = f"""
+    <div class='glass-card {border_cls}'>
+        <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
+            <div>
+                {sector_badge}
+                <div style='margin-top:8px;'>
+                    <span class='stock-name'>{item.get('name', 'Unknown')}</span>
+                    <span class='stock-code'>{item['code']}</span>
+                </div>
+                <div class='big-price {p_color}'>{price_fmt}원</div>
+            </div>
+            <div style='text-align:right; width: 140px;'>
+                <div style='font-size:12px; color:#888; margin-bottom:5px;'>AI SCORE</div>
+                <div style='font-size:28px; font-weight:800; color:{score_color}; line-height:1;'>{score}</div>
+                <div class='strategy-badge' style='background:{badge_bg}; border:1px solid {badge_border}; color:{badge_font};'>{badge_text}</div>
+            </div>
+        </div>
+        
+        <div class='score-bg' style='margin-top:10px; margin-bottom:15px;'><div class='score-fill' style='width:{score}%; background:{score_color};'></div></div>
+        
+        <div style='color:#888; font-size:12px; margin-bottom:8px; font-weight:bold;'>CHECK POINTS</div>
+        <div class='check-container'>
+            {checks_html}
+        </div>
+        
+        <div style='margin-top:15px; border-top:1px solid rgba(255,255,255,0.1); padding-top:15px;'>
+             <div style='display:flex; justify-content:space-between;'>
+                <div style='width:48%;'>
+                    <div style='color:#888; font-size:12px; margin-bottom:5px;'>SUPPLY (수급)</div>
+                    <div class='check-item-simple'>외국인 <span style='color:{supply_f_col}'>{supply_f}</span></div>
+                    <div class='check-item-simple'>기관 <span style='color:{supply_i_col}'>{supply_i}</span></div>
+                </div>
+                <div style='width:48%;'>
+                    <div style='color:#888; font-size:12px; margin-bottom:5px;'>TECHNICAL (기술적)</div>
+                    <div style='display:flex; justify-content:space-between; font-size:13px; color:#ddd; margin-bottom:3px;'>
+                        <span>RSI (14)</span><span style='color:{rsi_text_col}; font-weight:bold;'>{rsi_val:.1f}</span>
+                    </div>
+                    <div class='rsi-container'><div class='rsi-bar' style='width:{rsi_width}%; background:{rsi_gradient};'></div></div>
+                    <div class='check-item-simple' style='margin-top:5px;'>볼린저 <span style='color:#ddd'>{item['bb_status']}</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    """
     return html
+
+# [NEW] 직관적인 볼린저 밴드 차트 (Altair 사용)
+def create_bollinger_chart(df, name):
+    # 최근 60일치만 사용
+    chart_data = df.tail(60).reset_index()
+    
+    # 기본 차트 설정
+    base = alt.Chart(chart_data).encode(x=alt.X('Date:T', axis=alt.Axis(format='%m-%d', title=None)))
+    
+    # 1. 볼린저 밴드 영역 (구름대) - 직관성 UP
+    band = base.mark_area(opacity=0.3, color='#444444').encode(
+        y=alt.Y('Lower:Q', title='Price'),
+        y2='Upper:Q'
+    )
+    
+    # 2. 종가 선 (Line)
+    line = base.mark_line(color='#FFFFFF', strokeWidth=2).encode(y='Close:Q')
+    
+    # 3. 상단/하단 선 (얇게)
+    upper = base.mark_line(color='#FF5252', strokeWidth=1, strokeDash=[3,3]).encode(y='Upper:Q')
+    lower = base.mark_line(color='#00E676', strokeWidth=1, strokeDash=[3,3]).encode(y='Lower:Q')
+    
+    chart = (band + upper + lower + line).properties(
+        height=300, 
+        title=f"{name} Bollinger Band Trend"
+    ).configure_axis(
+        grid=True, gridColor='#333'
+    ).configure_view(
+        stroke=None
+    )
+    
+    return chart
 
 @st.cache_data(ttl=3600)
 def get_global_macro():
@@ -229,11 +295,9 @@ def get_supply_demand(code):
 def analyze_precision(code, name_override=None):
     try:
         sup = get_supply_demand(code)
-        # 차트용 데이터 확보를 위해 history 저장
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=120))
         if df.empty: return None
         
-        # 지표 계산
         df['MA20'] = df['Close'].rolling(20).mean()
         df['Std'] = df['Close'].rolling(20).std()
         df['Upper'] = df['MA20'] + (df['Std'] * 2)
@@ -241,18 +305,17 @@ def analyze_precision(code, name_override=None):
         
         delta = df['Close'].diff(1)
         rsi = 100 - (100/(1 + (delta.where(delta>0,0).rolling(14).mean() / -delta.where(delta<0,0).rolling(14).mean())))
-        df['RSI'] = rsi # DataFrame에 RSI 저장
-        
+        df['RSI'] = rsi
         curr = df.iloc[-1]
         
         checks = []; pass_cnt = 0
-        if sup['f']>0 or sup['i']>0: checks.append("✅ 메이저 수급 유입"); pass_cnt+=1
+        if sup['f']>0 or sup['i']>0: checks.append("✅ 수급 유입"); pass_cnt+=1
         else: checks.append("❌ 수급 이탈")
         if curr['Close']>=curr['MA20']: checks.append("✅ 20일선 위"); pass_cnt+=1
-        else: checks.append("❌ 추세 하락세")
+        else: checks.append("❌ 추세 하락")
         bb_status = "중립"
-        if curr['Close']<=curr['Lower']*1.02: checks.append("✅ 볼린저 하단(기회)"); pass_cnt+=1; bb_status = "하단 지지"
-        elif curr['Close']>=curr['Upper']*0.98: checks.append("⚠️ 볼린저 상단(과열)"); pass_cnt-=0.5; bb_status = "상단 저항"
+        if curr['Close']<=curr['Lower']*1.02: checks.append("✅ 밴드 하단"); pass_cnt+=1; bb_status = "하단 지지"
+        elif curr['Close']>=curr['Upper']*0.98: checks.append("⚠️ 밴드 상단"); pass_cnt-=0.5; bb_status = "상단 저항"
         else: checks.append("✅ 밴드 내"); pass_cnt+=0.5; bb_status = "밴드 내"
         if curr['RSI']<=70: checks.append("✅ RSI 안정"); pass_cnt+=1
         else: checks.append("❌ RSI 과열")
@@ -261,7 +324,7 @@ def analyze_precision(code, name_override=None):
             "name": name_override, "code": code, "price": curr['Close'], 
             "checks": checks, "pass": pass_cnt, "score": min(pass_cnt*25, 100), 
             "supply": sup, "rsi": curr['RSI'], "bb_status": bb_status,
-            "history": df # 차트 그리기를 위해 전체 데이터 반환
+            "history": df
         }
     except: return None
 
@@ -299,7 +362,6 @@ def get_recommendations():
 # --- [5. UI 렌더링] ---
 with st.sidebar:
     st.header("⚡ CONTROL PANEL")
-    
     auto_mode = st.checkbox("🔴 실시간 자동 감시 및 루틴 알림", value=False)
     
     st.divider()
@@ -320,6 +382,7 @@ with st.sidebar:
 
     if st.session_state['watchlist']:
         st.caption(f"WATCHLIST ({len(st.session_state['watchlist'])}개)")
+        st.info("💡 팁: 목록에는 있지만 화면에 안 보인다면, 데이터 로딩 실패일 수 있습니다. 여기서 '✕'로 지우고 다시 추가해보세요.")
         for name in list(st.session_state['watchlist'].keys()):
             c1, c2 = st.columns([3,1])
             c1.markdown(f"<span style='color:#ddd'>{name}</span>", unsafe_allow_html=True)
@@ -335,11 +398,8 @@ with st.sidebar:
         save_to_github({})
         st.rerun()
 
-st.title("🚀 QUANT SNIPER V14.1")
+st.title("🚀 QUANT SNIPER V15.0")
 st.caption(f"Fully Automated AI System | {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
-with st.expander("📘 범례 및 용어 설명 (모든 지표 포함)", expanded=False):
-    st.markdown("<table class='legend-table'><tr><td colspan='2' class='legend-header'>🌍 글로벌 시장 지표 (상단 5개 박스)</td></tr><tr><td class='legend-title'>MARKET SCORE</td><td>시장 종합 점수. <br><b>+1 이상:</b> 투자 적기 (Risk On) / <b>-1 이하:</b> 보수적 대응 필요 (Risk Off)</td></tr><tr><td class='legend-title'>🇺🇸 S&P 500</td><td>미국 증시 지수. 한국 시장의 선행 지표 (상승 시 호재).</td></tr><tr><td class='legend-title'>🇰🇷 USD/KRW</td><td>원/달러 환율. <b>상승 시:</b> 외국인 이탈 우려 (주가에 악재).</td></tr><tr><td class='legend-title'>🛢️ WTI CRUDE</td><td>국제 유가. <b>상승 시:</b> 인플레이션 및 기업 비용 증가 (주가에 악재).</td></tr><tr><td class='legend-title' style='color:#FF5252;'>😱 VIX (공포지수)</td><td>월가 공포 지수. <b>20 이상:</b> 공포(하락장), <b>15 이하:</b> 안정(상승장).</td></tr><tr><td class='legend-title'>🇺🇸 US 10Y</td><td>미국채 10년물 금리. <b>급등 시:</b> 기술주/성장주 하락 압력 (악재).</td></tr><tr><td colspan='2' class='legend-header' style='padding-top:15px;'>📊 정밀 진단 지표</td></tr><tr><td class='legend-title'>볼린저 밴드</td><td><b>하단 터치:</b> 과매도(매수 기회), <b>상단 돌파:</b> 과열(매도 검토).</td></tr><tr><td class='legend-title'>AI SCORE</td><td><b>75점 이상:</b> 강력 매수 / <b>25점 이하:</b> 매도 권장.</td></tr></table>", unsafe_allow_html=True)
 
 macro = get_global_macro()
 if macro:
@@ -380,9 +440,9 @@ with tab1:
         for res in results:
             st.markdown(create_card_html(res, get_sector_info(res['code']), False), unsafe_allow_html=True)
             
+            # [NEW] 직관적인 알테어 차트
             with st.expander(f"📊 {res['name']} 상세 차트 보기 (클릭)"):
-                chart_df = res['history'][['Close', 'Upper', 'Lower']].tail(60)
-                st.line_chart(chart_df, color=["#FFFFFF", "#FF5252", "#00E676"])
+                st.altair_chart(create_bollinger_chart(res['history'], res['name']), use_container_width=True)
             
             if auto_mode:
                 today = datetime.datetime.now().strftime("%Y%m%d")
@@ -403,8 +463,7 @@ with tab2:
             for item in recs:
                 st.markdown(create_card_html(item, item['sector'], True), unsafe_allow_html=True)
                 with st.expander(f"📊 {item['name']} 상세 차트 보기"):
-                    chart_df = item['history'][['Close', 'Upper', 'Lower']].tail(60)
-                    st.line_chart(chart_df, color=["#FFFFFF", "#FF5252", "#00E676"])
+                    st.altair_chart(create_bollinger_chart(item['history'], item['name']), use_container_width=True)
 
 if auto_mode:
     st.markdown("---")
