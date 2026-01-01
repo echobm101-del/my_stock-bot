@@ -2,7 +2,6 @@ streamlit
 finance-datareader
 pandas
 requests
-beautifulsoup4
-plotly
+altair
 pykrx
-setuptools
+beautifulsoup4
