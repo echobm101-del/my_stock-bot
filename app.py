@@ -11,10 +11,10 @@ import altair as alt
 from pykrx import stock
 import concurrent.futures
 from bs4 import BeautifulSoup
-import textwrap 
+import re # [추가] HTML 공백 제거용
 
 # --- [1. PRO 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V18.4 PRO", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V18.5 PRO", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -88,11 +88,9 @@ def save_to_github(data):
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
         r = requests.get(url, headers=headers)
         sha = r.json().get('sha') if r.status_code == 200 else None
-        
         json_str = json.dumps(data, indent=4, ensure_ascii=False)
         b64_content = base64.b64encode(json_str.encode()).decode()
         payload = {"message": "Update watchlist PRO", "content": b64_content, "sha": sha}
-        
         put_r = requests.put(url, headers=headers, json=payload)
         return (True, "동기화 완료") if put_r.status_code in [200, 201] else (False, f"저장 실패: {put_r.status_code}")
     except Exception as e:
@@ -103,7 +101,6 @@ if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_fro
 if 'sent_alerts' not in st.session_state: st.session_state['sent_alerts'] = {}
 
 # --- [3. PRO 분석 엔진] ---
-
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
     try:
@@ -219,7 +216,10 @@ def analyze_portfolio_parallel(watchlist):
             if res: results.append(res)
     return sorted(results, key=lambda x: x['score'], reverse=True)
 
-# [핵심 수정] HTML 들여쓰기 문제 해결 함수
+# [핵심 수정] HTML 압축 함수 (줄바꿈 제거)
+def clean_html(raw_html):
+    return re.sub(r'\s+', ' ', raw_html).strip()
+
 def create_card_html(res):
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
     supply_f_col = "#F04452" if res['supply']['f'] > 0 else "#3182F6"
@@ -230,8 +230,7 @@ def create_card_html(res):
     elif rsi_val >= 70: rsi_grad = "linear-gradient(90deg, #F04452, #FF8A9B)"
     else: rsi_grad = "linear-gradient(90deg, #8B95A1, #B0B8C1)"
 
-    # textwrap.dedent를 사용하여 들여쓰기 제거
-    html = f"""
+    raw_html = f"""
     <div class='toss-card'>
         <div style='display:flex; justify-content:space-between; align-items:center;'>
             <div>
@@ -244,7 +243,6 @@ def create_card_html(res):
                 <div class='badge-clean' style='background-color:{score_col}20; color:{score_col};'>{res['strategy']['action']}</div>
             </div>
         </div>
-        
         <div class='strategy-box'>
             <div class='strategy-item'><span class='strategy-label'>적정 매수가</span><span class='strategy-val'>{res['strategy']['buy']:,}</span></div>
             <div style='width:1px; background:#ddd;'></div>
@@ -252,7 +250,6 @@ def create_card_html(res):
             <div style='width:1px; background:#ddd;'></div>
             <div class='strategy-item'><span class='strategy-label'>펀더멘탈</span><span class='strategy-val'>{res['checks'][0]}</span></div>
         </div>
-        
         <div style='margin-top:15px; font-size:13px;'>
             <div style='display:flex; justify-content:space-between; margin-bottom:5px;'>
                 <span style='color:#888;'>외국인 수급</span>
@@ -268,7 +265,7 @@ def create_card_html(res):
         </div>
     </div>
     """
-    return textwrap.dedent(html)
+    return clean_html(raw_html)
 
 # --- [4. 매크로 및 차트] ---
 @st.cache_data(ttl=3600)
@@ -297,7 +294,7 @@ def create_bollinger_chart(df, name):
     return (line + ma20 + ma60).properties(height=250)
 
 # --- [5. 메인 UI 렌더링] ---
-st.title("💎 Quant Sniper V18.4 PRO")
+st.title("💎 Quant Sniper V18.5 PRO")
 st.caption("Hybrid Engine: Fundamental(50%) + Technical(50%)")
 
 with st.expander("📘 PRO 모드 지표 해석 가이드", expanded=True):
@@ -339,7 +336,6 @@ with tab1:
             results = analyze_portfolio_parallel(st.session_state['watchlist'])
         
         for res in results:
-            # HTML 생성 및 렌더링
             st.markdown(create_card_html(res), unsafe_allow_html=True)
             
             with st.expander(f"📑 {res['name']} AI 심층 분석 리포트"):
