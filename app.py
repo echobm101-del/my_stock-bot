@@ -17,7 +17,7 @@ import feedparser
 import urllib.parse
 
 # --- [1. 시스템 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V26.0 (Final)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V27.0", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -25,7 +25,7 @@ st.markdown("""
     .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
     
     /* 지표 스타일 */
-    .metric-container { background: #F9FAFB; padding: 12px; border-radius: 12px; text-align: center; border: 1px solid #E5E8EB; }
+    .metric-container { background: #F9FAFB; padding: 12px; border-radius: 12px; text-align: center; border: 1px solid #E5E8EB; height: 100%; }
     .metric-label { font-size: 13px; color: #6B7684; font-weight: 600; margin-bottom: 4px; }
     .metric-value { font-size: 20px; font-weight: 800; color: #333D4B; }
     .metric-status { font-size: 12px; font-weight: 700; margin-top: 4px; }
@@ -39,38 +39,27 @@ st.markdown("""
     .news-link { color: #333; text-decoration: none; font-weight: 500; display: block; margin-bottom: 2px;}
     .news-link:hover { color: #3182F6; text-decoration: underline; }
     
-    /* 재무 그리드 */
-    .fund-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px; }
-    .fund-item { padding: 10px; border-radius: 8px; text-align: center; background: #f8f9fa; }
-    
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- [2. 통합 데이터베이스 (생략 없이 전체 포함)] ---
+# --- [2. 통합 데이터베이스] ---
 SECTOR_DB = {
-    "반도체": {"삼성전자":"005930", "SK하이닉스":"000660", "한미반도체":"042700", "DB하이텍":"000990", "리노공업":"058470", "HPSP":"403870", "이수페타시스":"007660", "주성엔지니어링":"036930"},
-    "배터리(2차전지)": {"LG에너지솔루션":"373220", "POSCO홀딩스":"005490", "삼성SDI":"006400", "에코프로비엠":"247540", "LG화학":"051910", "포스코퓨처엠":"003670", "에코프로":"086520", "엘앤에프":"066970"},
-    "자동차/부품": {"현대차":"005380", "기아":"000270", "현대모비스":"012330", "HL만도":"204320", "현대위아":"011210", "한온시스템":"018880"},
-    "바이오/제약": {"삼성바이오로직스":"207940", "셀트리온":"068270", "유한양행":"000100", "SK바이오팜":"326030", "알테오젠":"196170", "HLB":"028300", "한미약품":"128940", "종근당":"185750"},
-    "IT/플랫폼": {"NAVER":"035420", "카카오":"035720", "삼성SDS":"018260", "크래프톤":"259960", "카카오뱅크":"323410", "카카오페이":"377300"},
-    "방위산업": {"한화에어로스페이스":"012450", "한국항공우주":"047810", "현대로템":"064350", "LIG넥스원":"079550", "한화시스템":"272210", "풍산":"103140"},
-    "조선/해운": {"HD현대중공업":"329180", "삼성중공업":"010140", "한화오션":"042660", "HMM":"011200", "HD한국조선해양":"009540", "현대미포조선":"010620"},
-    "전력/에너지": {"한국전력":"015760", "두산에너빌리티":"034020", "HD현대일렉트릭":"267260", "LS ELECTRIC":"010120", "효성중공업":"298040", "일진전기":"103590"},
-    "화학/정유": {"S-Oil":"010950", "SK이노베이션":"096770", "롯데케미칼":"011170", "금호석유":"011780", "LG화학":"051910", "한화솔루션":"009830"},
-    "기계/건설": {"두산밥캣":"241560", "현대건설":"000720", "삼성엔지니어링":"028050", "GS건설":"006360", "대우건설":"047040", "HD현대인프라코어":"042670"},
+    "반도체": {"삼성전자":"005930", "SK하이닉스":"000660", "한미반도체":"042700", "DB하이텍":"000990", "리노공업":"058470", "HPSP":"403870", "이수페타시스":"007660"},
+    "배터리(2차전지)": {"LG에너지솔루션":"373220", "POSCO홀딩스":"005490", "삼성SDI":"006400", "에코프로비엠":"247540", "LG화학":"051910", "포스코퓨처엠":"003670", "에코프로":"086520"},
+    "자동차/부품": {"현대차":"005380", "기아":"000270", "현대모비스":"012330", "HL만도":"204320", "현대위아":"011210"},
+    "바이오/제약": {"삼성바이오로직스":"207940", "셀트리온":"068270", "유한양행":"000100", "SK바이오팜":"326030", "알테오젠":"196170", "HLB":"028300"},
+    "IT/플랫폼": {"NAVER":"035420", "카카오":"035720", "삼성SDS":"018260", "크래프톤":"259960", "카카오뱅크":"323410"},
+    "방위산업": {"한화에어로스페이스":"012450", "한국항공우주":"047810", "현대로템":"064350", "LIG넥스원":"079550", "한화시스템":"272210"},
+    "조선/해운": {"HD현대중공업":"329180", "삼성중공업":"010140", "한화오션":"042660", "HMM":"011200", "HD한국조선해양":"009540"},
+    "전력/에너지": {"한국전력":"015760", "두산에너빌리티":"034020", "HD현대일렉트릭":"267260", "LS ELECTRIC":"010120"},
     "금융/지주": {"KB금융":"105560", "신한지주":"055550", "하나금융지주":"086790", "메리츠금융지주":"138040", "우리금융지주":"316140", "기업은행":"024110"},
-    "엔터/게임": {"하이브":"352820", "JYP Ent.":"035900", "엔씨소프트":"036570", "넷마블":"251270", "펄어비스":"263750", "에스엠":"041510", "와이지엔터테인먼트":"122870"},
-    "화장품/소비": {"아모레퍼시픽":"090430", "LG생활건강":"051900", "CJ제일제당":"097950", "F&F":"383220", "삼양식품":"003230", "농심":"004370", "호텔신라":"008770"},
-    "가스/유틸": {"한국가스공사":"036460", "지역난방공사":"071320", "SK가스":"018670", "삼천리":"004690"},
-    "디스플레이": {"LG디스플레이":"034220", "삼성전기":"009150", "이녹스첨단소재":"272290", "LX세미콘":"108320"},
-    "금속/철강": {"고려아연":"010130", "현대제철":"004020", "POSCO홀딩스":"005490", "동국제강":"460860"}
+    "엔터/게임": {"하이브":"352820", "JYP Ent.":"035900", "엔씨소프트":"036570", "넷마블":"251270", "펄어비스":"263750", "에스엠":"041510"}
 }
 
 THEME_DB = {
     "주도주(시총상위)": {"삼성전자":"005930", "SK하이닉스":"000660", "LG에너지솔루션":"373220", "삼성바이오로직스":"207940", "현대차":"005380"},
-    "저PBR(밸류업)": {"현대차":"005380", "기아":"000270", "KB금융":"105560", "하나금융지주":"086790", "기업은행":"024110", "삼성생명":"032830"},
-    "AI/반도체 소부장": {"한미반도체":"042700", "HPSP":"403870", "이수페타시스":"007660", "리노공업":"058470", "제우스":"079370", "오로스테크놀로지":"322310"}
+    "저PBR(밸류업)": {"현대차":"005380", "기아":"000270", "KB금융":"105560", "하나금융지주":"086790", "기업은행":"024110"}
 }
 
 # --- [3. 데이터 및 API 설정] ---
@@ -87,38 +76,49 @@ krx_df = get_krx_list()
 @st.cache_data(ttl=600)
 def get_market_indices():
     try:
-        now = datetime.datetime.now(); start = now - datetime.timedelta(days=7)
-        # 데이터 가져오기
+        now = datetime.datetime.now(); start = now - datetime.timedelta(days=10)
+        
+        # 1. KOSPI
         kospi = fdr.DataReader('KS11', start).iloc[-1]
-        kosdaq = fdr.DataReader('KQ11', start).iloc[-1]
+        # 2. USD/KRW (환율)
         usd = fdr.DataReader('USD/KRW', start).iloc[-1]
-        nasdaq = fdr.DataReader('IXIC', start).iloc[-1]
-        sp500 = fdr.DataReader('US500', start).iloc[-1]
+        # 3. US 10Y Treasury (미국 국채 10년물 - 금리 대용)
+        us10y = fdr.DataReader('US10YT', start).iloc[-1]
+        # 4. Crude Oil (WTI 유가) - FRED 심볼 'DCOILWTICO' 대신 fdr의 'CL=F' (선물) 사용 권장되나 단순화
+        # fdr에서 유가/금 데이터는 종종 티커가 변경됨. 안정적인 'CL=F'(WTI), 'GC=F'(Gold) 사용
+        oil = fdr.DataReader('CL=F', start).iloc[-1] # WTI Crude Oil
+        # 5. Gold (금)
+        gold = fdr.DataReader('GC=F', start).iloc[-1] 
 
-        # 지표 상태 판단 함수
         def analyze_index(name, curr, open_price):
             diff = curr - open_price
             sign = "▲" if diff > 0 else "▼"
             
-            # 상태 판단 (환율은 반대)
-            if name == "USD/KRW":
-                status = "원화약세(부정)" if diff > 0 else "원화강세(긍정)"
-                css = "status-bad" if diff > 0 else "status-good"
+            # 상태 판단 (환율, 금리, 유가는 오르면 주식에 보통 부정적)
+            if name in ["USD/KRW", "미국채10년", "WTI유가"]:
+                status = "하락(긍정)" if diff < 0 else "상승(부정)"
+                css = "status-good" if diff < 0 else "status-bad"
             else:
-                status = "시장상승(긍정)" if diff > 0 else "시장하락(부정)"
+                status = "상승(긍정)" if diff > 0 else "하락(부정)"
                 css = "status-good" if diff > 0 else "status-bad"
             
-            return {"v": curr, "d": diff, "s": sign, "st": status, "css": css}
+            # 소수점 처리
+            fmt = "{:,.2f}"
+            
+            return {"v": curr, "d": diff, "s": sign, "st": status, "css": css, "fmt": fmt}
 
         return {
             "KOSPI": analyze_index("KOSPI", kospi['Close'], kospi['Open']),
-            "KOSDAQ": analyze_index("KOSDAQ", kosdaq['Close'], kosdaq['Open']),
             "USD/KRW": analyze_index("USD/KRW", usd['Close'], usd['Open']),
-            "NASDAQ": analyze_index("NASDAQ", nasdaq['Close'], nasdaq['Open']),
-            "S&P500": analyze_index("S&P500", sp500['Close'], sp500['Open']),
+            "미국채10년": analyze_index("미국채10년", us10y['Close'], us10y['Open']),
+            "WTI유가": analyze_index("WTI유가", oil['Close'], oil['Open']),
+            "금(Gold)": analyze_index("금(Gold)", gold['Close'], gold['Open']),
         }
-    except: return None
+    except Exception as e:
+        # 에러 시 None 반환하여 UI에서 처리
+        return None
 
+# [GitHub 연동 복구] - 이 부분이 포트폴리오를 살려냅니다.
 def load_from_github():
     try:
         if "GITHUB_TOKEN" not in st.secrets: return {}
@@ -132,7 +132,9 @@ def load_from_github():
         return {}
     except: return {}
 
-if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
+# 세션 상태 초기화 시 GitHub 데이터 로드
+if 'watchlist' not in st.session_state or not st.session_state['watchlist']:
+    st.session_state['watchlist'] = load_from_github()
 
 # --- [4. 분석 엔진] ---
 
@@ -225,7 +227,6 @@ def analyze_stock(code, name):
         df['MA60'] = df['Close'].rolling(60).mean()
         curr = df.iloc[-1]
         
-        # 필터: 기술적 조건 (20일선 위에 있거나, 골든크로스 등)
         is_good_tech = curr['Close'] >= curr['MA20']
         
         tech_score = 0
@@ -244,7 +245,6 @@ def analyze_stock(code, name):
 
         fund_score, fund_data = get_fundamental_score(code)
         
-        # [최적화] 상승 추세이거나, 내 포트폴리오에 있는 경우에만 뉴스 분석 수행
         is_my_stock = name in st.session_state['watchlist']
         if is_good_tech or is_my_stock:
              news = get_news_sentiment(name)
@@ -268,70 +268,63 @@ def send_telegram_msg(token, chat_id, msg):
 def get_target_list(mode, sub_category=None):
     targets = {}
     if mode == "전체":
-        # Top 50
         try:
             top50 = fdr.StockListing('KRX').head(50)
             for _, r in top50.iterrows(): targets[r['Code']] = r['Name']
         except: pass
-        # Sector
         for cat in SECTOR_DB:
             for n, c in SECTOR_DB[cat].items(): targets[c] = n
-        # Theme
         for cat in THEME_DB:
             for n, c in THEME_DB[cat].items(): targets[c] = n
-            
     elif mode == "업종별" and sub_category:
         for n, c in SECTOR_DB.get(sub_category, {}).items(): targets[c] = n
-        
     elif mode == "테마별" and sub_category:
         for n, c in THEME_DB.get(sub_category, {}).items(): targets[c] = n
-        
     return targets
 
 # --- [5. 메인 화면 구성] ---
-st.title("💎 Quant Sniper V26.0 (Final)")
+st.title("💎 Quant Sniper V27.0 (Final)")
 
-# (1) 시장 지표 & 범례
+# (1) 시장 지표 (5종: 코스피, 환율, 금리, 유가, 금)
 indices = get_market_indices()
 if indices:
-    st.markdown("### 🌍 글로벌 시장 지표 (실시간)")
+    st.markdown("### 🌍 글로벌 주요 지표 (실시간)")
     cols = st.columns(5)
-    keys = ["KOSPI", "KOSDAQ", "USD/KRW", "NASDAQ", "S&P500"]
+    keys = ["KOSPI", "USD/KRW", "미국채10년", "WTI유가", "금(Gold)"]
     for i, k in enumerate(keys):
-        idx = indices[k]
-        with cols[i]:
-            st.markdown(f"""
-            <div class='metric-container'>
-                <div class='metric-label'>{k}</div>
-                <div class='metric-value'>{idx['v']:,.2f}</div>
-                <div class='metric-status {idx['css']}'>{idx['s']} {idx['d']:.2f} ({idx['st']})</div>
-            </div>
-            """, unsafe_allow_html=True)
-else: st.info("시장 지표 로딩 중...")
+        idx = indices.get(k)
+        if idx:
+            with cols[i]:
+                st.markdown(f"""
+                <div class='metric-container'>
+                    <div class='metric-label'>{k}</div>
+                    <div class='metric-value'>{idx['v']:,.2f}</div>
+                    <div class='metric-status {idx['css']}'>{idx['s']} {idx['d']:.2f} ({idx['st']})</div>
+                </div>
+                """, unsafe_allow_html=True)
+else: st.warning("시장 지표 데이터를 불러오는 중 오류가 발생했거나 장 운영 시간이 아닙니다.")
 
-with st.expander("📚 [초보자를 위한 용어 사전] 지표/분석 용어 설명 보기"):
+with st.expander("ℹ️ 지표 해석 가이드"):
     st.markdown("""
-    * **KOSPI/KOSDAQ:** 숫자가 빨간색(▲)이면 시장 분위기가 좋은 것입니다. 파란색(▼)이면 조심하세요.
-    * **USD/KRW (환율):** 환율이 오르면(▲) 외국인이 주식을 팔고 나갈 가능성이 높아 보통 **악재**로 봅니다.
-    * **PER (주가수익비율):** 낮을수록(10 이하) 회사가 돈을 잘 버는데 주가는 싸다는 뜻입니다. (저평가)
-    * **PBR (주가순자산비율):** 1.0보다 낮으면 회사를 다 팔아 치운 값보다 주가가 싸다는 뜻입니다. (절대 저평가)
-    * **골든크로스:** 단기 이평선(5일)이 장기 이평선(20일)을 뚫고 올라가는 것으로, **강력한 매수 신호**입니다.
+    * **USD/KRW (환율):** 하락(▼)해야 외국인 수급에 유리합니다.
+    * **미국채10년 (금리):** 하락(▼)해야 성장주(기술주)에 유리합니다.
+    * **WTI유가:** 너무 오르면 물가 상승 압박으로 악재가 됩니다.
     """)
 
 st.markdown("---")
 
 # (2) 탭 구성
-tab_pf, tab_scan = st.tabs(["💼 내 포트폴리오 (복구됨)", "🔭 통합 종목 스캔 (분리됨)"])
+tab_pf, tab_scan = st.tabs(["💼 내 포트폴리오 (복구완료)", "🔭 통합 종목 스캔"])
 
-# --- TAB 1: 내 포트폴리오 (기능 복구) ---
+# --- TAB 1: 내 포트폴리오 ---
 with tab_pf:
-    st.subheader("📌 내가 등록한 관심 종목 집중 분석")
+    st.subheader("📌 나의 관심 종목")
     
     if not st.session_state['watchlist']:
-        st.info("등록된 종목이 없습니다. '통합 종목 스캔' 탭에서 종목을 찾아 추가하세요.")
+        st.warning("저장된 종목이 없습니다. (GitHub 파일이 비어있거나 연동 실패)")
     else:
-        if st.button("🔄 내 종목 분석 실행", type="primary"):
-            with st.spinner("보유 종목 정밀 분석 중..."):
+        if st.button("🔄 포트폴리오 새로고침 및 분석", type="primary"):
+            with st.spinner("내 종목들 정밀 진단 중..."):
                 items = list(st.session_state['watchlist'].items())
                 results = []
                 with concurrent.futures.ThreadPoolExecutor() as exe:
@@ -365,17 +358,15 @@ with tab_pf:
                         st.write("📰 **뉴스 요약**")
                         if r['news']['method'] == 'ai': st.success(r['news']['headline'])
                         elif r['news']['method'] == 'keyword': st.warning(r['news']['headline'])
-                        else: st.caption("분석 생략 (기술적 지표 부진 등)")
+                        else: st.caption("분석 생략")
                     
                     chart = alt.Chart(r['history'].reset_index().tail(100)).encode(x='Date:T', y=alt.Y('Close:Q', scale=alt.Scale(zero=False))).mark_line()
                     st.altair_chart(chart, use_container_width=True)
 
-# --- TAB 2: 통합 스캔 (카테고리 분리) ---
+# --- TAB 2: 통합 스캔 ---
 with tab_scan:
-    st.subheader("🕵️‍♂️ 유망 종목 발굴 & 텔레그램 알림")
-    
-    # [V26.0] 스캔 모드 분리
-    scan_type = st.radio("스캔 범위 선택", ["전체 통합 스캔 (약 150개)", "카테고리별 스캔"], horizontal=True)
+    st.subheader("🕵️‍♂️ 시장 주도주 발굴")
+    scan_type = st.radio("스캔 대상", ["전체 통합 스캔 (약 150개)", "카테고리별 스캔"], horizontal=True)
     
     target_dict = {}
     scan_title = ""
@@ -384,7 +375,7 @@ with tab_scan:
         target_dict = get_target_list("전체")
         scan_title = "전체 통합"
     else:
-        cat_type = st.selectbox("대분류 선택", ["업종별", "테마별"])
+        cat_type = st.selectbox("대분류", ["업종별", "테마별"])
         if cat_type == "업종별":
             sub = st.selectbox("세부 업종", list(SECTOR_DB.keys()))
             target_dict = get_target_list("업종별", sub)
@@ -394,12 +385,10 @@ with tab_scan:
             target_dict = get_target_list("테마별", sub)
             scan_title = sub
             
-    st.info(f"👉 **'{scan_title}'** 대상 총 **{len(target_dict)}개** 종목을 분석합니다.")
-
-    if st.button("⚡ 스캔 시작 및 텔레그램 전송", type="primary"):
+    if st.button("⚡ 스캔 시작 (텔레그램 전송)", type="primary"):
         token = st.secrets.get("TELEGRAM_TOKEN"); chat_id = st.secrets.get("CHAT_ID")
         
-        if not token or not chat_id: st.error("텔레그램 설정 오류 (Secrets 확인)")
+        if not token or not chat_id: st.error("Secrets 설정 필요")
         else:
             bar = st.progress(0, text="데이터 수집 중...")
             found = []
@@ -409,35 +398,29 @@ with tab_scan:
             for code, name in target_dict.items():
                 cnt += 1
                 bar.progress(cnt/total, text=f"[{cnt}/{total}] {name} 분석 중...")
-                
                 res = analyze_stock(code, name)
-                if res and res['score'] >= 60: # 60점 이상만
+                if res and res['score'] >= 60:
                     found.append(res)
                     time.sleep(0.5)
             
-            bar.progress(100, text="완료! 리포트 작성 중...")
+            bar.progress(100, text="완료!")
             
             if found:
                 found.sort(key=lambda x: x['score'], reverse=True)
-                msg = f"💎 [Quant Sniper] {scan_title} 발굴 리포트\n({datetime.datetime.now().strftime('%m/%d %H:%M')})\n\n"
-                
+                msg = f"💎 [Quant Sniper] {scan_title} 발굴 ({datetime.datetime.now().strftime('%m/%d %H:%M')})\n\n"
                 for i, r in enumerate(found[:10]):
-                    msg += f"{i+1}. {r['name']} ({r['score']}점)\n"
-                    msg += f"   가격: {r['price']:,}원 ({r['trend']})\n"
-                    msg += f"   요약: {r['news']['headline'][:30]}..\n\n"
+                    msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원 ({r['trend']})\n   요약: {r['news']['headline'][:30]}..\n\n"
                 
                 send_telegram_msg(token, chat_id, msg)
-                st.success(f"✅ {len(found)}개 종목 발견! 텔레그램으로 전송했습니다.")
+                st.success(f"✅ {len(found)}개 발견! 텔레그램 전송 완료.")
                 
-                # 화면 결과 표시 및 추가 버튼
-                st.write("---")
-                st.write("### 🎯 발굴된 종목 (내 포트폴리오에 추가해보세요)")
+                st.write("### 🎯 발굴된 종목")
                 for r in found[:10]:
                     c1, c2 = st.columns([4, 1])
-                    with c1: st.write(f"**{r['name']}** ({r['score']}점) - {r['news']['headline']}")
+                    with c1: st.write(f"**{r['name']}** ({r['score']}점)")
                     with c2: 
                         if st.button(f"추가", key=f"add_{r['code']}"):
                             st.session_state['watchlist'][r['name']] = {"code": r['code']}
-                            st.toast(f"{r['name']} 추가됨!")
+                            st.toast(f"추가됨!")
             else:
-                st.warning("조건(60점 이상)에 맞는 종목이 없습니다.")
+                st.warning("조건에 맞는 종목이 없습니다.")
