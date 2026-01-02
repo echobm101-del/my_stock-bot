@@ -13,17 +13,24 @@ import feedparser
 import urllib.parse
 import re
 
-# --- [1. 기본 설정] ---
-st.set_page_config(page_title="Quant Sniper Final", page_icon="💎", layout="wide")
+# --- [1. 기본 설정 및 스타일] ---
+st.set_page_config(page_title="Quant Sniper (Clean Fixed)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
     .toss-card { background: #FFFFFF; border-radius: 20px; padding: 20px; border: 1px solid #E5E8EB; margin-bottom: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
-    .metric-box { text-align: center; padding: 10px; background: #F9FAFB; border-radius: 10px; border: 1px solid #E5E8EB; }
-    .status-up { color: #F04452; font-weight: bold; }
-    .status-down { color: #3182F6; font-weight: bold; }
-    .news-box { background-color: #f8f9fa; padding: 10px; border-radius: 10px; margin-top: 10px; font-size: 13px; }
+    
+    /* 에러 및 뉴스 박스 스타일 */
+    .error-box { background-color: #FFF4E6; color: #D9480F; padding: 15px; border-radius: 12px; border: 1px solid #FFD8A8; font-weight: 600; margin-top: 10px; font-size: 14px; }
+    .success-box { background-color: #F9FAFB; padding: 15px; border-radius: 12px; border: 1px solid #E5E8EB; margin-top: 10px; font-size: 14px; color: #333; }
+    
+    /* 재무 정보 그리드 */
+    .fund-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px; margin-bottom: 10px; }
+    .fund-item { padding: 12px; border-radius: 8px; text-align: center; background: #F2F4F6; }
+    .fund-label { font-size: 12px; color: #666; }
+    .fund-val { font-size: 16px; font-weight: bold; color: #333; }
+    
     .stButton>button { width: 100%; border-radius: 8px; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
@@ -37,11 +44,10 @@ SECTOR_DB = {
     "IT/플랫폼": {"NAVER":"035420", "카카오":"035720", "크래프톤":"259960"},
     "방산/조선": {"한화에어로스페이스":"012450", "HD현대중공업":"329180", "한화오션":"042660", "LIG넥스원":"079550"},
     "전력/에너지": {"한국전력":"015760", "두산에너빌리티":"034020", "HD현대일렉트릭":"267260", "LS ELECTRIC":"010120"},
-    "금융": {"KB금융":"105560", "신한지주":"055550", "메리츠금융지주":"138040", "우리금융지주":"316140"}
+    "금융": {"KB금융":"105560", "신한지주":"055550", "하나금융지주":"086790", "메리츠금융지주":"138040"}
 }
-THEME_DB = {"주도주": {"삼성전자":"005930", "현대차":"005380"}, "저PBR": {"기아":"000270", "KB금융":"105560"}}
 
-# --- [3. GitHub 연동 (저장/불러오기)] ---
+# --- [3. GitHub 연동] ---
 REPO_OWNER = "echobm101-del"
 REPO_NAME = "my_stock-bot"
 FILE_PATH = "my_watchlist_v7.json"
@@ -62,122 +68,100 @@ def save_github_file(data):
         if "GITHUB_TOKEN" not in st.secrets: return False
         headers = {"Authorization": f"token {st.secrets['GITHUB_TOKEN']}"}
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-        
-        # SHA 가져오기
         r_get = requests.get(url, headers=headers)
         sha = r_get.json().get('sha') if r_get.status_code == 200 else None
         
-        # 업로드
         payload = {
-            "message": "update watchlist",
+            "message": "update",
             "content": base64.b64encode(json.dumps(data, ensure_ascii=False).encode('utf-8')).decode('utf-8')
         }
         if sha: payload['sha'] = sha
-        
         return requests.put(url, headers=headers, json=payload).status_code in [200, 201]
     except: return False
 
-# 초기화
 if 'watchlist' not in st.session_state or not st.session_state['watchlist']:
     st.session_state['watchlist'] = get_github_file()
 
-# --- [4. 분석 엔진] ---
-@st.cache_data(ttl=600)
-def get_indices():
-    try:
-        start = datetime.datetime.now() - datetime.timedelta(days=10)
-        def get_val(ticker):
-            try: return fdr.DataReader(ticker, start).iloc[-1]
-            except: return None
-
-        return {
-            "KOSPI": get_val('KS11'), "USD/KRW": get_val('USD/KRW'), 
-            "미국채10년": get_val('US10YT'), "유가": get_val('CL=F'), "금": get_val('GC=F')
-        }
-    except: return {}
-
+# --- [4. 분석 엔진 (에러 수정됨)] ---
 def call_gemini(prompt):
+    api_key = st.secrets.get("GOOGLE_API_KEY", "")
+    if not api_key: return None, "API Key 없음"
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     try:
-        api_key = st.secrets.get("GOOGLE_API_KEY", "")
-        if not api_key: return None
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         resp = requests.post(url, headers={"Content-Type": "application/json"}, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=5)
-        if resp.status_code == 200: return resp.json()
-    except: pass
-    return None
+        if resp.status_code == 200: return resp.json(), None
+        else: return None, f"AI 연결 실패: {resp.status_code} {resp.text}"
+    except Exception as e: return None, f"통신 에러: {str(e)}"
 
 def get_news_summary(name):
     try:
         q = urllib.parse.quote(f"{name} 주가")
-        feed = feedparser.parse(f"https://news.google.com/rss/search?q={q}&hl=ko&gl=KR&ceid=KR:ko")
-        if not feed.entries: return "뉴스 없음", []
+        # f-string syntax error 수정됨
+        rss_url = f"https://news.google.com/rss/search?q={q}&hl=ko&gl=KR&ceid=KR:ko"
+        feed = feedparser.parse(rss_url)
+        
+        if not feed.entries: return "뉴스 없음", [], None
         
         titles = [e.title for e in feed.entries[:5]]
         links = [{"title": e.title, "link": e.link, "date": e.published[:10]} for e in feed.entries[:5]]
         
         # AI 요약 시도
-        res = call_gemini(f"뉴스 제목들: {titles}. 이 종목의 현재 분위기를 한 줄로 요약해줘(JSON output: {{'summary':'...'}})")
+        res, err = call_gemini(f"뉴스 제목들: {titles}. 이 종목의 현재 분위기를 한 줄로 요약해줘(JSON output: {{'summary':'...'}})")
+        if err: return err, links, "error"
+
         summary = "AI 분석 대기중"
         if res:
             try:
                 txt = res['candidates'][0]['content']['parts'][0]['text']
                 summary = json.loads(re.search(r"\{.*\}", txt, re.DOTALL).group(0))['summary']
-            except: summary = "키워드 분석: " + ("긍정" if any(x in str(titles) for x in ['상승','호재']) else "중립/부정")
+                status = "success"
+            except: 
+                summary = "응답 형식 오류"
+                status = "error"
+        else:
+            status = "error"
             
-        return summary, links
-    except: return "뉴스 데이터 연동 실패", []
+        return summary, links, status
+    except Exception as e: return f"시스템 오류: {str(e)}", [], "error"
 
 def analyze_stock(code, name):
     try:
-        # 차트
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=365))
         if df.empty: return None
         curr = df.iloc[-1]['Close']
-        ma20 = df['Close'].rolling(20).mean().iloc[-1] if len(df) >= 20 else curr
+        ma20 = df['Close'].rolling(20).mean().iloc[-1]
         
         score = 70 if curr >= ma20 else 30
-        trend = "📈 상승 추세" if curr >= ma20 else "📉 하락 추세"
+        trend = "🚀 상승 추세" if curr >= ma20 else "📉 하락/조정"
         
-        # 펀더멘탈
-        fund = {"per": 0, "pbr": 0}
+        fund = {"per": 0, "pbr": 0, "div": 0}
         try:
             f = stock.get_market_fundamental_by_date(datetime.datetime.now().strftime("%Y%m%d"), datetime.datetime.now().strftime("%Y%m%d"), code)
-            if not f.empty: fund = {"per": f.iloc[-1]['PER'], "pbr": f.iloc[-1]['PBR']}
+            if not f.empty: fund = {"per": f.iloc[-1]['PER'], "pbr": f.iloc[-1]['PBR'], "div": f.iloc[-1]['DIV']}
         except: pass
         
-        # 뉴스
-        news_txt, news_links = get_news_summary(name)
+        news_txt, news_links, status = get_news_summary(name)
 
         return {
             "name": name, "code": code, "price": int(curr), 
             "score": score, "trend": trend, "fund": fund, 
-            "news": news_txt, "links": news_links, "history": df
+            "news_msg": news_txt, "links": news_links, "status": status, "history": df
         }
     except: return None
 
+def send_telegram_msg(token, chat_id, msg):
+    try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
+    except: pass
+
 # --- [5. UI 구성] ---
-st.title("💎 Quant Sniper Final")
+st.title("💎 Quant Sniper (Clean)")
 
-# 1. 지표
-indices = get_indices()
-if indices:
-    cols = st.columns(5)
-    for i, (k, v) in enumerate(indices.items()):
-        with cols[i]:
-            if v is not None:
-                diff = v['Close'] - v['Open']
-                color = "status-up" if diff > 0 else "status-down"
-                if k in ["USD/KRW", "미국채10년", "유가"]: color = "status-down" if diff > 0 else "status-up" # 역상관
-                st.markdown(f"<div class='metric-box'><div style='font-size:12px; color:#888;'>{k}</div><div style='font-weight:bold;'>{v['Close']:,.2f}</div><div class='{color}'>{diff:+.2f}</div></div>", unsafe_allow_html=True)
-
-st.markdown("---")
-
-# 2. 메인 탭
-tab1, tab2 = st.tabs(["💼 포트폴리오", "🔍 종목 추가/발굴"])
+tab1, tab2 = st.tabs(["💼 내 포트폴리오", "🔍 종목 추가/스캔"])
 
 with tab1:
     if not st.session_state['watchlist']:
-        st.info("저장된 종목이 없습니다. '종목 추가' 탭을 이용하세요.")
+        st.info("등록된 종목이 없습니다.")
     else:
         if st.button("🔄 전체 분석 실행"):
             with st.spinner("분석 중..."):
@@ -185,10 +169,10 @@ with tab1:
                 with concurrent.futures.ThreadPoolExecutor() as exe:
                     futures = {exe.submit(analyze_stock, v['code'], k): k for k, v in st.session_state['watchlist'].items()}
                     for f in concurrent.futures.as_completed(futures):
-                        if f.result(): res[futures[f]] = f.result()
+                        nm = futures[f]; r = f.result()
+                        if r: res[nm] = r
                 st.session_state['results'] = res
 
-        # [핵심] 결과가 없어도 카드는 무조건 출력
         for name, info in st.session_state['watchlist'].items():
             r = st.session_state.get('results', {}).get(name)
             
@@ -200,7 +184,7 @@ with tab1:
                     col = "#F04452" if r['score']>=60 else "#3182F6"
                     st.markdown(f"<span style='font-size:24px; font-weight:bold;'>{r['price']:,}원</span> <span style='color:{col}; font-weight:bold;'>{r['trend']}</span>", unsafe_allow_html=True)
                 else:
-                    st.markdown("<span style='color:#999;'>분석 대기 중... (버튼을 눌러주세요)</span>", unsafe_allow_html=True)
+                    st.markdown("<span style='color:#999;'>분석 대기 중...</span>", unsafe_allow_html=True)
             
             with c2:
                 if st.button("삭제", key=f"del_{info['code']}"):
@@ -208,17 +192,35 @@ with tab1:
                     save_github_file(st.session_state['watchlist'])
                     st.rerun()
 
-            # 상세 정보 (분석된 경우만)
             if r:
-                with st.expander("상세 분석 보기"):
-                    st.write(f"PER: {r['fund']['per']} | PBR: {r['fund']['pbr']}")
-                    st.info(f"뉴스 요약: {r['news']}")
-                    st.altair_chart(alt.Chart(r['history'].reset_index().tail(100)).encode(x='Date:T', y=alt.Y('Close:Q', scale=alt.Scale(zero=False))).mark_line(), use_container_width=True)
+                with st.expander("📊 상세 분석 & 차트"):
+                    # 재무
+                    st.markdown(f"""
+                    <div class='fund-grid'>
+                        <div class='fund-item'><div class='fund-label'>PER</div><div class='fund-val'>{r['fund']['per']:.2f}</div></div>
+                        <div class='fund-item'><div class='fund-label'>PBR</div><div class='fund-val'>{r['fund']['pbr']:.2f}</div></div>
+                        <div class='fund-item'><div class='fund-label'>배당률</div><div class='fund-val'>{r['fund']['div']:.1f}%</div></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # 뉴스 (에러 그대로 표시)
+                    st.write("📰 **구글 뉴스 AI 요약**")
+                    if r['status'] == 'success':
+                        st.markdown(f"<div class='success-box'>🤖 {r['news_msg']}</div>", unsafe_allow_html=True)
+                    elif r['status'] == 'error':
+                        st.markdown(f"<div class='error-box'>⚠️ {r['news_msg']}</div>", unsafe_allow_html=True)
+                    else:
+                        st.info(r['news_msg'])
+                        
+                    for l in r['links']:
+                        st.markdown(f"<a href='{l['link']}' target='_blank' style='text-decoration:none; color:#333; font-size:13px;'>📄 {l['title']}</a>", unsafe_allow_html=True)
+                    
+                    st.altair_chart(alt.Chart(r['history'].reset_index().tail(120)).encode(x='Date:T', y=alt.Y('Close:Q', scale=alt.Scale(zero=False))).mark_line(), use_container_width=True)
             
             st.markdown("</div>", unsafe_allow_html=True)
 
 with tab2:
-    st.subheader("종목 검색 및 추가 (자동 저장)")
+    st.subheader("종목 검색 및 추가")
     c1, c2 = st.columns([3, 1])
     txt = c1.text_input("종목명")
     if c2.button("검색") and txt:
@@ -233,7 +235,6 @@ with tab2:
     st.markdown("---")
     st.subheader("🚀 통합 스캔 & 텔레그램 알림")
     
-    # 스캔 대상 선정
     scan_mode = st.radio("스캔 범위", ["전체", "업종별"], horizontal=True)
     targets = {}
     
@@ -254,7 +255,7 @@ with tab2:
                 cnt += 1
                 bar.progress(cnt/len(targets), text=f"{name} 분석 중...")
                 r = analyze_stock(code, name)
-                if r and r['score'] >= 60: found.append(r); time.sleep(0.5)
+                if r and r['status'] == 'success' and r['score'] >= 60: found.append(r); time.sleep(0.5)
             
             bar.progress(100, text="완료!")
             
@@ -262,7 +263,7 @@ with tab2:
                 found.sort(key=lambda x: x['score'], reverse=True)
                 msg = f"💎 발굴 리포트 ({len(found)}개)\n\n"
                 for i, r in enumerate(found[:5]):
-                    msg += f"{i+1}. {r['name']} ({r['score']}점)\n   {r['news'][:40]}..\n\n"
+                    msg += f"{i+1}. {r['name']} ({r['score']}점)\n   {r['news_msg'][:40]}..\n\n"
                 
                 try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
                 except: pass
