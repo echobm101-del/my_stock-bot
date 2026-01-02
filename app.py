@@ -18,7 +18,7 @@ import urllib.parse
 import numpy as np
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V25.0", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V26.0", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -27,12 +27,20 @@ st.markdown("""
     .text-up { color: #F04452 !important; }
     .text-down { color: #3182F6 !important; }
     
-    .fund-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px; }
-    .fund-item { padding: 12px; border-radius: 12px; text-align: center; }
-    .fund-label { font-size: 12px; color: #6B7684; margin-bottom: 4px; }
-    .fund-val { font-size: 16px; font-weight: 800; color: #333D4B; }
-    .fund-badge { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; margin-left: 4px; display:inline-block; }
+    /* V26.0 개선: 재무 성적표 스타일 */
+    .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
+    .fund-item-v2 { text-align: center; }
+    .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
+    .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
+    .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
     
+    /* V26.0 개선: 기술적 지표 직관적 스타일 */
+    .tech-status-box { display: flex; gap: 10px; margin-bottom: 10px; }
+    .status-badge { flex: 1; padding: 10px; border-radius: 8px; text-align: center; font-size: 13px; font-weight: 700; color: #4E5968; background: #F2F4F6; border: 1px solid #E5E8EB; }
+    .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; } /* 매수기회 (파랑/초록 계열) */
+    .status-badge.sell { background-color: #FFF1F1; color: #F04452; border-color: #F04452; } /* 과열 (빨강) */
+    .status-badge.vol { background-color: #FFF8E1; color: #D9480F; border-color: #FFD8A8; } /* 거래량 폭발 */
+
     .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
     .ma-badge { padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-right: 5px; background: #EEE; color: #888; }
     .ma-ok { background: #F04452; color: white; }
@@ -120,7 +128,7 @@ def get_macro_data():
     except:
         return None
 
-# --- [3. 분석 엔진 V25.0] ---
+# --- [3. 분석 엔진 V26.0] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
@@ -134,7 +142,7 @@ def get_company_guide_score(code):
         per = recent['PER']; pbr = recent['PBR']; div = recent['DIV']
         
         pbr_stat = "good" if pbr < 1.0 else ("neu" if pbr < 2.5 else "bad")
-        pbr_txt = "저평가" if pbr < 1.0 else ("적정" if pbr < 2.5 else "고평가")
+        pbr_txt = "저평가(좋음)" if pbr < 1.0 else ("적정" if pbr < 2.5 else "고평가(주의)")
         per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
         per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자")
         div_stat = "good" if div > 3.0 else "neu"
@@ -269,10 +277,13 @@ def analyze_pro(code, name_override=None):
         df['MA60'] = df['Close'].rolling(60).mean(); df['MA120'] = df['Close'].rolling(120).mean()
         df['MA240'] = df['Close'].rolling(240).mean()
         
-        # [V25.0 추가] 볼린저 밴드 계산
+        # [V25.0 유지] 볼린저 밴드
         df['std'] = df['Close'].rolling(20).std()
         df['BB_Upper'] = df['MA20'] + (df['std'] * 2)
         df['BB_Lower'] = df['MA20'] - (df['std'] * 2)
+
+        # [V26.0 추가] 거래량 분석 (거래량 폭발 감지용)
+        df['Vol_MA20'] = df['Volume'].rolling(20).mean()
 
         # 스토캐스틱
         n = 14; m = 3; t = 3
@@ -313,7 +324,8 @@ def analyze_pro(code, name_override=None):
             "strategy": {"buy": int(curr['MA20']), "target": int(curr['Close']*1.1), "action": "매수" if final_score>=60 else "관망"},
             "fund_data": fund_data, "ma_status": ma_status, "trend_txt": trend_txt,
             "news": news, "history": df, "supply": sup,
-            "stoch": {"k": curr['%K'], "d": curr['%J']}
+            "stoch": {"k": curr['%K'], "d": curr['%J']},
+            "vol_ratio": curr['Volume'] / curr['Vol_MA20'] if curr['Vol_MA20'] > 0 else 1.0 # 거래량 비율
         }
     except Exception as e: 
         return None
@@ -332,8 +344,8 @@ def create_card_html(res):
     </div>
     """)
 
-# [V25.0 수정] 차트: 가격 + 볼린저밴드 + 거래량 + 스토캐스틱
-def create_chart_advanced(df):
+# [V26.0 수정] 차트: 가격 + 볼린저밴드 (하단 보조지표 제거하여 깔끔하게)
+def create_chart_clean(df):
     chart_data = df.tail(120).reset_index()
     
     # 1. Price Chart Base
@@ -350,40 +362,83 @@ def create_chart_advanced(df):
     ma20 = base.mark_line(color='#F2A529').encode(y='MA20:Q')
     ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q')
     
-    # Combine Price Chart
-    price_chart = (band + line + ma20 + ma60).properties(height=200)
-    
-    # 4. Volume Chart
-    vol = base.mark_bar(color='#E5E8EB').encode(y=alt.Y('Volume:Q', title="거래량")).properties(height=60)
-    
-    # 5. Stochastic Chart
-    stoch_k = base.mark_line(color='#F04452').encode(y=alt.Y('%K:Q', title="Stoch"))
-    stoch_d = base.mark_line(color='#3182F6').encode(y='%J:Q')
-    band_low = base.mark_rule(color='gray', strokeDash=[2,2]).encode(y=alt.datum(20))
-    band_high = base.mark_rule(color='gray', strokeDash=[2,2]).encode(y=alt.datum(80))
-    stoch_chart = (stoch_k + stoch_d + band_low + band_high).properties(height=80)
+    # Simple Chart
+    return (band + line + ma20 + ma60).properties(height=250)
 
-    return alt.vconcat(price_chart, vol, stoch_chart).resolve_scale(x='shared')
+# [V26.0 추가] 직관적인 기술적 지표 UI (신호등 방식)
+def render_tech_metrics(stoch, vol_ratio):
+    k = stoch['k']
+    
+    # 스토캐스틱 상태 판단
+    if k < 20:
+        stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"
+        stoch_sub = "매수 기회 탐색"
+        stoch_cls = "buy"
+    elif k > 80:
+        stoch_txt = f"🔴 과열 구간 ({k:.1f}%)"
+        stoch_sub = "매도/조정 주의"
+        stoch_cls = "sell"
+    else:
+        stoch_txt = f"⚪ 중립 구간 ({k:.1f}%)"
+        stoch_sub = "추세 지속"
+        stoch_cls = ""
 
-def create_fund_chart(fund_data):
-    if not fund_data: return None
-    
-    data = [
-        {"Index": "PER", "Value": min(fund_data['per']['val'], 50), "Label": f"{fund_data['per']['val']:.1f}", "Color": "#F04452" if fund_data['per']['stat']=='good' else "#ADB5BD"},
-        {"Index": "PBR", "Value": min(fund_data['pbr']['val'], 5) * 10, "Label": f"{fund_data['pbr']['val']:.1f}", "Color": "#F04452" if fund_data['pbr']['stat']=='good' else "#ADB5BD"},
-        {"Index": "배당", "Value": fund_data['div']['val'] * 5, "Label": f"{fund_data['div']['val']:.1f}%", "Color": "#F04452" if fund_data['div']['stat']=='good' else "#ADB5BD"}
-    ]
-    df = pd.DataFrame(data)
-    
-    base = alt.Chart(df).encode(
-        x=alt.X('Index', title=None),
-        y=alt.Y('Value', title=None, axis=None),
-        color=alt.Color('Color', scale=None)
-    )
-    bar = base.mark_bar().properties(height=150)
-    text = base.mark_text(dy=-10).encode(text='Label')
-    
-    return (bar + text)
+    # 거래량 상태 판단
+    if vol_ratio >= 2.0:
+        vol_txt = f"🔥 거래량 폭발 ({vol_ratio*100:.0f}%)"
+        vol_cls = "vol"
+    elif vol_ratio >= 1.2:
+        vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"
+        vol_cls = "buy"
+    else:
+        vol_txt = "☁️ 거래량 평이"
+        vol_cls = ""
+
+    st.markdown(f"""
+    <div class='tech-status-box'>
+        <div class='status-badge {stoch_cls}'>
+            <div>📊 스토캐스틱</div>
+            <div style='font-size:16px; margin-top:4px;'>{stoch_txt}</div>
+            <div style='font-size:11px; opacity:0.8;'>{stoch_sub}</div>
+        </div>
+        <div class='status-badge {vol_cls}'>
+            <div>📢 거래강도(전일비)</div>
+            <div style='font-size:16px; margin-top:4px;'>{vol_txt}</div>
+            <div style='font-size:11px; opacity:0.8;'>평소보다 {vol_ratio:.1f}배 활발</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# [V26.0 수정] 재무 펀더멘탈: 회색 박스 대신 깔끔한 성적표 UI
+def render_fund_scorecard(fund_data):
+    if not fund_data: 
+        st.info("재무 정보가 없습니다.")
+        return
+
+    # 색상 결정
+    per_col = "#F04452" if fund_data['per']['stat']=='good' else ("#3182F6" if fund_data['per']['stat']=='bad' else "#333")
+    pbr_col = "#F04452" if fund_data['pbr']['stat']=='good' else ("#3182F6" if fund_data['pbr']['stat']=='bad' else "#333")
+    div_col = "#F04452" if fund_data['div']['stat']=='good' else "#333"
+
+    st.markdown(f"""
+    <div class='fund-grid-v2'>
+        <div class='fund-item-v2'>
+            <div class='fund-title-v2'>PER (주가수익비율)</div>
+            <div class='fund-value-v2' style='color:{per_col}'>{fund_data['per']['val']:.1f}배</div>
+            <div class='fund-desc-v2' style='background-color:{per_col}20; color:{per_col}'>{fund_data['per']['txt']}</div>
+        </div>
+        <div class='fund-item-v2'>
+            <div class='fund-title-v2'>PBR (주가순자산비율)</div>
+            <div class='fund-value-v2' style='color:{pbr_col}'>{fund_data['pbr']['val']:.1f}배</div>
+            <div class='fund-desc-v2' style='background-color:{pbr_col}20; color:{pbr_col}'>{fund_data['pbr']['txt']}</div>
+        </div>
+        <div class='fund-item-v2'>
+            <div class='fund-title-v2'>배당수익률</div>
+            <div class='fund-value-v2' style='color:{div_col}'>{fund_data['div']['val']:.1f}%</div>
+            <div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 def send_telegram_msg(token, chat_id, msg):
     url = f"https://api.telegram.org/bot{token}/sendMessage"
@@ -391,7 +446,7 @@ def send_telegram_msg(token, chat_id, msg):
     requests.post(url, data=data)
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V25.0")
+st.title("💎 Quant Sniper V26.0")
 
 # 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -442,36 +497,26 @@ else:
             col1, col2 = st.columns([2, 1])
             
             with col1:
-                st.write("###### 📈 기술적 분석 (Price+Bollinger / Vol / Stoch)")
+                st.write("###### 📈 기술적 분석")
                 st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
+                
+                # [V26.0] 신호등 UI (스토캐스틱/거래량)
+                render_tech_metrics(res['stoch'], res['vol_ratio'])
+                
+                # 차트 출력 (깔끔해진 버전)
+                st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+
+            with col2:
+                st.write("###### 🏢 재무 펀더멘탈")
+                # [V26.0] 재무 성적표 UI
+                render_fund_scorecard(res['fund_data'])
+                
+                st.write("###### 🔍 이동평균선 상태")
                 ma_html = ""
                 for m in res['ma_status']:
                     cls = "ma-ok" if m['ok'] else ""
                     ma_html += f"<span class='ma-badge {cls}'>{m['label']}</span>"
                 st.markdown(f"<div>{ma_html}</div>", unsafe_allow_html=True)
-                # 차트 출력
-                st.altair_chart(create_chart_advanced(res['history']), use_container_width=True)
-
-            with col2:
-                st.write("###### 🏢 재무 펀더멘탈")
-                fd = res['fund_data']
-                if fd:
-                    fund_chart = create_fund_chart(fd)
-                    if fund_chart: st.altair_chart(fund_chart, use_container_width=True)
-                    
-                    st.markdown(f"""
-                    <div class='fund-grid'>
-                        <div class='fund-item'>
-                            <div class='fund-label'>PER</div><div class='fund-val'>{fd['per']['val']:.1f}</div>
-                        </div>
-                        <div class='fund-item'>
-                            <div class='fund-label'>PBR</div><div class='fund-val'>{fd['pbr']['val']:.1f}</div>
-                        </div>
-                        <div class='fund-item'>
-                            <div class='fund-label'>배당률</div><div class='fund-val'>{fd['div']['val']:.1f}%</div>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
 
             st.write("###### 📰 뉴스 심층 분석 & VIX 체크")
             if res['news']['method'] == "ai":
@@ -510,7 +555,7 @@ with st.sidebar:
         
         if token and chat_id and 'results' in locals() and results:
             try:
-                msg = f"💎 Quant Sniper V25.0 리포트 ({datetime.date.today()})\n\n"
+                msg = f"💎 Quant Sniper V26.0 리포트 ({datetime.date.today()})\n\n"
                 
                 if macro:
                     msg += f"[시장상황] 코스피 {macro['KOSPI']['val']:.0f}({macro['KOSPI']['change']:.2f}%) / 환율 {macro['USD/KRW']['val']:.0f}\n\n"
