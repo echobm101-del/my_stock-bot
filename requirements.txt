@@ -7,3 +7,4 @@ pykrx
 beautifulsoup4
 setuptools
 lxml
+google-generativeai
