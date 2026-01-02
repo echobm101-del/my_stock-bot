@@ -14,9 +14,11 @@ from bs4 import BeautifulSoup
 import textwrap
 import re
 import google.generativeai as genai
+import feedparser
+import urllib.parse
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V19.4", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V19.7", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -41,7 +43,12 @@ st.markdown("""
     .ma-ok { background: #F04452; color: white; }
     
     .news-ai { background: #F9FAFB; padding: 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #E5E8EB; }
-    .news-box { padding: 10px; border-bottom: 1px solid #F2F4F6; font-size: 13px; }
+    /* 뉴스 리스트 스크롤 박스 */
+    .news-scroll-box { max-height: 300px; overflow-y: auto; border: 1px solid #F2F4F6; border-radius: 8px; padding: 10px; }
+    .news-box { padding: 8px 0; border-bottom: 1px solid #F2F4F6; font-size: 13px; }
+    .news-link { color: #333; text-decoration: none; font-weight: 500; display: block; margin-bottom: 2px;}
+    .news-link:hover { color: #3182F6; text-decoration: underline; }
+    .news-date { font-size: 11px; color: #999; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -71,13 +78,13 @@ def load_from_github():
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 
-# --- [3. 분석 엔진 V19.4 (안전장치 탑재)] ---
+# --- [3. 분석 엔진 V19.7 (뉴스 20개 분석)] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
     try:
         end_str = datetime.datetime.now().strftime("%Y%m%d")
-        start_str = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y%m%d")
+        start_str = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime("%Y%m%d")
         df = stock.get_market_fundamental_by_date(start_str, end_str, code)
         if df.empty: return 25, "데이터 없음", {}
         
@@ -86,10 +93,8 @@ def get_company_guide_score(code):
         
         pbr_stat = "good" if pbr < 1.0 else ("neu" if pbr < 2.5 else "bad")
         pbr_txt = "저평가" if pbr < 1.0 else ("적정" if pbr < 2.5 else "고평가")
-        
         per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
         per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자")
-        
         div_stat = "good" if div > 3.0 else "neu"
         div_txt = "고배당" if div > 3.0 else "일반"
 
@@ -107,30 +112,57 @@ def get_company_guide_score(code):
     except: return 25, "분석실패", {}
 
 @st.cache_data(ttl=600)
-def get_news_sentiment(code):
+def get_news_sentiment(company_name):
+    """
+    [V19.7] 구글 뉴스 RSS 20개 수집 및 대량 분석
+    """
     try:
-        url = f"https://finance.naver.com/item/news_news.naver?code={code}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        resp = requests.get(url, headers=headers)
-        soup = BeautifulSoup(resp.content, "html.parser")
-        titles = soup.select(".title .tit")
+        query = f"{company_name} 주가"
+        encoded_query = urllib.parse.quote(query)
+        rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
         
-        news_list = [t.get_text().strip() for t in titles[:5]] if titles else ["뉴스 없음"]
+        feed = feedparser.parse(rss_url)
         
-        # [V19.4 핵심: 모델 자동 전환 로직]
-        score = 0; headline = news_list[0]
+        news_data = []
+        news_titles = []
+        
+        # [변경] 상위 20개 뉴스 수집
+        for entry in feed.entries[:20]: 
+            title = entry.title
+            link = entry.link
+            date = entry.published_parsed
+            date_str = time.strftime("%Y-%m-%d", date) if date else ""
+            
+            news_data.append({"title": title, "link": link, "date": date_str})
+            news_titles.append(title)
+            
+        if not news_titles:
+            return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": []}
+
+        # Gemini 대량 분석
+        score = 0; headline = news_titles[0]
         try:
             if "GOOGLE_API_KEY" in st.secrets:
                 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
                 
-                prompt = f"주식뉴스분석: {str(news_list)}. 점수(-10~10)와 한줄요약 JSON으로: {{'score':int, 'summary':str}}"
+                # 프롬프트 강화: 20개 뉴스를 요약해달라고 요청
+                prompt = f"""
+                아래는 '{company_name}' 관련 최신 뉴스 20개의 제목입니다.
+                이 뉴스들을 종합적으로 분석하여 현재 시장의 심리를 평가해주세요.
+                
+                [뉴스 목록]
+                {str(news_titles)}
+                
+                [요청사항]
+                1. score: -10(매우 부정) ~ +10(매우 긍정) 사이의 정수
+                2. summary: 전체적인 뉴스 흐름을 한 줄로 요약 (가장 중요한 이슈 포함)
+                3. 반드시 JSON 형식으로 답할 것: {{'score':int, 'summary':str}}
+                """
                 
                 try:
-                    # 1순위: 최신 Flash 모델 시도
                     model = genai.GenerativeModel('gemini-1.5-flash')
                     response = model.generate_content(prompt)
-                except Exception:
-                    # 2순위: 실패 시 구형 Pro 모델로 전환 (이건 무조건 됨)
+                except:
                     model = genai.GenerativeModel('gemini-pro')
                     response = model.generate_content(prompt)
                 
@@ -138,13 +170,13 @@ def get_news_sentiment(code):
                 score = res_json.get('score', 0)
                 headline = res_json.get('summary', headline)
             else:
-                headline = "API 키가 없습니다."
+                headline = "API 키 미설정"
         except Exception as e:
-            # 그래도 실패하면 그냥 뉴스 제목만 표시
-            headline = f"{news_list[0]} (AI 분석 생략)"
+            headline = f"AI 분석 실패: {str(e)}"
 
-        return {"score": score, "headline": headline, "raw_news": news_list}
-    except: return {"score": 0, "headline": "뉴스 수집 실패", "raw_news": []}
+        return {"score": score, "headline": headline, "raw_news": news_data}
+    except Exception as e:
+        return {"score": 0, "headline": f"뉴스 오류: {str(e)}", "raw_news": []}
 
 @st.cache_data(ttl=1800)
 def get_supply_demand(code):
@@ -163,7 +195,9 @@ def analyze_pro(code, name_override=None):
         
         sup = get_supply_demand(code)
         fund_score, fund_msg, fund_data = get_company_guide_score(code)
-        news = get_news_sentiment(code)
+        
+        search_name = name_override if name_override else code
+        news = get_news_sentiment(search_name)
 
         df['MA5'] = df['Close'].rolling(5).mean(); df['MA20'] = df['Close'].rolling(20).mean()
         df['MA60'] = df['Close'].rolling(60).mean(); df['MA120'] = df['Close'].rolling(120).mean()
@@ -171,10 +205,9 @@ def analyze_pro(code, name_override=None):
         
         curr = df.iloc[-1]
         
-        tech_score = 0
+        pass_cnt = 0
         ma_status = []
         mas = [('5일', 'MA5'), ('20일', 'MA20'), ('60일', 'MA60'), ('120일', 'MA120'), ('240일', 'MA240')]
-        pass_cnt = 0
         
         for label, col in mas:
             if curr['Close'] >= curr[col]: 
@@ -183,9 +216,7 @@ def analyze_pro(code, name_override=None):
             else:
                 ma_status.append({"label": label, "ok": False})
         
-        tech_score = pass_cnt * 6
-        if curr['MA5'] > curr['MA20'] > curr['MA60']: tech_score += 10
-        if sup['f'] > 0: tech_score += 10
+        tech_score = (pass_cnt * 6) + (10 if curr['MA5'] > curr['MA20'] > curr['MA60'] else 0) + (10 if sup['f'] > 0 else 0)
         
         if pass_cnt >= 4: trend_txt = "🚀 강력한 상승 추세 (대세 상승)"
         elif pass_cnt >= 3: trend_txt = "📈 단기/중기 상승세 (양호)"
@@ -227,11 +258,11 @@ def create_chart(df):
     return (line + ma20 + ma60).properties(height=250)
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V19.4")
+st.title("💎 Quant Sniper V19.7")
 
 if not st.session_state['watchlist']: st.info("종목을 추가해주세요.")
 else:
-    with st.spinner("AI 분석 엔진 가동 중... (Gemini Pro/Flash)"):
+    with st.spinner("구글 뉴스 20개 분석 중... (Gemini AI)"):
         watchlist_items = list(st.session_state['watchlist'].items())
         results = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -258,31 +289,33 @@ else:
                 st.markdown(f"""
                 <div class='fund-grid'>
                     <div class='fund-item fund-{fd['per']['stat']}'>
-                        <div class='fund-label'>PER (주가수익비율)</div>
-                        <div class='fund-val'>{fd['per']['val']:.1f}배</div>
-                        <div class='fund-badge' style='color:{'#F04452' if fd['per']['stat']=='good' else '#3182F6'}'>{fd['per']['txt']}</div>
+                        <div class='fund-label'>PER</div><div class='fund-val'>{fd['per']['val']:.1f}배</div><div class='fund-badge' style='color:{'#F04452' if fd['per']['stat']=='good' else '#3182F6'}'>{fd['per']['txt']}</div>
                     </div>
                     <div class='fund-item fund-{fd['pbr']['stat']}'>
-                        <div class='fund-label'>PBR (주가순자산비율)</div>
-                        <div class='fund-val'>{fd['pbr']['val']:.1f}배</div>
-                        <div class='fund-badge' style='color:{'#F04452' if fd['pbr']['stat']=='good' else '#3182F6'}'>{fd['pbr']['txt']}</div>
+                        <div class='fund-label'>PBR</div><div class='fund-val'>{fd['pbr']['val']:.1f}배</div><div class='fund-badge' style='color:{'#F04452' if fd['pbr']['stat']=='good' else '#3182F6'}'>{fd['pbr']['txt']}</div>
                     </div>
                     <div class='fund-item fund-{fd['div']['stat']}'>
-                        <div class='fund-label'>배당수익률</div>
-                        <div class='fund-val'>{fd['div']['val']:.1f}%</div>
-                        <div class='fund-badge' style='color:{'#F04452' if fd['div']['stat']=='good' else '#3182F6'}'>{fd['div']['txt']}</div>
+                        <div class='fund-label'>배당률</div><div class='fund-val'>{fd['div']['val']:.1f}%</div><div class='fund-badge' style='color:{'#F04452' if fd['div']['stat']=='good' else '#3182F6'}'>{fd['div']['txt']}</div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-            st.write("###### 📰 뉴스 브리핑")
-            if "분석 생략" in res['news']['headline']:
-                 st.caption(f"🤖 AI 분석 보류: {res['news']['headline']}")
+            st.write("###### 📰 구글 뉴스 심층 분석 (Top 20)")
+            if "실패" in res['news']['headline']:
+                st.warning(f"⚠️ {res['news']['headline']}")
             else:
-                st.markdown(f"<div class='news-ai'><b>🤖 AI 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='news-ai'><b>🤖 AI 종합 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
             
-            for t in res['news']['raw_news']:
-                st.markdown(f"<div class='news-box'>📄 {t}</div>", unsafe_allow_html=True)
+            # 뉴스 리스트를 스크롤 박스로 감싸기
+            st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
+            for news in res['news']['raw_news']:
+                st.markdown(f"""
+                <div class='news-box'>
+                    <a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a>
+                    <span class='news-date'>{news['date']}</span>
+                </div>
+                """, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
             
             st.write("###### 📉 주가 차트")
             st.altair_chart(create_chart(res['history']), use_container_width=True)
