@@ -17,7 +17,7 @@ import feedparser
 import urllib.parse
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V19.9", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V20.0", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -27,9 +27,6 @@ st.markdown("""
     .text-down { color: #3182F6 !important; }
     .fund-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px; }
     .fund-item { padding: 12px; border-radius: 12px; text-align: center; }
-    .fund-good { background-color: rgba(240, 68, 82, 0.1); border: 1px solid rgba(240, 68, 82, 0.2); }
-    .fund-bad { background-color: rgba(49, 130, 246, 0.1); border: 1px solid rgba(49, 130, 246, 0.2); }
-    .fund-neu { background-color: #F9FAFB; border: 1px solid #F2F4F6; }
     .fund-label { font-size: 12px; color: #6B7684; margin-bottom: 4px; }
     .fund-val { font-size: 16px; font-weight: 800; color: #333D4B; }
     .fund-badge { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; margin-left: 4px; display:inline-block; }
@@ -71,7 +68,7 @@ def load_from_github():
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 
-# --- [3. 분석 엔진 V19.9 (REST API 직통 연결)] ---
+# --- [3. 분석 엔진 V20.0 (멀티 모델 접속기)] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
@@ -104,29 +101,42 @@ def get_company_guide_score(code):
         return min(score, 50), "분석완료", fund_data
     except: return 25, "분석실패", {}
 
-# [V19.9 핵심] 라이브러리 없이 직접 통신하는 함수
+# [V20.0 핵심] 모든 모델을 순서대로 두드려보는 함수
 def call_gemini_direct(prompt):
     api_key = st.secrets.get("GOOGLE_API_KEY", "")
     if not api_key: return None, "API 키가 Secrets에 없습니다."
     
-    # 1.5 Flash 모델 직통 주소
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
+    # 1순위부터 3순위까지 모델 리스트
+    models_to_try = [
+        "gemini-1.5-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-pro"
+    ]
     
-    # 데이터 포장
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"response_mime_type": "application/json"} # JSON 형식 강제
-    }
+    last_error = ""
     
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
-        if response.status_code == 200:
-            return response.json(), None
-        else:
-            return None, f"통신 에러 ({response.status_code}): {response.text}"
-    except Exception as e:
-        return None, f"연결 실패: {str(e)}"
+    for model_name in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"response_mime_type": "application/json"}
+        }
+        
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=8)
+            if response.status_code == 200:
+                # 성공하면 바로 리턴
+                return response.json(), None
+            else:
+                # 실패하면 에러 기록하고 다음 모델로 넘어감
+                last_error = f"{model_name} 실패({response.status_code})"
+                continue 
+        except Exception as e:
+            last_error = str(e)
+            continue
+            
+    return None, f"모든 모델 연결 실패: {last_error}"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment(company_name):
@@ -136,9 +146,8 @@ def get_news_sentiment(company_name):
         rss_url = f"https://news.google.com/rss/search?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
         
         feed = feedparser.parse(rss_url)
-        
-        news_data = []
         news_titles = []
+        news_data = []
         
         for entry in feed.entries[:20]: 
             title = entry.title
@@ -151,32 +160,27 @@ def get_news_sentiment(company_name):
         if not news_titles:
             return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": []}
 
-        # [V19.9] REST API 호출
+        # Gemini 호출
         score = 0; headline = news_titles[0]
         
         prompt = f"""
-        아래 뉴스 20개를 분석하여 주가에 미칠 영향(점수)과 한줄 요약을 JSON으로 작성하라.
-        
-        [뉴스 목록]
-        {str(news_titles)}
-        
-        [필수 형식]
-        {{ "score": 0 (범위: -10~+10), "summary": "요약문" }}
+        뉴스 목록: {str(news_titles)}
+        위 뉴스를 분석하여 주가 영향 점수(-10~10)와 한줄 요약을 JSON으로 작성하라.
+        형식: {{ "score": 0, "summary": "내용" }}
         """
         
         res_data, error_msg = call_gemini_direct(prompt)
         
         if res_data:
             try:
-                # 응답에서 텍스트 추출
                 raw_text = res_data['candidates'][0]['content']['parts'][0]['text']
                 res_json = json.loads(raw_text)
                 score = res_json.get('score', 0)
                 headline = res_json.get('summary', headline)
             except:
-                headline = "AI 응답 해석 실패 (JSON 형식 오류)"
+                headline = "AI 응답 해석 오류"
         else:
-            headline = f"AI 연결 실패: {error_msg}"
+            headline = f"AI 연결 최종 실패: {error_msg}"
 
         return {"score": score, "headline": headline, "raw_news": news_data}
     except Exception as e:
@@ -222,10 +226,10 @@ def analyze_pro(code, name_override=None):
         
         tech_score = (pass_cnt * 6) + (10 if curr['MA5'] > curr['MA20'] > curr['MA60'] else 0) + (10 if sup['f'] > 0 else 0)
         
-        if pass_cnt >= 4: trend_txt = "🚀 강력한 상승 추세 (대세 상승)"
-        elif pass_cnt >= 3: trend_txt = "📈 단기/중기 상승세 (양호)"
-        elif pass_cnt >= 1: trend_txt = "📉 하락 중 기술적 반등 시도"
-        else: trend_txt = "☠️ 완전 역배열 (바닥 확인 필요)"
+        if pass_cnt >= 4: trend_txt = "🚀 강력한 상승 추세"
+        elif pass_cnt >= 3: trend_txt = "📈 상승세 (양호)"
+        elif pass_cnt >= 1: trend_txt = "📉 하락 중 반등 시도"
+        else: trend_txt = "☠️ 완전 역배열"
         
         final_score = int((tech_score * 0.5) + fund_score + news['score'])
         final_score = min(max(final_score, 0), 100)
@@ -262,11 +266,11 @@ def create_chart(df):
     return (line + ma20 + ma60).properties(height=250)
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V19.9")
+st.title("💎 Quant Sniper V20.0")
 
 if not st.session_state['watchlist']: st.info("종목을 추가해주세요.")
 else:
-    with st.spinner("구글 뉴스 20개 + Gemini 1.5 Flash 분석 중..."):
+    with st.spinner("AI가 여러 모델을 순차적으로 연결 중입니다..."):
         watchlist_items = list(st.session_state['watchlist'].items())
         results = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -278,7 +282,7 @@ else:
     for res in results:
         st.markdown(create_card_html(res), unsafe_allow_html=True)
         
-        with st.expander(f"📊 {res['name']} 상세 분석 대시보드"):
+        with st.expander(f"📊 {res['name']} 상세 분석"):
             st.write("###### 📈 기술적 분석")
             st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
             ma_html = ""
@@ -292,35 +296,29 @@ else:
             if fd:
                 st.markdown(f"""
                 <div class='fund-grid'>
-                    <div class='fund-item fund-{fd['per']['stat']}'>
+                    <div class='fund-item'>
                         <div class='fund-label'>PER</div><div class='fund-val'>{fd['per']['val']:.1f}배</div><div class='fund-badge' style='color:{'#F04452' if fd['per']['stat']=='good' else '#3182F6'}'>{fd['per']['txt']}</div>
                     </div>
-                    <div class='fund-item fund-{fd['pbr']['stat']}'>
+                    <div class='fund-item'>
                         <div class='fund-label'>PBR</div><div class='fund-val'>{fd['pbr']['val']:.1f}배</div><div class='fund-badge' style='color:{'#F04452' if fd['pbr']['stat']=='good' else '#3182F6'}'>{fd['pbr']['txt']}</div>
                     </div>
-                    <div class='fund-item fund-{fd['div']['stat']}'>
+                    <div class='fund-item'>
                         <div class='fund-label'>배당률</div><div class='fund-val'>{fd['div']['val']:.1f}%</div><div class='fund-badge' style='color:{'#F04452' if fd['div']['stat']=='good' else '#3182F6'}'>{fd['div']['txt']}</div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-            st.write("###### 📰 구글 뉴스 AI 심층 분석")
+            st.write("###### 📰 구글 뉴스 AI 요약")
             if "실패" in res['news']['headline']:
-                st.error(f"⚠️ {res['news']['headline']}")
+                 st.error(f"⚠️ {res['news']['headline']}")
             else:
-                st.markdown(f"<div class='news-ai'><b>🤖 AI 종합 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='news-ai'><b>🤖 AI 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
             
             st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
             for news in res['news']['raw_news']:
-                st.markdown(f"""
-                <div class='news-box'>
-                    <a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a>
-                    <span class='news-date'>{news['date']}</span>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
             
-            st.write("###### 📉 주가 차트")
             st.altair_chart(create_chart(res['history']), use_container_width=True)
 
 with st.sidebar:
