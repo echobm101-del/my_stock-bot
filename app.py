@@ -11,10 +11,10 @@ import altair as alt
 from pykrx import stock
 import concurrent.futures
 from bs4 import BeautifulSoup
-import textwrap # [추가] HTML 들여쓰기 제거용
+import textwrap 
 
 # --- [1. PRO 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V18.3 PRO", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V18.4 PRO", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -28,9 +28,6 @@ st.markdown("""
     .stock-code { font-size: 14px; color: #8B95A1; margin-left: 6px; font-weight: 500; }
     .label-text { font-size: 12px; color: #8B95A1; font-weight: 600; margin-bottom: 4px; }
     .badge-clean { padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; display: inline-block; }
-    .badge-buy { background-color: rgba(240, 68, 82, 0.1); color: #F04452; }
-    .badge-sell { background-color: rgba(49, 130, 246, 0.1); color: #3182F6; }
-    .badge-neu { background-color: #F2F4F6; color: #4E5968; }
     .macro-box { background: #F9FAFB; border-radius: 16px; padding: 16px; text-align: center; height: 100%; border: 1px solid #F2F4F6; }
     .macro-val { font-size: 20px; font-weight: 800; color: #333D4B; margin-bottom: 8px; }
     .strategy-box { background-color: #F2F4F6; border-radius: 12px; padding: 15px; font-size: 13px; margin-top: 12px; display: flex; justify-content: space-around; text-align: center; }
@@ -104,17 +101,6 @@ def save_to_github(data):
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 if 'sent_alerts' not in st.session_state: st.session_state['sent_alerts'] = {}
-
-def send_telegram_msg(message):
-    try:
-        if "TELEGRAM_TOKEN" in st.secrets and "CHAT_ID" in st.secrets:
-            token = st.secrets["TELEGRAM_TOKEN"]
-            chat_id = st.secrets["CHAT_ID"]
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            requests.get(url, params={"chat_id": chat_id, "text": message})
-            return True
-        return False
-    except: return False
 
 # --- [3. PRO 분석 엔진] ---
 
@@ -233,7 +219,7 @@ def analyze_portfolio_parallel(watchlist):
             if res: results.append(res)
     return sorted(results, key=lambda x: x['score'], reverse=True)
 
-# [수정된 함수] HTML 생성 전용 함수 (들여쓰기 오류 방지)
+# [핵심 수정] HTML 들여쓰기 문제 해결 함수
 def create_card_html(res):
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
     supply_f_col = "#F04452" if res['supply']['f'] > 0 else "#3182F6"
@@ -244,6 +230,7 @@ def create_card_html(res):
     elif rsi_val >= 70: rsi_grad = "linear-gradient(90deg, #F04452, #FF8A9B)"
     else: rsi_grad = "linear-gradient(90deg, #8B95A1, #B0B8C1)"
 
+    # textwrap.dedent를 사용하여 들여쓰기 제거
     html = f"""
     <div class='toss-card'>
         <div style='display:flex; justify-content:space-between; align-items:center;'>
@@ -281,7 +268,7 @@ def create_card_html(res):
         </div>
     </div>
     """
-    return html
+    return textwrap.dedent(html)
 
 # --- [4. 매크로 및 차트] ---
 @st.cache_data(ttl=3600)
@@ -310,7 +297,7 @@ def create_bollinger_chart(df, name):
     return (line + ma20 + ma60).properties(height=250)
 
 # --- [5. 메인 UI 렌더링] ---
-st.title("💎 Quant Sniper V18.3 PRO")
+st.title("💎 Quant Sniper V18.4 PRO")
 st.caption("Hybrid Engine: Fundamental(50%) + Technical(50%)")
 
 with st.expander("📘 PRO 모드 지표 해석 가이드", expanded=True):
@@ -352,7 +339,7 @@ with tab1:
             results = analyze_portfolio_parallel(st.session_state['watchlist'])
         
         for res in results:
-            # HTML 생성 함수 사용으로 들여쓰기 문제 해결
+            # HTML 생성 및 렌더링
             st.markdown(create_card_html(res), unsafe_allow_html=True)
             
             with st.expander(f"📑 {res['name']} AI 심층 분석 리포트"):
