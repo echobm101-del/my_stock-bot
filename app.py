@@ -13,9 +13,10 @@ import concurrent.futures
 from bs4 import BeautifulSoup
 import textwrap
 import re
+import google.generativeai as genai # [변경] OpenAI 대신 Google Gemini 사용
 
 # --- [1. 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V18.6", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V19.0 (Gemini)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -27,7 +28,6 @@ st.markdown("""
     .big-price { font-size: 32px; font-weight: 800; letter-spacing: -0.5px; color: #191F28; }
     .stock-name { font-size: 22px; font-weight: 700; color: #333D4B; }
     .stock-code { font-size: 14px; color: #8B95A1; margin-left: 6px; font-weight: 500; }
-    .label-text { font-size: 12px; color: #8B95A1; font-weight: 600; margin-bottom: 4px; }
     .badge-clean { padding: 4px 10px; border-radius: 8px; font-size: 12px; font-weight: 700; display: inline-block; }
     .macro-box { background: #F9FAFB; border-radius: 16px; padding: 16px; text-align: center; height: 100%; border: 1px solid #F2F4F6; }
     .macro-val { font-size: 20px; font-weight: 800; color: #333D4B; margin-bottom: 8px; }
@@ -101,75 +101,86 @@ def save_to_github(data):
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 if 'sent_alerts' not in st.session_state: st.session_state['sent_alerts'] = {}
 
-# --- [3. PRO 분석 엔진 (수정됨)] ---
+# --- [3. PRO 분석 엔진 (Gemini 탑재)] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
-    """
-    [V18.6 수정] 최근 7일치 데이터를 조회하여 가장 최근 유효 데이터를 사용
-    이유: 장중이거나 휴일에는 당일 데이터가 없을 수 있음
-    """
     try:
-        # 날짜 범위 설정 (오늘부터 7일 전까지)
         end_str = datetime.datetime.now().strftime("%Y%m%d")
         start_str = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y%m%d")
-        
-        # 날짜 범위로 조회 (get_market_fundamental_by_date 사용)
         df = stock.get_market_fundamental_by_date(start_str, end_str, code)
+        if df.empty: return 25, "데이터 확인 불가"
         
-        if df.empty: 
-            return 25, "데이터 확인 불가"
-        
-        # 가장 최근 날짜의 데이터 가져오기 (마지막 행)
         recent_data = df.iloc[-1]
+        per = recent_data['PER']; pbr = recent_data['PBR']; div = recent_data['DIV']
+        score = 20; reasons = []
         
-        per = recent_data['PER']
-        pbr = recent_data['PBR']
-        div = recent_data['DIV']
-        
-        score = 20
-        reasons = []
-        
-        if 0 < pbr < 1.0: 
-            score += 15
-            reasons.append("PBR 1배 미만(저평가)")
-        elif pbr < 2.0: 
-            score += 5
-            
-        if 0 < per < 10: 
-            score += 10
-            reasons.append("PER 10배 미만(실적우수)")
-            
-        if div > 3.0: 
-            score += 5
-            reasons.append(f"배당수익률 {div}%")
-            
+        if 0 < pbr < 1.0: score += 15; reasons.append("PBR 1배 미만(저평가)")
+        elif pbr < 2.0: score += 5
+        if 0 < per < 10: score += 10; reasons.append("PER 10배 미만(실적우수)")
+        if div > 3.0: score += 5; reasons.append(f"배당수익률 {div}%")
         return min(score, 50), ", ".join(reasons) if reasons else "밸류에이션 적정"
-    except Exception as e:
-        # 에러 발생 시 디버깅용 메시지 대신 안전값 리턴
-        return 25, "분석 보류 (일시적)"
+    except: return 25, "분석 보류"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment(code):
+    """
+    [Gemini Version] 구글 Gemini 1.5 Flash를 사용하여 뉴스 심리 분석 (무료 티어 활용)
+    """
     try:
+        # 1. 뉴스 크롤링
         url = f"https://finance.naver.com/item/news_news.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         resp = requests.get(url, headers=headers)
         soup = BeautifulSoup(resp.content, "html.parser")
         titles = soup.select(".title .tit")
-        score = 0; headline = "-"
-        good = ["수주", "계약", "최대", "흑자", "성장", "호조", "개발", "승인"]
-        bad = ["적자", "하향", "우려", "급락", "손실", "불확실"]
-        if titles:
-            headline = titles[0].get_text().strip()
-            for t in titles[:5]:
-                txt = t.get_text()
-                for g in good: 
-                    if g in txt: score += 2; break
-                for b in bad:
-                    if b in txt: score -= 3; break
-        return {"score": min(max(score, -10), 10), "headline": headline}
-    except: return {"score": 0, "headline": "-"}
+        
+        if not titles: return {"score": 0, "headline": "뉴스 없음"}
+        
+        # 2. 뉴스 텍스트 준비
+        news_list = [t.get_text().strip() for t in titles[:8]] # 상위 8개
+        news_text = "\n".join(news_list)
+        latest_headline = news_list[0]
+        
+        # 3. Gemini 호출
+        if "GOOGLE_API_KEY" not in st.secrets:
+            return {"score": 0, "headline": "API키 미설정 (기본값)"}
+            
+        genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+        model = genai.GenerativeModel('gemini-1.5-flash') # 빠르고 효율적인 모델
+        
+        prompt = f"""
+        당신은 주식 시장 심리 분석가입니다. 아래 뉴스 제목들을 보고 시장 심리를 -10점(악재/공포)에서 +10점(호재/기대) 사이의 정수로 평가해주세요.
+        
+        [뉴스 목록]
+        {news_text}
+        
+        [응답 형식]
+        반드시 JSON 형식으로만 답하세요:
+        {{"score": 점수, "summary": "가장 중요한 이슈 한 줄 요약"}}
+        """
+        
+        response = model.generate_content(prompt)
+        
+        # 4. 결과 파싱 (마크다운 제거 후 JSON 변환)
+        text_res = response.text.replace("```json", "").replace("```", "").strip()
+        result = json.loads(text_res)
+        
+        score = int(result.get("score", 0))
+        summary = result.get("summary", latest_headline)
+        
+        return {"score": min(max(score, -10), 10), "headline": summary}
+        
+    except Exception as e:
+        # Gemini 호출 실패 시 백업 로직 (키워드 매칭)
+        backup_score = 0
+        good = ["수주", "계약", "최대", "흑자"]; bad = ["적자", "하향", "우려"]
+        for t in titles[:5]:
+            for g in good: 
+                if g in t.get_text(): backup_score += 2
+            for b in bad:
+                if b in t.get_text(): backup_score -= 3
+        return {"score": min(max(backup_score, -10), 10), "headline": f"{latest_headline} (백업분석)"}
 
 @st.cache_data(ttl=1800)
 def get_supply_demand(code):
@@ -196,8 +207,6 @@ def analyze_pro(code, name_override=None):
         df['MA120'] = df['Close'].rolling(120).mean()
         df['MA240'] = df['Close'].rolling(240).mean()
         df['Std'] = df['Close'].rolling(20).std()
-        df['Upper'] = df['MA20'] + (df['Std'] * 2)
-        df['Lower'] = df['MA20'] - (df['Std'] * 2)
         
         delta = df['Close'].diff(1)
         rsi = 100 - (100/(1 + (delta.where(delta>0,0).rolling(14).mean() / -delta.where(delta<0,0).rolling(14).mean())))
@@ -210,7 +219,7 @@ def analyze_pro(code, name_override=None):
             if curr['Close'] >= curr[col]: cnt += 1; ma_status.append(f"✅ {label}")
             else: ma_status.append(f"❌ {label}")
         tech_score += (cnt * 6)
-        if curr['MA5'] > curr['MA20'] > curr['MA60']: tech_score += 10; ma_status.append("🔥 정배열 초기")
+        if curr['MA5'] > curr['MA20'] > curr['MA60']: tech_score += 10; ma_status.append("🔥 정배열")
         if sup['f'] > 0 or sup['i'] > 0: tech_score += 10
         
         final_score = int((tech_score * 0.5) + fund_score + news['score'])
@@ -227,7 +236,8 @@ def analyze_pro(code, name_override=None):
         
         strategy = {
             "action": action, "buy": int(buy_price), "target": int(target_price),
-            "fund_detail": f"{fund_reason} (뉴스점수: {news['score']})",
+            "fund_detail": f"{fund_reason}",
+            "news_detail": f"[{news['score']}점] {news['headline']}",
             "tech_detail": f"이평선 {cnt}개 돌파 / 수급 {'양호' if sup['f']>0 else '보통'}",
             "ma_list": ma_status
         }
@@ -235,7 +245,7 @@ def analyze_pro(code, name_override=None):
         return {
             "name": name_override, "code": code, "price": int(curr['Close']),
             "score": final_score, "rsi": rsi.iloc[-1],
-            "checks": [fund_reason.split(',')[0], "정배열" if cnt>=3 else "역배열"],
+            "checks": [fund_reason.split(',')[0], "Gemini 분석중" if news['score']!=0 else "뉴스없음"],
             "strategy": strategy, "supply": sup, "news": news, "history": df
         }
     except: return None
@@ -250,7 +260,6 @@ def analyze_portfolio_parallel(watchlist):
             if res: results.append(res)
     return sorted(results, key=lambda x: x['score'], reverse=True)
 
-# [UI 렌더링 함수 - 공백 제거 적용]
 def clean_html(raw_html):
     return re.sub(r'\s+', ' ', raw_html).strip()
 
@@ -328,15 +337,15 @@ def create_bollinger_chart(df, name):
     return (line + ma20 + ma60).properties(height=250)
 
 # --- [5. 메인 UI 렌더링] ---
-st.title("💎 Quant Sniper V18.6 PRO")
-st.caption("Hybrid Engine: Fundamental(50%) + Technical(50%)")
+st.title("💎 Quant Sniper V19.0 (Gemini)")
+st.caption("Hybrid Engine: Fundamental + Technical + Gemini AI Analysis")
 
 with st.expander("📘 PRO 모드 지표 해석 가이드", expanded=True):
     st.markdown("""
     <table class='legend-table'>
         <tr><td colspan='2' class='legend-header'>📊 하이브리드 분석 기준</td></tr>
         <tr><td><span class='legend-title'>AI 점수</span></td><td><b>80점↑:</b> 강력 매수 (실적+추세 완벽)<br><b>60점↑:</b> 매수 긍정</td></tr>
-        <tr><td><span class='legend-title'>VIX (공포)</span></td><td><b>20 미만:</b> 시장 안정 (적극 투자) <span class='text-up'>●</span></td></tr>
+        <tr><td><span class='legend-title'>뉴스 심리</span></td><td><b>Gemini AI</b>가 뉴스를 읽고 -10~+10점 부여</td></tr>
         <tr><td><span class='legend-title'>재무 진단</span></td><td>PBR 1배/PER 10배 미만 시 가산점</td></tr>
     </table>
     """, unsafe_allow_html=True)
@@ -361,12 +370,12 @@ if macro:
 
 st.divider()
 
-tab1, tab2 = st.tabs(["💼 내 포트폴리오 (PRO)", "🔭 종목 발굴"])
+tab1, tab2 = st.tabs(["💼 내 포트폴리오", "🔭 종목 발굴"])
 
 with tab1:
     if not st.session_state['watchlist']: st.info("왼쪽 사이드바에서 종목을 추가해주세요.")
     else:
-        with st.spinner("PRO 엔진 가동 중..."):
+        with st.spinner("Gemini AI가 뉴스를 분석하고 있습니다..."):
             results = analyze_portfolio_parallel(st.session_state['watchlist'])
         
         for res in results:
@@ -375,16 +384,19 @@ with tab1:
             with st.expander(f"📑 {res['name']} AI 심층 분석 리포트"):
                 c1, c2 = st.columns(2)
                 with c1:
-                    st.subheader("📈 기술적 분석 (50%)")
+                    st.subheader("📈 기술적 분석")
                     st.info(res['strategy']['tech_detail'])
                     st.write("**이평선 상태:**")
                     for s in res['strategy']['ma_list']: st.write(s)
                 with c2:
-                    st.subheader("🏢 펀더멘탈 분석 (50%)")
-                    st.success(res['strategy']['fund_detail'])
-                    if res['news']['headline'] != "-":
-                        st.write(f"**최신 뉴스:** {res['news']['headline']}")
-                    else: st.write("특이 뉴스 없음")
+                    st.subheader("🤖 Gemini 뉴스 분석")
+                    if "Gemini" in res['checks'][1]:
+                        st.success(res['strategy']['news_detail'])
+                    else:
+                        st.warning("뉴스 데이터가 부족합니다.")
+                    st.subheader("🏢 재무 상태")
+                    st.write(res['strategy']['fund_detail'])
+                    
                 st.altair_chart(create_bollinger_chart(res['history'], res['name']), use_container_width=True)
 
 with st.sidebar:
