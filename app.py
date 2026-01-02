@@ -18,7 +18,7 @@ import feedparser
 import urllib.parse
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V19.7", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V19.8", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -43,7 +43,6 @@ st.markdown("""
     .ma-ok { background: #F04452; color: white; }
     
     .news-ai { background: #F9FAFB; padding: 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #E5E8EB; }
-    /* 뉴스 리스트 스크롤 박스 */
     .news-scroll-box { max-height: 300px; overflow-y: auto; border: 1px solid #F2F4F6; border-radius: 8px; padding: 10px; }
     .news-box { padding: 8px 0; border-bottom: 1px solid #F2F4F6; font-size: 13px; }
     .news-link { color: #333; text-decoration: none; font-weight: 500; display: block; margin-bottom: 2px;}
@@ -78,7 +77,7 @@ def load_from_github():
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 
-# --- [3. 분석 엔진 V19.7 (뉴스 20개 분석)] ---
+# --- [3. 분석 엔진 V19.8 (최신 모델 고정)] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
@@ -113,9 +112,6 @@ def get_company_guide_score(code):
 
 @st.cache_data(ttl=600)
 def get_news_sentiment(company_name):
-    """
-    [V19.7] 구글 뉴스 RSS 20개 수집 및 대량 분석
-    """
     try:
         query = f"{company_name} 주가"
         encoded_query = urllib.parse.quote(query)
@@ -126,7 +122,6 @@ def get_news_sentiment(company_name):
         news_data = []
         news_titles = []
         
-        # [변경] 상위 20개 뉴스 수집
         for entry in feed.entries[:20]: 
             title = entry.title
             link = entry.link
@@ -139,13 +134,12 @@ def get_news_sentiment(company_name):
         if not news_titles:
             return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": []}
 
-        # Gemini 대량 분석
+        # [V19.8 수정] 은퇴한 'gemini-pro' 제거하고 최신 'gemini-1.5-flash'만 사용
         score = 0; headline = news_titles[0]
         try:
             if "GOOGLE_API_KEY" in st.secrets:
                 genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
                 
-                # 프롬프트 강화: 20개 뉴스를 요약해달라고 요청
                 prompt = f"""
                 아래는 '{company_name}' 관련 최신 뉴스 20개의 제목입니다.
                 이 뉴스들을 종합적으로 분석하여 현재 시장의 심리를 평가해주세요.
@@ -159,12 +153,9 @@ def get_news_sentiment(company_name):
                 3. 반드시 JSON 형식으로 답할 것: {{'score':int, 'summary':str}}
                 """
                 
-                try:
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    response = model.generate_content(prompt)
-                except:
-                    model = genai.GenerativeModel('gemini-pro')
-                    response = model.generate_content(prompt)
+                # 최신 모델만 호출 (백업 코드 제거)
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content(prompt)
                 
                 res_json = json.loads(response.text.replace("```json","").replace("```","").strip())
                 score = res_json.get('score', 0)
@@ -258,11 +249,11 @@ def create_chart(df):
     return (line + ma20 + ma60).properties(height=250)
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V19.7")
+st.title("💎 Quant Sniper V19.8")
 
 if not st.session_state['watchlist']: st.info("종목을 추가해주세요.")
 else:
-    with st.spinner("구글 뉴스 20개 분석 중... (Gemini AI)"):
+    with st.spinner("구글 뉴스 20개 심층 분석 중..."):
         watchlist_items = list(st.session_state['watchlist'].items())
         results = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -306,7 +297,6 @@ else:
             else:
                 st.markdown(f"<div class='news-ai'><b>🤖 AI 종합 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
             
-            # 뉴스 리스트를 스크롤 박스로 감싸기
             st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
             for news in res['news']['raw_news']:
                 st.markdown(f"""
