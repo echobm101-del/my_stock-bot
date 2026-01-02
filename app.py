@@ -18,7 +18,7 @@ import urllib.parse
 import numpy as np
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V28.0", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V28.1", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -89,10 +89,9 @@ def load_from_github():
     except: return {}
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
-# [V28.0] 테마 검색 결과 저장소 변경 (단순 리스트 -> 상세 분석 리스트)
 if 'theme_search_result' not in st.session_state: st.session_state['theme_search_result'] = []
 
-# --- [2-1. V28.0 업그레이드: 네이버 금융 테마 크롤링 & 스코어링] ---
+# --- [2-1. V28.0 로직: 네이버 금융 테마 크롤링 & 스코어링] ---
 
 @st.cache_data(ttl=1800)
 def get_naver_theme_stocks(keyword):
@@ -111,7 +110,7 @@ def get_naver_theme_stocks(keyword):
                 target_link = "https://finance.naver.com" + t['href']
                 break
         
-        if not target_link: return [], "테마를 찾지 못했습니다."
+        if not target_link: return [], "해당 키워드의 테마를 찾지 못했습니다. (정확한 테마명 필요)"
 
         # 3. 상세 테마 페이지 접속
         res_detail = requests.get(target_link, headers={'User-Agent': 'Mozilla/5.0'})
@@ -125,15 +124,12 @@ def get_naver_theme_stocks(keyword):
             if name_tag:
                 code = name_tag['href'].split('=')[-1]
                 name = name_tag.text.strip()
-                # 간단한 현재가 정보도 가져옴 (크롤링 효율화)
+                # 간단한 현재가 정보도 가져옴
                 price_txt = row.select('td.number')[0].text.strip().replace(',', '')
                 change_txt = row.select('td.number')[1].text.strip()
                 try: 
                     price = int(price_txt)
-                    # 등락률 파싱 (텍스트 처리)
                     change = float(change_txt.replace('%','').strip())
-                    # 하락인 경우 부호 처리 확인 필요하나, 네이버는 보통 색상이나 이미지로 구분함.
-                    # 여기서는 단순 크롤링이므로, 정확한 등락률은 뒤에서 fdr로 다시 계산하는게 안전.
                 except: price = 0; change = 0
                 
                 stocks.append({"code": code, "name": name, "price": price})
@@ -172,7 +168,6 @@ def calculate_sniper_score(code):
             tags.append("🏹 눌림목")
         
         # [Factor 3] 수급 (지속성) - pykrx (속도 이슈로 최근 3일치만 빠르게 체크)
-        # 시간 단축을 위해 투자자별 데이터 호출은 최소화하거나, 에러시 스킵
         try:
             end_d = datetime.datetime.now().strftime("%Y%m%d")
             start_d = (datetime.datetime.now() - datetime.timedelta(days=5)).strftime("%Y%m%d")
@@ -182,9 +177,9 @@ def calculate_sniper_score(code):
                 if net_buy > 0:
                     score += 30
                     tags.append("🏦 메이저매집")
-        except: pass # 수급 데이터 실패시 패스
+        except: pass
         
-        # 당일 상승률 반영 (너무 많이 오른건 감점 가능하나, 여기선 가산점)
+        # 당일 상승률 반영
         change = (curr['Close'] - df.iloc[-2]['Close']) / df.iloc[-2]['Close'] * 100
         if change > 15: tags.append("🚀 급등주")
         
@@ -438,7 +433,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V28.0")
+st.title("💎 Quant Sniper V28.1")
 
 # 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -497,37 +492,47 @@ else:
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     
-    # [V28.0] 지능형 테마 검색 UI
-    with st.expander("🔍 지능형 테마/주도주 찾기", expanded=False):
+    # [V28.1 수정] UI 반응성 개선 (진행바, 입력검증, Rerun)
+    with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
         theme_keyword = st.text_input("테마 키워드 (예: 반도체, AI, 2차전지)")
         
         if st.button("테마 스캔 및 스코어링 시작"):
-            if theme_keyword:
-                with st.spinner(f"네이버 금융에서 '{theme_keyword}' 관련주 크롤링 중..."):
-                    raw_stocks, msg = get_naver_theme_stocks(theme_keyword)
-                
-                if raw_stocks:
-                    st.success(msg)
-                    processed_stocks = []
-                    # 상위 10개만 정밀 분석 (속도 최적화)
-                    with st.spinner("상위 종목 스나이퍼 스코어링 계산 중..."):
-                        progress = st.progress(0)
-                        for i, stock_info in enumerate(raw_stocks[:10]):
+            if not theme_keyword:
+                st.warning("⚠️ 먼저 테마 키워드를 입력해주세요!")
+            else:
+                try:
+                    with st.spinner(f"네이버 금융에서 '{theme_keyword}' 관련주 찾는 중..."):
+                        raw_stocks, msg = get_naver_theme_stocks(theme_keyword)
+                    
+                    if raw_stocks:
+                        st.success(msg)
+                        processed_stocks = []
+                        
+                        # 진행률 표시 바
+                        progress_text = "주도주 스코어링 분석 중..."
+                        my_bar = st.progress(0, text=progress_text)
+                        total_items = min(len(raw_stocks), 10) # 상위 10개만 분석
+                        
+                        for i, stock_info in enumerate(raw_stocks[:total_items]):
                             score, tags, vol, chg = calculate_sniper_score(stock_info['code'])
-                            # 스코어링 점수 반영하여 정렬 기준 마련
                             stock_info['sniper_score'] = score
                             stock_info['tags'] = tags
                             stock_info['vol_ratio'] = vol
                             stock_info['real_change'] = chg
                             processed_stocks.append(stock_info)
-                            progress.progress((i+1)/10)
-                        progress.empty()
-                    
-                    # 스나이퍼 스코어 순 정렬
-                    processed_stocks.sort(key=lambda x: x['sniper_score'], reverse=True)
-                    st.session_state['theme_search_result'] = processed_stocks
-                else:
-                    st.error(msg)
+                            my_bar.progress((i + 1) / total_items, text=f"{stock_info['name']} 분석 완료...")
+                        
+                        my_bar.empty()
+                        
+                        # 정렬 및 결과 저장
+                        processed_stocks.sort(key=lambda x: x['sniper_score'], reverse=True)
+                        st.session_state['theme_search_result'] = processed_stocks
+                        st.rerun() # [중요] 화면 즉시 갱신
+                        
+                    else:
+                        st.error(f"❌ 결과 없음: {msg}")
+                except Exception as e:
+                    st.error(f"🚫 시스템 오류 발생: {str(e)}")
         
         # 검색 결과 표시 및 선택
         if st.session_state['theme_search_result']:
@@ -536,16 +541,13 @@ with st.sidebar:
             selected_stocks = []
             
             for s in st.session_state['theme_search_result']:
-                # 태그 HTML 생성
                 tag_html = ""
                 for t in s['tags']:
                     cls = "tag-vol" if "거래" in t else ("tag-smart" if "매집" in t else "tag-pull")
                     tag_html += f"<span class='sniper-tag {cls}'>{t}</span>"
                 
-                # 체크박스 라벨 구성
                 label = f"**{s['name']}** ({s['price']:,}원) {s['real_change']:+.2f}%"
                 
-                # 컨테이너에 표시
                 with st.container():
                     col_chk, col_desc = st.columns([1, 4])
                     with col_chk:
@@ -555,7 +557,7 @@ with st.sidebar:
                         st.markdown(label)
                         if tag_html: st.markdown(tag_html, unsafe_allow_html=True)
                         else: st.caption("특이사항 없음")
-                    st.markdown("---") # 구분선
+                    st.markdown("---")
 
             if st.button("선택한 종목 관심목록에 추가"):
                 count = 0
@@ -565,7 +567,7 @@ with st.sidebar:
                         count += 1
                 if count > 0:
                     st.success(f"{count}개 종목 추가 완료! 메인 화면에서 분석을 확인하세요.")
-                    st.session_state['theme_search_result'] = [] # 초기화
+                    st.session_state['theme_search_result'] = []
                     time.sleep(1)
                     st.rerun()
                 else:
@@ -575,7 +577,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'results' in locals() and results:
-            msg = f"💎 Quant Sniper V28.0 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V28.1 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(results[:3]): 
                 msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
