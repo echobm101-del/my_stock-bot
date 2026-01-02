@@ -18,7 +18,7 @@ import urllib.parse
 import numpy as np
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V27.0", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V27.1", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -67,7 +67,10 @@ FILE_PATH = "my_watchlist_v7.json"
 
 @st.cache_data
 def get_krx_list():
-    try: df = fdr.StockListing('KRX'); return df[['Code', 'Name', 'Sector']]
+    # [V27.1 수정] 재무 데이터 백업을 위해 전체 컬럼을 다 가져오도록 수정
+    try: 
+        df = fdr.StockListing('KRX')
+        return df # 필요한 컬럼은 나중에 추출
     except: return pd.DataFrame()
 krx_df = get_krx_list()
 
@@ -90,15 +93,17 @@ if 'temp_search_list' not in st.session_state: st.session_state['temp_search_lis
 # --- [2-1. 테마/주도주 크롤링] ---
 @st.cache_data(ttl=3600)
 def search_theme_stocks(keyword):
-    """네이버 금융 등에서 테마/섹터 주도주 검색"""
     try:
+        if krx_df.empty: return []
+        # Sector 컬럼이 있는지 확인
+        if 'Sector' not in krx_df.columns: return []
+        
         matched_krx = krx_df[krx_df['Sector'].str.contains(keyword, na=False)]
         
         if not matched_krx.empty:
-            end_date = datetime.datetime.now().strftime("%Y%m%d")
-            cap_df = stock.get_market_cap(end_date)
-            merged = pd.merge(matched_krx, cap_df, left_on='Code', right_index=True)
-            top5 = merged.sort_values(by='시가총액', ascending=False).head(5)
+            # Marcap(시가총액) 기준으로 정렬 (fdr.StockListing에는 Marcap이 보통 있음)
+            sort_col = 'Marcap' if 'Marcap' in matched_krx.columns else 'Code'
+            top5 = matched_krx.sort_values(by=sort_col, ascending=False).head(5)
             
             result = []
             for _, row in top5.iterrows():
@@ -111,36 +116,67 @@ def search_theme_stocks(keyword):
 # --- [2-2. 거시 경제 데이터] ---
 @st.cache_data(ttl=3600)
 def get_macro_data():
-    try:
-        ks11 = fdr.DataReader('KS11', datetime.datetime.now()-datetime.timedelta(days=7)).iloc[-1]
-        kq11 = fdr.DataReader('KQ11', datetime.datetime.now()-datetime.timedelta(days=7)).iloc[-1]
-        us500 = fdr.DataReader('US500', datetime.datetime.now()-datetime.timedelta(days=7)).iloc[-1]
-        usd_krw = fdr.DataReader('USD/KRW', datetime.datetime.now()-datetime.timedelta(days=7)).iloc[-1]
-        us_10y = fdr.DataReader('US10YT', datetime.datetime.now()-datetime.timedelta(days=7)).iloc[-1]
-        
-        return {
-            "KOSPI": {"val": ks11['Close'], "change": (ks11['Close'] - ks11['Open']) / ks11['Open'] * 100},
-            "KOSDAQ": {"val": kq11['Close'], "change": (kq11['Close'] - kq11['Open']) / kq11['Open'] * 100},
-            "S&P500": {"val": us500['Close'], "change": (us500['Close'] - us500['Open']) / us500['Open'] * 100},
-            "USD/KRW": {"val": usd_krw['Close'], "change": (usd_krw['Close'] - usd_krw['Open']) / usd_krw['Open'] * 100},
-            "US_10Y": {"val": us_10y['Close'], "change": (us_10y['Close'] - us_10y['Open']) / us_10y['Open'] * 100},
-        }
-    except:
+    # [V27.1 수정] 개별 Try-Except로 변경하여 하나가 실패해도 나머지는 나오도록 개선
+    results = {}
+    tickers = {
+        "KOSPI": "KS11",
+        "KOSDAQ": "KQ11",
+        "S&P500": "US500",
+        "USD/KRW": "USD/KRW",
+        "US_10Y": "US10YT"
+    }
+    
+    for name, code in tickers.items():
+        try:
+            # 최근 10일치 가져와서 마지막 값 사용 (휴장일 고려)
+            df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=14))
+            if not df.empty:
+                curr = df.iloc[-1]
+                results[name] = {
+                    "val": curr['Close'],
+                    "change": (curr['Close'] - curr['Open']) / curr['Open'] * 100
+                }
+            else:
+                results[name] = {"val": 0.0, "change": 0.0} # 데이터 없음
+        except:
+            results[name] = {"val": 0.0, "change": 0.0} # 에러 발생 시
+            
+    # 전체가 다 실패했는지 확인 (다 0이면 None 리턴)
+    if all(v['val'] == 0.0 for v in results.values()):
         return None
+    return results
 
-# --- [3. 분석 엔진 V27.0] ---
+# --- [3. 분석 엔진 V27.1] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
+    # [V27.1 수정] 1차 pykrx 실패 시 2차 StockListing 데이터 사용 (Fallback)
     try:
+        # 1차 시도: Pykrx (상세 데이터)
         end_str = datetime.datetime.now().strftime("%Y%m%d")
-        start_str = (datetime.datetime.now() - datetime.timedelta(days=30)).strftime("%Y%m%d")
+        start_str = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
         df = stock.get_market_fundamental_by_date(start_str, end_str, code)
-        if df.empty: return 25, "데이터 없음", {}
         
-        recent = df.iloc[-1]
-        per = recent['PER']; pbr = recent['PBR']; div = recent['DIV']
+        per, pbr, div = 0, 0, 0
         
+        if not df.empty:
+            recent = df.iloc[-1]
+            per = recent.get('PER', 0); pbr = recent.get('PBR', 0); div = recent.get('DIV', 0)
+        else:
+            # 2차 시도: krx_df (백업 데이터)
+            if not krx_df.empty and code in krx_df['Code'].values:
+                row = krx_df[krx_df['Code'] == code].iloc[0]
+                per = row.get('PER', 0)
+                pbr = row.get('PBR', 0)
+                div = row.get('DividendYield', 0) # fdr에서는 보통 DividendYield로 옴
+            else:
+                return 25, "데이터 없음", {}
+
+        # 0인 경우 처리 (에러 방지)
+        if per is None: per = 0
+        if pbr is None: pbr = 0
+        if div is None: div = 0
+
         pbr_stat = "good" if pbr < 1.0 else ("neu" if pbr < 2.5 else "bad")
         pbr_txt = "저평가(좋음)" if pbr < 1.0 else ("적정" if pbr < 2.5 else "고평가(주의)")
         per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
@@ -154,12 +190,13 @@ def get_company_guide_score(code):
         if div_stat=="good": score+=5
         
         fund_data = {
-            "per": {"val": per, "stat": per_stat, "txt": per_txt},
-            "pbr": {"val": pbr, "stat": pbr_stat, "txt": pbr_txt},
-            "div": {"val": div, "stat": div_stat, "txt": div_txt}
+            "per": {"val": float(per), "stat": per_stat, "txt": per_txt},
+            "pbr": {"val": float(pbr), "stat": pbr_stat, "txt": pbr_txt},
+            "div": {"val": float(div), "stat": div_stat, "txt": div_txt}
         }
         return min(score, 50), "분석완료", fund_data
-    except: return 25, "분석실패", {}
+    except Exception as e:
+        return 25, "분석실패", {}
 
 def analyze_news_by_keywords(news_titles):
     pos_words = ["상승", "급등", "최고", "호재", "개선", "성장", "흑자", "수주", "돌파", "기대", "매수"]
@@ -277,12 +314,12 @@ def analyze_pro(code, name_override=None):
         df['MA60'] = df['Close'].rolling(60).mean(); df['MA120'] = df['Close'].rolling(120).mean()
         df['MA240'] = df['Close'].rolling(240).mean()
         
-        # [V25.0 유지] 볼린저 밴드
+        # 볼린저 밴드
         df['std'] = df['Close'].rolling(20).std()
         df['BB_Upper'] = df['MA20'] + (df['std'] * 2)
         df['BB_Lower'] = df['MA20'] - (df['std'] * 2)
 
-        # [V26.0 추가] 거래량 분석
+        # 거래량 분석
         df['Vol_MA20'] = df['Volume'].rolling(20).mean()
 
         # 스토캐스틱
@@ -344,7 +381,7 @@ def create_card_html(res):
     </div>
     """)
 
-# [V26.0 유지] 차트: 가격 + 볼린저밴드 (깔끔한 버전)
+# 차트: 가격 + 볼린저밴드 (깔끔한 버전)
 def create_chart_clean(df):
     chart_data = df.tail(120).reset_index()
     
@@ -364,7 +401,7 @@ def create_chart_clean(df):
     
     return (band + line + ma20 + ma60).properties(height=250)
 
-# [V26.0 유지] 직관적인 기술적 지표 UI (신호등 방식)
+# 직관적인 기술적 지표 UI (신호등 방식)
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
     
@@ -408,7 +445,7 @@ def render_tech_metrics(stoch, vol_ratio):
     </div>
     """, unsafe_allow_html=True)
 
-# [V27.0 추가] 차트 색상 범례 (Legend)
+# 차트 색상 범례 (Legend)
 def render_chart_legend():
     return """
     <div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center;'>
@@ -419,7 +456,7 @@ def render_chart_legend():
     </div>
     """
 
-# [V26.0 유지] 재무 펀더멘탈 성적표
+# 재무 펀더멘탈 성적표
 def render_fund_scorecard(fund_data):
     if not fund_data: 
         st.info("재무 정보가 없습니다.")
@@ -455,7 +492,7 @@ def send_telegram_msg(token, chat_id, msg):
     requests.post(url, data=data)
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V27.0")
+st.title("💎 Quant Sniper V27.1")
 
 # 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -466,7 +503,7 @@ with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", ex
         keys = ["KOSPI", "KOSDAQ", "S&P500", "USD/KRW", "US_10Y"]
         
         for i, key in enumerate(keys):
-            d = macro[key]
+            d = macro.get(key, {"val": 0.0, "change": 0.0}) # 안전장치
             color = "#F04452" if d['change'] > 0 else "#3182F6"
             with cols[i]:
                 st.markdown(f"""
@@ -512,7 +549,7 @@ else:
                 # 신호등 UI
                 render_tech_metrics(res['stoch'], res['vol_ratio'])
                 
-                # [V27.0] 차트 범례 표시
+                # 차트 범례 표시
                 st.markdown(render_chart_legend(), unsafe_allow_html=True)
                 
                 # 차트 출력
@@ -567,10 +604,10 @@ with st.sidebar:
         
         if token and chat_id and 'results' in locals() and results:
             try:
-                msg = f"💎 Quant Sniper V27.0 리포트 ({datetime.date.today()})\n\n"
+                msg = f"💎 Quant Sniper V27.1 리포트 ({datetime.date.today()})\n\n"
                 
                 if macro:
-                    msg += f"[시장상황] 코스피 {macro['KOSPI']['val']:.0f}({macro['KOSPI']['change']:.2f}%) / 환율 {macro['USD/KRW']['val']:.0f}\n\n"
+                    msg += f"[시장상황] 코스피 {macro.get('KOSPI', {'val':0})['val']:.0f} / 환율 {macro.get('USD/KRW', {'val':0})['val']:.0f}\n\n"
 
                 for i, r in enumerate(results[:3]): 
                     msg += f"{i+1}. {r['name']} ({r['score']}점)\n"
