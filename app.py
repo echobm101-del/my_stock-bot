@@ -18,7 +18,7 @@ import urllib.parse
 import numpy as np
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V26.0", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V27.0", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -27,19 +27,19 @@ st.markdown("""
     .text-up { color: #F04452 !important; }
     .text-down { color: #3182F6 !important; }
     
-    /* V26.0 개선: 재무 성적표 스타일 */
+    /* 재무 성적표 스타일 */
     .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
     .fund-item-v2 { text-align: center; }
     .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
     .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
     .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
     
-    /* V26.0 개선: 기술적 지표 직관적 스타일 */
-    .tech-status-box { display: flex; gap: 10px; margin-bottom: 10px; }
+    /* 기술적 지표 직관적 스타일 */
+    .tech-status-box { display: flex; gap: 10px; margin-bottom: 5px; }
     .status-badge { flex: 1; padding: 10px; border-radius: 8px; text-align: center; font-size: 13px; font-weight: 700; color: #4E5968; background: #F2F4F6; border: 1px solid #E5E8EB; }
-    .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; } /* 매수기회 (파랑/초록 계열) */
-    .status-badge.sell { background-color: #FFF1F1; color: #F04452; border-color: #F04452; } /* 과열 (빨강) */
-    .status-badge.vol { background-color: #FFF8E1; color: #D9480F; border-color: #FFD8A8; } /* 거래량 폭발 */
+    .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; }
+    .status-badge.sell { background-color: #FFF1F1; color: #F04452; border-color: #F04452; }
+    .status-badge.vol { background-color: #FFF8E1; color: #D9480F; border-color: #FFD8A8; }
 
     .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
     .ma-badge { padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-right: 5px; background: #EEE; color: #888; }
@@ -128,7 +128,7 @@ def get_macro_data():
     except:
         return None
 
-# --- [3. 분석 엔진 V26.0] ---
+# --- [3. 분석 엔진 V27.0] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
@@ -282,7 +282,7 @@ def analyze_pro(code, name_override=None):
         df['BB_Upper'] = df['MA20'] + (df['std'] * 2)
         df['BB_Lower'] = df['MA20'] - (df['std'] * 2)
 
-        # [V26.0 추가] 거래량 분석 (거래량 폭발 감지용)
+        # [V26.0 추가] 거래량 분석
         df['Vol_MA20'] = df['Volume'].rolling(20).mean()
 
         # 스토캐스틱
@@ -325,7 +325,7 @@ def analyze_pro(code, name_override=None):
             "fund_data": fund_data, "ma_status": ma_status, "trend_txt": trend_txt,
             "news": news, "history": df, "supply": sup,
             "stoch": {"k": curr['%K'], "d": curr['%J']},
-            "vol_ratio": curr['Volume'] / curr['Vol_MA20'] if curr['Vol_MA20'] > 0 else 1.0 # 거래량 비율
+            "vol_ratio": curr['Volume'] / curr['Vol_MA20'] if curr['Vol_MA20'] > 0 else 1.0
         }
     except Exception as e: 
         return None
@@ -344,28 +344,27 @@ def create_card_html(res):
     </div>
     """)
 
-# [V26.0 수정] 차트: 가격 + 볼린저밴드 (하단 보조지표 제거하여 깔끔하게)
+# [V26.0 유지] 차트: 가격 + 볼린저밴드 (깔끔한 버전)
 def create_chart_clean(df):
     chart_data = df.tail(120).reset_index()
     
     # 1. Price Chart Base
     base = alt.Chart(chart_data).encode(x=alt.X('Date:T', axis=alt.Axis(format='%m-%d', title=None)))
     
-    # 2. Bollinger Band (Area)
+    # 2. Bollinger Band (Area) - Grey
     band = base.mark_area(opacity=0.15, color='#868E96').encode(
         y=alt.Y('BB_Lower:Q', title='주가/BB'),
         y2='BB_Upper:Q'
     )
     
     # 3. Lines (Price & MA)
-    line = base.mark_line(color='#000000').encode(y='Close:Q')
-    ma20 = base.mark_line(color='#F2A529').encode(y='MA20:Q')
-    ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q')
+    line = base.mark_line(color='#000000').encode(y='Close:Q') # Black: Price
+    ma20 = base.mark_line(color='#F2A529').encode(y='MA20:Q') # Yellow: 20MA
+    ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q') # Blue: 60MA
     
-    # Simple Chart
     return (band + line + ma20 + ma60).properties(height=250)
 
-# [V26.0 추가] 직관적인 기술적 지표 UI (신호등 방식)
+# [V26.0 유지] 직관적인 기술적 지표 UI (신호등 방식)
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
     
@@ -409,13 +408,23 @@ def render_tech_metrics(stoch, vol_ratio):
     </div>
     """, unsafe_allow_html=True)
 
-# [V26.0 수정] 재무 펀더멘탈: 회색 박스 대신 깔끔한 성적표 UI
+# [V27.0 추가] 차트 색상 범례 (Legend)
+def render_chart_legend():
+    return """
+    <div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center;'>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가(검정)</div>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(황색)</div>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(파랑)</div>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:12px; background:#868E96; opacity:0.3; margin-right:4px;'></div>볼린저밴드(회색)</div>
+    </div>
+    """
+
+# [V26.0 유지] 재무 펀더멘탈 성적표
 def render_fund_scorecard(fund_data):
     if not fund_data: 
         st.info("재무 정보가 없습니다.")
         return
 
-    # 색상 결정
     per_col = "#F04452" if fund_data['per']['stat']=='good' else ("#3182F6" if fund_data['per']['stat']=='bad' else "#333")
     pbr_col = "#F04452" if fund_data['pbr']['stat']=='good' else ("#3182F6" if fund_data['pbr']['stat']=='bad' else "#333")
     div_col = "#F04452" if fund_data['div']['stat']=='good' else "#333"
@@ -446,7 +455,7 @@ def send_telegram_msg(token, chat_id, msg):
     requests.post(url, data=data)
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V26.0")
+st.title("💎 Quant Sniper V27.0")
 
 # 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -500,15 +509,18 @@ else:
                 st.write("###### 📈 기술적 분석")
                 st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
                 
-                # [V26.0] 신호등 UI (스토캐스틱/거래량)
+                # 신호등 UI
                 render_tech_metrics(res['stoch'], res['vol_ratio'])
                 
-                # 차트 출력 (깔끔해진 버전)
+                # [V27.0] 차트 범례 표시
+                st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                
+                # 차트 출력
                 st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
 
             with col2:
                 st.write("###### 🏢 재무 펀더멘탈")
-                # [V26.0] 재무 성적표 UI
+                # 재무 성적표 UI
                 render_fund_scorecard(res['fund_data'])
                 
                 st.write("###### 🔍 이동평균선 상태")
@@ -555,7 +567,7 @@ with st.sidebar:
         
         if token and chat_id and 'results' in locals() and results:
             try:
-                msg = f"💎 Quant Sniper V26.0 리포트 ({datetime.date.today()})\n\n"
+                msg = f"💎 Quant Sniper V27.0 리포트 ({datetime.date.today()})\n\n"
                 
                 if macro:
                     msg += f"[시장상황] 코스피 {macro['KOSPI']['val']:.0f}({macro['KOSPI']['change']:.2f}%) / 환율 {macro['USD/KRW']['val']:.0f}\n\n"
