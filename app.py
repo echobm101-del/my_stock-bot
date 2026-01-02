@@ -17,7 +17,7 @@ import feedparser
 import urllib.parse
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V20.0", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V21.0", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -68,7 +68,7 @@ def load_from_github():
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 
-# --- [3. 분석 엔진 V20.0 (멀티 모델 접속기)] ---
+# --- [3. 분석 엔진 V21.0 (모델 자동 탐색)] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
@@ -101,42 +101,57 @@ def get_company_guide_score(code):
         return min(score, 50), "분석완료", fund_data
     except: return 25, "분석실패", {}
 
-# [V20.0 핵심] 모든 모델을 순서대로 두드려보는 함수
-def call_gemini_direct(prompt):
-    api_key = st.secrets.get("GOOGLE_API_KEY", "")
-    if not api_key: return None, "API 키가 Secrets에 없습니다."
-    
-    # 1순위부터 3순위까지 모델 리스트
-    models_to_try = [
-        "gemini-1.5-flash",
-        "gemini-1.5-flash-latest",
-        "gemini-pro"
-    ]
-    
-    last_error = ""
-    
-    for model_name in models_to_try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"response_mime_type": "application/json"}
-        }
-        
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=8)
-            if response.status_code == 200:
-                # 성공하면 바로 리턴
-                return response.json(), None
-            else:
-                # 실패하면 에러 기록하고 다음 모델로 넘어감
-                last_error = f"{model_name} 실패({response.status_code})"
-                continue 
-        except Exception as e:
-            last_error = str(e)
-            continue
+# [V21.0 핵심] 사용 가능한 모델을 직접 조회해서 가져오는 함수
+def get_available_model(api_key):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            models = response.json().get('models', [])
+            # 'generateContent' 기능이 있는 모델만 필터링
+            chat_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
             
-    return None, f"모든 모델 연결 실패: {last_error}"
+            # 우선순위: Flash -> Pro -> 아무거나
+            for m in chat_models:
+                if 'flash' in m and '1.5' in m: return m # 최신 1.5 Flash
+            for m in chat_models:
+                if 'pro' in m and '1.5' in m: return m # 1.5 Pro
+            for m in chat_models:
+                if 'pro' in m: return m # 구형 Pro
+            
+            if chat_models: return chat_models[0] # 아무거나라도 반환
+            return None # 쓸 수 있는 모델이 아예 없음
+        else:
+            return None
+    except:
+        return None
+
+def call_gemini_auto(prompt):
+    api_key = st.secrets.get("GOOGLE_API_KEY", "")
+    if not api_key: return None, "API 키 없음"
+    
+    # 1. 사용 가능한 모델 찾기
+    model_name = get_available_model(api_key)
+    if not model_name:
+        return None, "이 API 키로 사용할 수 있는 모델이 없습니다. (키 권한 확인 필요)"
+    
+    # 2. 찾은 모델로 요청 보내기
+    # model_name은 보통 'models/gemini-1.5-flash' 형태임
+    url = f"https://generativelanguage.googleapis.com/v1beta/{model_name}:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"response_mime_type": "application/json"}
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        if response.status_code == 200:
+            return response.json(), None
+        else:
+            return None, f"{model_name} 오류 ({response.status_code})"
+    except Exception as e:
+        return None, f"통신 오류: {str(e)}"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment(company_name):
@@ -160,7 +175,7 @@ def get_news_sentiment(company_name):
         if not news_titles:
             return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": []}
 
-        # Gemini 호출
+        # Gemini 호출 (Auto)
         score = 0; headline = news_titles[0]
         
         prompt = f"""
@@ -169,7 +184,7 @@ def get_news_sentiment(company_name):
         형식: {{ "score": 0, "summary": "내용" }}
         """
         
-        res_data, error_msg = call_gemini_direct(prompt)
+        res_data, error_msg = call_gemini_auto(prompt)
         
         if res_data:
             try:
@@ -180,7 +195,7 @@ def get_news_sentiment(company_name):
             except:
                 headline = "AI 응답 해석 오류"
         else:
-            headline = f"AI 연결 최종 실패: {error_msg}"
+            headline = f"AI 연결 실패: {error_msg}"
 
         return {"score": score, "headline": headline, "raw_news": news_data}
     except Exception as e:
@@ -266,11 +281,11 @@ def create_chart(df):
     return (line + ma20 + ma60).properties(height=250)
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V20.0")
+st.title("💎 Quant Sniper V21.0")
 
 if not st.session_state['watchlist']: st.info("종목을 추가해주세요.")
 else:
-    with st.spinner("AI가 여러 모델을 순차적으로 연결 중입니다..."):
+    with st.spinner("사용 가능한 AI 모델을 탐색 중입니다..."):
         watchlist_items = list(st.session_state['watchlist'].items())
         results = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -309,7 +324,7 @@ else:
                 """, unsafe_allow_html=True)
 
             st.write("###### 📰 구글 뉴스 AI 요약")
-            if "실패" in res['news']['headline']:
+            if "실패" in res['news']['headline'] or "오류" in res['news']['headline']:
                  st.error(f"⚠️ {res['news']['headline']}")
             else:
                 st.markdown(f"<div class='news-ai'><b>🤖 AI 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
