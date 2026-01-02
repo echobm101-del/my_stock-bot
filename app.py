@@ -13,35 +13,29 @@ import concurrent.futures
 from bs4 import BeautifulSoup
 import textwrap
 import re
-import google.generativeai as genai
 import feedparser
 import urllib.parse
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V19.8", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V19.9", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
     .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
-    
     .text-up { color: #F04452 !important; }
     .text-down { color: #3182F6 !important; }
-    
     .fund-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 10px; }
     .fund-item { padding: 12px; border-radius: 12px; text-align: center; }
     .fund-good { background-color: rgba(240, 68, 82, 0.1); border: 1px solid rgba(240, 68, 82, 0.2); }
     .fund-bad { background-color: rgba(49, 130, 246, 0.1); border: 1px solid rgba(49, 130, 246, 0.2); }
     .fund-neu { background-color: #F9FAFB; border: 1px solid #F2F4F6; }
-    
     .fund-label { font-size: 12px; color: #6B7684; margin-bottom: 4px; }
     .fund-val { font-size: 16px; font-weight: 800; color: #333D4B; }
     .fund-badge { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; margin-left: 4px; display:inline-block; }
-    
     .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
     .ma-badge { padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-right: 5px; background: #EEE; color: #888; }
     .ma-ok { background: #F04452; color: white; }
-    
     .news-ai { background: #F9FAFB; padding: 12px; border-radius: 8px; margin-bottom: 10px; border: 1px solid #E5E8EB; }
     .news-scroll-box { max-height: 300px; overflow-y: auto; border: 1px solid #F2F4F6; border-radius: 8px; padding: 10px; }
     .news-box { padding: 8px 0; border-bottom: 1px solid #F2F4F6; font-size: 13px; }
@@ -77,7 +71,7 @@ def load_from_github():
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 
-# --- [3. 분석 엔진 V19.8 (최신 모델 고정)] ---
+# --- [3. 분석 엔진 V19.9 (REST API 직통 연결)] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
@@ -110,6 +104,30 @@ def get_company_guide_score(code):
         return min(score, 50), "분석완료", fund_data
     except: return 25, "분석실패", {}
 
+# [V19.9 핵심] 라이브러리 없이 직접 통신하는 함수
+def call_gemini_direct(prompt):
+    api_key = st.secrets.get("GOOGLE_API_KEY", "")
+    if not api_key: return None, "API 키가 Secrets에 없습니다."
+    
+    # 1.5 Flash 모델 직통 주소
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    
+    # 데이터 포장
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"response_mime_type": "application/json"} # JSON 형식 강제
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        if response.status_code == 200:
+            return response.json(), None
+        else:
+            return None, f"통신 에러 ({response.status_code}): {response.text}"
+    except Exception as e:
+        return None, f"연결 실패: {str(e)}"
+
 @st.cache_data(ttl=600)
 def get_news_sentiment(company_name):
     try:
@@ -127,47 +145,42 @@ def get_news_sentiment(company_name):
             link = entry.link
             date = entry.published_parsed
             date_str = time.strftime("%Y-%m-%d", date) if date else ""
-            
             news_data.append({"title": title, "link": link, "date": date_str})
             news_titles.append(title)
             
         if not news_titles:
             return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": []}
 
-        # [V19.8 수정] 은퇴한 'gemini-pro' 제거하고 최신 'gemini-1.5-flash'만 사용
+        # [V19.9] REST API 호출
         score = 0; headline = news_titles[0]
-        try:
-            if "GOOGLE_API_KEY" in st.secrets:
-                genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-                
-                prompt = f"""
-                아래는 '{company_name}' 관련 최신 뉴스 20개의 제목입니다.
-                이 뉴스들을 종합적으로 분석하여 현재 시장의 심리를 평가해주세요.
-                
-                [뉴스 목록]
-                {str(news_titles)}
-                
-                [요청사항]
-                1. score: -10(매우 부정) ~ +10(매우 긍정) 사이의 정수
-                2. summary: 전체적인 뉴스 흐름을 한 줄로 요약 (가장 중요한 이슈 포함)
-                3. 반드시 JSON 형식으로 답할 것: {{'score':int, 'summary':str}}
-                """
-                
-                # 최신 모델만 호출 (백업 코드 제거)
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content(prompt)
-                
-                res_json = json.loads(response.text.replace("```json","").replace("```","").strip())
+        
+        prompt = f"""
+        아래 뉴스 20개를 분석하여 주가에 미칠 영향(점수)과 한줄 요약을 JSON으로 작성하라.
+        
+        [뉴스 목록]
+        {str(news_titles)}
+        
+        [필수 형식]
+        {{ "score": 0 (범위: -10~+10), "summary": "요약문" }}
+        """
+        
+        res_data, error_msg = call_gemini_direct(prompt)
+        
+        if res_data:
+            try:
+                # 응답에서 텍스트 추출
+                raw_text = res_data['candidates'][0]['content']['parts'][0]['text']
+                res_json = json.loads(raw_text)
                 score = res_json.get('score', 0)
                 headline = res_json.get('summary', headline)
-            else:
-                headline = "API 키 미설정"
-        except Exception as e:
-            headline = f"AI 분석 실패: {str(e)}"
+            except:
+                headline = "AI 응답 해석 실패 (JSON 형식 오류)"
+        else:
+            headline = f"AI 연결 실패: {error_msg}"
 
         return {"score": score, "headline": headline, "raw_news": news_data}
     except Exception as e:
-        return {"score": 0, "headline": f"뉴스 오류: {str(e)}", "raw_news": []}
+        return {"score": 0, "headline": f"시스템 오류: {str(e)}", "raw_news": []}
 
 @st.cache_data(ttl=1800)
 def get_supply_demand(code):
@@ -249,11 +262,11 @@ def create_chart(df):
     return (line + ma20 + ma60).properties(height=250)
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V19.8")
+st.title("💎 Quant Sniper V19.9")
 
 if not st.session_state['watchlist']: st.info("종목을 추가해주세요.")
 else:
-    with st.spinner("구글 뉴스 20개 심층 분석 중..."):
+    with st.spinner("구글 뉴스 20개 + Gemini 1.5 Flash 분석 중..."):
         watchlist_items = list(st.session_state['watchlist'].items())
         results = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -291,9 +304,9 @@ else:
                 </div>
                 """, unsafe_allow_html=True)
 
-            st.write("###### 📰 구글 뉴스 심층 분석 (Top 20)")
+            st.write("###### 📰 구글 뉴스 AI 심층 분석")
             if "실패" in res['news']['headline']:
-                st.warning(f"⚠️ {res['news']['headline']}")
+                st.error(f"⚠️ {res['news']['headline']}")
             else:
                 st.markdown(f"<div class='news-ai'><b>🤖 AI 종합 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
             
