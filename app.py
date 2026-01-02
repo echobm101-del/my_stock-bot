@@ -11,10 +11,11 @@ import altair as alt
 from pykrx import stock
 import concurrent.futures
 from bs4 import BeautifulSoup
-import re # [추가] HTML 공백 제거용
+import textwrap
+import re
 
-# --- [1. PRO 설정 및 UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V18.5 PRO", page_icon="💎", layout="wide")
+# --- [1. 설정 및 UI 스타일링] ---
+st.set_page_config(page_title="Quant Sniper V18.6", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -100,20 +101,53 @@ def save_to_github(data):
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 if 'sent_alerts' not in st.session_state: st.session_state['sent_alerts'] = {}
 
-# --- [3. PRO 분석 엔진] ---
+# --- [3. PRO 분석 엔진 (수정됨)] ---
+
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
+    """
+    [V18.6 수정] 최근 7일치 데이터를 조회하여 가장 최근 유효 데이터를 사용
+    이유: 장중이거나 휴일에는 당일 데이터가 없을 수 있음
+    """
     try:
-        df = stock.get_market_fundamental_by_ticker(datetime.datetime.now().strftime("%Y%m%d"), code)
-        if df.empty: return 25, "데이터 없음"
-        per = df.loc['PER']; pbr = df.loc['PBR']; div = df.loc['DIV']
-        score = 20; reasons = []
-        if 0 < pbr < 1.0: score += 15; reasons.append("PBR 1배 미만(저평가)")
-        elif pbr < 2.0: score += 5
-        if 0 < per < 10: score += 10; reasons.append("PER 10배 미만(실적우수)")
-        if div > 3.0: score += 5; reasons.append(f"배당수익률 {div}%")
+        # 날짜 범위 설정 (오늘부터 7일 전까지)
+        end_str = datetime.datetime.now().strftime("%Y%m%d")
+        start_str = (datetime.datetime.now() - datetime.timedelta(days=7)).strftime("%Y%m%d")
+        
+        # 날짜 범위로 조회 (get_market_fundamental_by_date 사용)
+        df = stock.get_market_fundamental_by_date(start_str, end_str, code)
+        
+        if df.empty: 
+            return 25, "데이터 확인 불가"
+        
+        # 가장 최근 날짜의 데이터 가져오기 (마지막 행)
+        recent_data = df.iloc[-1]
+        
+        per = recent_data['PER']
+        pbr = recent_data['PBR']
+        div = recent_data['DIV']
+        
+        score = 20
+        reasons = []
+        
+        if 0 < pbr < 1.0: 
+            score += 15
+            reasons.append("PBR 1배 미만(저평가)")
+        elif pbr < 2.0: 
+            score += 5
+            
+        if 0 < per < 10: 
+            score += 10
+            reasons.append("PER 10배 미만(실적우수)")
+            
+        if div > 3.0: 
+            score += 5
+            reasons.append(f"배당수익률 {div}%")
+            
         return min(score, 50), ", ".join(reasons) if reasons else "밸류에이션 적정"
-    except: return 25, "분석 보류"
+    except Exception as e:
+        # 에러 발생 시 디버깅용 메시지 대신 안전값 리턴
+        return 25, "분석 보류 (일시적)"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment(code):
@@ -216,7 +250,7 @@ def analyze_portfolio_parallel(watchlist):
             if res: results.append(res)
     return sorted(results, key=lambda x: x['score'], reverse=True)
 
-# [핵심 수정] HTML 압축 함수 (줄바꿈 제거)
+# [UI 렌더링 함수 - 공백 제거 적용]
 def clean_html(raw_html):
     return re.sub(r'\s+', ' ', raw_html).strip()
 
@@ -294,7 +328,7 @@ def create_bollinger_chart(df, name):
     return (line + ma20 + ma60).properties(height=250)
 
 # --- [5. 메인 UI 렌더링] ---
-st.title("💎 Quant Sniper V18.5 PRO")
+st.title("💎 Quant Sniper V18.6 PRO")
 st.caption("Hybrid Engine: Fundamental(50%) + Technical(50%)")
 
 with st.expander("📘 PRO 모드 지표 해석 가이드", expanded=True):
