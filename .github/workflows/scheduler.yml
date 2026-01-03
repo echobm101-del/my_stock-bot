@@ -1,0 +1,30 @@
+name: Daily Stock Report Automation
+
+on:
+  schedule:
+    # UTC 기준 07:00 (한국 시간 오후 4시) 평일 실행
+    - cron: '0 7 * * 1-5'
+  workflow_dispatch: # 수동으로도 실행 가능하게 설정
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install pandas FinanceDataReader pykrx requests beautifulsoup4 feedparser lxml
+
+      - name: Run Report
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: python auto_report.py
