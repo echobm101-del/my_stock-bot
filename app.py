@@ -39,8 +39,11 @@ st.markdown("""
     .status-badge.vol { background-color: #FFF8E1; color: #D9480F; border-color: #FFD8A8; }
 
     .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
-    .ma-badge { padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; margin-right: 5px; background: #EEE; color: #888; }
-    .ma-ok { background: #F04452; color: white; }
+    
+    /* [NEW] 이동평균선 상태 배지 스타일 */
+    .ma-status-container { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
+    .ma-status-badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #555; background-color: #F2F4F6; border: 1px solid #E5E8EB; }
+    .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; } /* 활성화(지지) */
     
     .news-ai { background: #F3F9FE; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #D0EBFF; color: #333; }
     .ai-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; margin-bottom: 6px; }
@@ -165,6 +168,17 @@ def render_tech_metrics(stoch, vol_ratio):
         </div>
     </div>""", unsafe_allow_html=True)
 
+# [NEW] 이동평균선 상태 시각화 (누락된 부분 추가)
+def render_ma_status(ma_list):
+    if not ma_list: return
+    html = "<div class='ma-status-container'>"
+    for item in ma_list:
+        cls = "on" if item['ok'] else "off"
+        icon = "🔴" if item['ok'] else "⚪"
+        html += f"<div class='ma-status-badge {cls}'>{icon} {item['label']}</div>"
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+
 def render_chart_legend():
     return """<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center;'>
         <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가</div>
@@ -218,7 +232,7 @@ def render_financial_table(df):
     st.markdown(html, unsafe_allow_html=True)
     st.caption("※ 단위: 억 원 / (괄호): 전분기/전년 대비 증감률")
 
-# [수정된 부분] HTS 국룰 색상 + 범례 노출 보완
+# [HTS 국룰 색상 + 범례 노출 유지]
 def render_investor_chart(df):
     if df.empty:
         st.caption("수급 데이터가 없습니다. (장중/집계 지연 가능성)")
@@ -240,18 +254,16 @@ def render_investor_chart(df):
     type_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
     df_line['Type'] = df_line['Key'].map(type_map)
 
-    # [색상 설정] HTS 국룰 색상
-    # 개인(초록), 외국인(빨강), 기관(파랑), 연기금(갈색)
+    # [색상] HTS 국룰
     domain = ['개인', '외국인', '기관합계', '연기금']
-    range_ = ['#228B22', '#F04452', '#3182F6', '#8B4513'] # ForestGreen, Red, Blue, SaddleBrown
+    range_ = ['#228B22', '#F04452', '#3182F6', '#8B4513']
     color_scale = alt.Scale(domain=domain, range=range_)
     
-    # [범례 설정] 상단 배치 (orient='top')
+    # [범례] 상단 배치
     color_encoding = alt.Color('Type:N', scale=color_scale, legend=alt.Legend(title="투자자", orient="top"))
 
     base = alt.Chart(df_line).encode(x=alt.X('날짜:T', axis=alt.Axis(format='%m-%d', title=None)))
     
-    # 막대와 선 차트 모두에 동일한 color_encoding 적용 (범례 누락 방지)
     bar = base.mark_bar(opacity=0.3).encode(
         y=alt.Y('Daily:Q', axis=alt.Axis(title='일별 순매수 (막대)', titleColor='#888')), 
         color=color_encoding
@@ -274,49 +286,33 @@ FILE_PATH = "my_watchlist_v7.json"
 @st.cache_data
 def get_krx_list_safe():
     """안전하게 주식 리스트를 가져오는 함수 (에러 방지용)"""
-    # 1. 1차 시도: FinanceDataReader (빠름)
     try:
         df = fdr.StockListing('KRX')
         if not df.empty: return df
-    except: pass # 실패하면 조용히 넘어감
+    except: pass 
 
-    # 2. 2차 시도: PyKRX (강력함, 날짜 자동 보정)
     try:
-        # 최근 5일 중 데이터가 있는 날짜 찾기 (주말/휴일 대비)
         target_date = datetime.datetime.now()
         for _ in range(5):
             d_str = target_date.strftime("%Y%m%d")
             try:
-                # KOSPI 종목 리스트 체크
                 tickers = stock.get_market_ticker_list(d_str, market="KOSPI")
-                if tickers: # 데이터가 있으면 성공
-                    break 
+                if tickers: break 
             except: pass
             target_date -= datetime.timedelta(days=1)
-        
         d_str = target_date.strftime("%Y%m%d")
-        
-        # PyKRX로 전체 종목 가져오기 (KOSPI + KOSDAQ)
         df_kospi = stock.get_market_cap_by_ticker(d_str, market="KOSPI")
         df_kosdaq = stock.get_market_cap_by_ticker(d_str, market="KOSDAQ")
-        
-        # 데이터 합치기
         df_list = []
         if not df_kospi.empty:
             df_kospi = df_kospi.reset_index()
             df_list.append(df_kospi[['티커', '종목명']].rename(columns={'티커': 'Code', '종목명': 'Name'}))
-        
         if not df_kosdaq.empty:
             df_kosdaq = df_kosdaq.reset_index()
             df_list.append(df_kosdaq[['티커', '종목명']].rename(columns={'티커': 'Code', '종목명': 'Name'}))
-            
-        if df_list:
-            return pd.concat(df_list, ignore_index=True)
-            
-    except Exception as e:
-        pass # 여기까지 실패하면 어쩔 수 없이 빈 데이터프레임
-
-    return pd.DataFrame() # 최후의 수단: 빈 데이터프레임
+        if df_list: return pd.concat(df_list, ignore_index=True)
+    except Exception as e: pass
+    return pd.DataFrame() 
 
 krx_df = get_krx_list_safe()
 
@@ -799,6 +795,8 @@ with tab1:
                 with col1:
                     st.write("###### 📈 기술적 분석 & 차트")
                     st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
+                    # [NEW] 이동평균선 배지 호출
+                    render_ma_status(res['ma_status'])
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     st.markdown(render_chart_legend(), unsafe_allow_html=True)
                     st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
@@ -850,6 +848,8 @@ with tab2:
                 with col1:
                     st.write("###### 📈 기술적 분석")
                     st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
+                    # [NEW] 이동평균선 배지 호출
+                    render_ma_status(res['ma_status'])
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     st.markdown(render_chart_legend(), unsafe_allow_html=True)
                     st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
