@@ -16,9 +16,10 @@ import re
 import feedparser
 import urllib.parse
 import numpy as np
+from io import StringIO
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V30.6", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V31.0", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -96,12 +97,11 @@ def get_naver_theme_stocks(keyword):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Referer': 'https://finance.naver.com/'}
     target_link = None
     
-    # [V30.3] 1~7페이지 순회
     for page in range(1, 8):
         base_url = f"https://finance.naver.com/sise/theme.naver?&page={page}"
         try:
             res = requests.get(base_url, headers=headers)
-            res.encoding = 'EUC-KR' # 인코딩 고정
+            res.encoding = 'EUC-KR' 
             soup = BeautifulSoup(res.text, 'html.parser')
             themes = soup.select('table.type_1 tr td.col_type1 a')
             for t in themes:
@@ -130,6 +130,67 @@ def get_naver_theme_stocks(keyword):
                 stocks.append({"code": code, "name": name, "price": price})
         return stocks, f"'{keyword}' 관련 테마 발견: {len(stocks)}개 종목"
     except Exception as e: return [], f"크롤링 오류: {str(e)}"
+
+# [V31.0] 투자자별 매매 동향 데이터 수집 (최근 20일)
+@st.cache_data(ttl=3600)
+def get_investor_trend(code):
+    try:
+        end_d = datetime.datetime.now().strftime("%Y%m%d")
+        start_d = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d") # 여유있게
+        df = stock.get_market_investor_net_purchase_by_date(start_d, end_d, code)
+        if df.empty: return pd.DataFrame()
+        
+        # 최근 20일치만
+        df = df.tail(20).copy()
+        # 누적 순매수 계산 (Trend 확인용)
+        df['Cum_Individual'] = df['개인'].cumsum()
+        df['Cum_Foreigner'] = df['외국인'].cumsum()
+        df['Cum_Institution'] = df['기관합계'].cumsum()
+        df['Cum_Pension'] = df['연기금'].cumsum()
+        
+        return df
+    except: return pd.DataFrame()
+
+# [V31.0] 실적/재무 차트용 데이터 수집 (네이버 크롤링)
+@st.cache_data(ttl=3600)
+def get_financial_history(code):
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        df_list = pd.read_html(StringIO(res.text), encoding='euc-kr')
+        
+        # 보통 3번째 테이블이 주요재무제표
+        for df in df_list:
+            if '최근 연간 실적' in str(df.columns) or '매출액' in str(df.iloc[:,0].values):
+                df = df.set_index(df.columns[0])
+                # 필요한 행만 추출 (매출액, 영업이익, 당기순이익)
+                target_rows = ['매출액', '영업이익', '당기순이익']
+                
+                # 데이터 정제
+                fin_data = []
+                # 최근 4개 분기 or 연도 데이터 추출 (컬럼 구조가 복잡하므로 단순화)
+                # 컬럼 중 날짜 형식이 있는 것만 필터링 필요하나, 여기선 간단히 끝에서 4개 가져옴
+                cols = df.columns[-5:-1] # 최근 예상치 제외하고 확정치 위주
+                
+                for col in cols:
+                    try:
+                        col_name = col[1] if isinstance(col, tuple) else col
+                        val_sales = df.loc['매출액', col] if '매출액' in df.index else 0
+                        val_op = df.loc['영업이익', col] if '영업이익' in df.index else 0
+                        val_net = df.loc['당기순이익', col] if '당기순이익' in df.index else 0
+                        
+                        fin_data.append({
+                            "Date": str(col_name),
+                            "매출액": float(val_sales) if val_sales != '-' else 0,
+                            "영업이익": float(val_op) if val_op != '-' else 0,
+                            "당기순이익": float(val_net) if val_net != '-' else 0
+                        })
+                    except: continue
+                    
+                return pd.DataFrame(fin_data)
+        return pd.DataFrame()
+    except: return pd.DataFrame()
 
 def calculate_sniper_score(code):
     try:
@@ -172,13 +233,10 @@ def get_macro_data():
     if all(v['val'] == 0.0 for v in results.values()): return None
     return results
 
-# --- [3. 분석 엔진 V30.4 (재무 데이터 0.0 해결 로직 포함)] ---
+# --- [3. 분석 엔진 V31.0] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
-    """
-    [V30.4 Fix] 재무 데이터 0.0 문제 해결을 위한 Triple Fallback
-    """
     per, pbr, div = 0.0, 0.0, 0.0
     
     # [1단계] 네이버 금융 직접 크롤링
@@ -200,7 +258,7 @@ def get_company_guide_score(code):
             div = get_val_by_id("_dvr")
     except: pass
 
-    # [2단계] 백업 (StockListing)
+    # [2단계] 백업
     if per == 0 and pbr == 0:
         if not krx_df.empty and code in krx_df['Code'].values:
             try:
@@ -317,6 +375,11 @@ def analyze_pro(code, name_override=None):
         
         sup = get_supply_demand(code)
         fund_score, fund_msg, fund_data = get_company_guide_score(code)
+        
+        # [V31.0] 투자자 추이 및 재무 이력 가져오기
+        investor_trend = get_investor_trend(code)
+        fin_history = get_financial_history(code)
+        
         search_name = name_override if name_override else code
         news = get_news_sentiment(search_name)
 
@@ -342,13 +405,27 @@ def analyze_pro(code, name_override=None):
         tech_score = (pass_cnt * 6) + (10 if curr['MA5'] > curr['MA20'] > curr['MA60'] else 0) + (10 if sup['f'] > 0 else 0)
         if curr['%K'] < 20: tech_score += 5 
         elif 20 <= curr['%K'] <= 80 and curr['%K'] > curr['%D']: tech_score += 5
+        
+        # [V31.0 Score Boost] 실적 및 수급 가산점
+        bonus_score = 0
+        if not investor_trend.empty:
+            # 외국인 또는 기관 누적 순매수 양수일 경우
+            if investor_trend['Cum_Foreigner'].iloc[-1] > 0: bonus_score += 5
+            if investor_trend['Cum_Institution'].iloc[-1] > 0: bonus_score += 5
+            if investor_trend['Cum_Pension'].iloc[-1] > 0: bonus_score += 5 # 연기금
+        
+        if not fin_history.empty:
+            # 영업이익 성장세 (마지막이 그 전보다 크면)
+            if len(fin_history) >= 2 and fin_history['영업이익'].iloc[-1] > fin_history['영업이익'].iloc[-2]:
+                bonus_score += 5
 
         if pass_cnt >= 4: trend_txt = "🚀 강력한 상승 추세"
         elif pass_cnt >= 3: trend_txt = "📈 상승세 (양호)"
         elif pass_cnt >= 1: trend_txt = "📉 하락 중 반등 시도"
         else: trend_txt = "☠️ 완전 역배열"
         
-        final_score = int((tech_score * 0.5) + fund_score + news['score'])
+        # AI Score 재조정
+        final_score = int((tech_score * 0.4) + fund_score + bonus_score + news['score'])
         final_score = min(max(final_score, 0), 100)
         
         vol_ratio = curr['Volume'] / curr['Vol_MA20'] if curr['Vol_MA20'] > 0 else 1.0
@@ -360,7 +437,9 @@ def analyze_pro(code, name_override=None):
             "fund_data": fund_data, "ma_status": ma_status, "trend_txt": trend_txt,
             "news": news, "history": df, "supply": sup,
             "stoch": {"k": curr['%K'], "d": curr['%J']},
-            "vol_ratio": vol_ratio
+            "vol_ratio": vol_ratio,
+            "investor_trend": investor_trend, # V31.0
+            "fin_history": fin_history # V31.0
         }
     except: return None
 
@@ -385,7 +464,6 @@ def create_chart_clean(df):
     ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q')
     return (band + line + ma20 + ma60).properties(height=250)
 
-# [복구된 함수 1] NameError 해결을 위해 복구
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
     if k < 20: stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"; stoch_sub = "매수 기회 탐색"; stoch_cls = "buy"
@@ -406,7 +484,6 @@ def render_tech_metrics(stoch, vol_ratio):
         </div>
     </div>""", unsafe_allow_html=True)
 
-# [복구된 함수 2] NameError 해결을 위해 복구
 def render_chart_legend():
     return """<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center;'>
         <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가(검정)</div>
@@ -430,12 +507,49 @@ def render_fund_scorecard(fund_data):
         <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>
     </div>""", unsafe_allow_html=True)
 
+# [V31.0] 새로운 차트 렌더링 함수 (재무)
+def render_financial_chart(df):
+    if df.empty:
+        st.caption("재무 데이터가 없습니다.")
+        return
+    
+    base = alt.Chart(df).encode(x=alt.X('Date', axis=alt.Axis(title=None)))
+    bar = base.mark_bar(color='#E8F3FF').encode(y=alt.Y('매출액', axis=alt.Axis(title='매출액')))
+    line = base.mark_line(color='#F04452').encode(y=alt.Y('영업이익', axis=alt.Axis(title='영업이익')))
+    st.altair_chart((bar + line).properties(height=200), use_container_width=True)
+
+# [V31.0] 새로운 차트 렌더링 함수 (수급)
+def render_investor_chart(df):
+    if df.empty:
+        st.caption("수급 데이터가 없습니다.")
+        return
+    
+    # Altair용 데이터 변환 (Long format)
+    df_long = df.reset_index().melt('날짜', value_vars=['Cum_Individual', 'Cum_Foreigner', 'Cum_Institution', 'Cum_Pension'], var_name='Type', value_name='Volume')
+    
+    # 범례 이름 매핑
+    type_map = {
+        'Cum_Individual': '개인',
+        'Cum_Foreigner': '외국인',
+        'Cum_Institution': '기관합계',
+        'Cum_Pension': '연기금'
+    }
+    df_long['Type'] = df_long['Type'].map(type_map)
+    
+    chart = alt.Chart(df_long).mark_line().encode(
+        x=alt.X('날짜:T', axis=alt.Axis(format='%m-%d', title=None)),
+        y=alt.Y('Volume:Q', axis=alt.Axis(title='누적 순매수')),
+        color=alt.Color('Type:N', legend=alt.Legend(title="투자자"))
+    ).properties(height=200)
+    
+    st.altair_chart(chart, use_container_width=True)
+
 def send_telegram_msg(token, chat_id, msg):
     try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V30.6")
+st.title("💎 Quant Sniper V31.0")
 
 # 4-1. 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -476,22 +590,20 @@ if st.session_state.get('preview_list'):
                     time.sleep(0.5)
                     st.rerun()
             
-            col1, col2 = st.columns([2, 1])
+            # [V31.0] 차트 레이아웃 2x2 그리드 적용
+            col1, col2 = st.columns(2)
             with col1:
-                st.write("###### 📈 기술적 분석")
+                st.write("###### 📈 기술적 분석 & 차트")
                 st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
                 render_tech_metrics(res['stoch'], res['vol_ratio'])
-                st.markdown(render_chart_legend(), unsafe_allow_html=True)
                 st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
             with col2:
-                st.write("###### 🏢 재무 펀더멘탈")
+                st.write("###### 🏢 재무 펀더멘탈 & 실적")
                 render_fund_scorecard(res['fund_data'])
-                st.write("###### 🔍 이동평균선 상태")
-                ma_html = ""
-                for m in res['ma_status']:
-                    cls = "ma-ok" if m['ok'] else ""
-                    ma_html += f"<span class='ma-badge {cls}'>{m['label']}</span>"
-                st.markdown(f"<div>{ma_html}</div>", unsafe_allow_html=True)
+                render_financial_chart(res['fin_history']) # 실적 차트
+            
+            st.write("###### 🧠 스마트머니 수급 분석 (20일 누적)")
+            render_investor_chart(res['investor_trend']) # 수급 차트
 
             st.write("###### 📰 뉴스 심층 분석")
             if res['news']['method'] == "ai": st.markdown(f"<div class='news-ai'><b>🤖 AI 심층 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
@@ -517,22 +629,19 @@ else:
     for res in wl_results:
         st.markdown(create_card_html(res), unsafe_allow_html=True)
         with st.expander(f"📊 {res['name']} 상세 분석"):
-            col1, col2 = st.columns([2, 1])
+            col1, col2 = st.columns(2)
             with col1:
                 st.write("###### 📈 기술적 분석")
                 st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
                 render_tech_metrics(res['stoch'], res['vol_ratio'])
-                st.markdown(render_chart_legend(), unsafe_allow_html=True)
                 st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
             with col2:
                 st.write("###### 🏢 재무 펀더멘탈")
                 render_fund_scorecard(res['fund_data'])
-                st.write("###### 🔍 이동평균선 상태")
-                ma_html = ""
-                for m in res['ma_status']:
-                    cls = "ma-ok" if m['ok'] else ""
-                    ma_html += f"<span class='ma-badge {cls}'>{m['label']}</span>"
-                st.markdown(f"<div>{ma_html}</div>", unsafe_allow_html=True)
+                render_financial_chart(res['fin_history']) # 실적 차트
+            
+            st.write("###### 🧠 스마트머니 수급 분석 (20일 누적)")
+            render_investor_chart(res['investor_trend']) # 수급 차트
             
             st.write("###### 📰 뉴스 심층 분석")
             if res['news']['method'] == "ai": st.markdown(f"<div class='news-ai'><b>🤖 AI 심층 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
@@ -545,7 +654,6 @@ else:
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     
-    # [V30.5 Fix] Form 적용 및 검색 로직
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
         THEME_KEYWORDS = {
             "직접 입력": None,
@@ -616,7 +724,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V30.6 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V31.0 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
