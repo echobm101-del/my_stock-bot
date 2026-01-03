@@ -19,7 +19,7 @@ import numpy as np
 from io import StringIO
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V32.9", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -76,7 +76,7 @@ st.markdown("""
 
 # --- [2. 시각화 및 렌더링 함수] ---
 
-# [V32.9 수정] HTML 들여쓰기 문제 해결 (렌더링 오류 방지)
+# [V33.0 수정] HTML 노출 버그 수정 및 등락률 추가
 def create_card_html(res):
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
     
@@ -84,13 +84,34 @@ def create_card_html(res):
     target_price = res['strategy'].get('target', 0)
     stop_price = res['strategy'].get('stop', 0)
     buy_basis = res['strategy'].get('buy_basis', '20일선')
+    
+    # 등락률 계산 및 색상 적용
+    chg = res.get('change_rate', 0.0)
+    if chg > 0:
+        chg_color = "#F04452" # 빨강
+        chg_txt = f"(+{chg:.2f}% ▲)"
+    elif chg < 0:
+        chg_color = "#3182F6" # 파랑
+        chg_txt = f"({chg:.2f}% ▼)"
+    else:
+        chg_color = "#333333" # 검정
+        chg_txt = f"({chg:.2f}% -)"
 
-    # textwrap.dedent 제거 및 HTML 문자열 직접 생성으로 오류 원천 차단
+    # HTML 문자열을 f-string으로 안전하게 생성 (들여쓰기 문제 원천 차단)
     html = f"""
     <div class='toss-card'>
         <div style='display:flex; justify-content:space-between; align-items:center;'>
-            <div><span class='stock-name'>{res['name']}</span><span class='stock-code'>{res['code']}</span><div class='big-price'>{res['price']:,}원</div></div>
-            <div style='text-align:right;'><div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div><div class='badge-clean' style='background-color:{score_col}20; color:{score_col};'>{res['strategy']['action']}</div></div>
+            <div>
+                <span class='stock-name'>{res['name']}</span>
+                <span class='stock-code'>{res['code']}</span>
+                <div class='big-price'>
+                    {res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span>
+                </div>
+            </div>
+            <div style='text-align:right;'>
+                <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>
+                <div class='badge-clean' style='background-color:{score_col}20; color:{score_col};'>{res['strategy']['action']}</div>
+            </div>
         </div>
         <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>
             <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🔵 매수 {buy_price:,}<br><span style='font-size:10px; opacity:0.7;'>({buy_basis} 기준)</span></div>
@@ -518,6 +539,7 @@ def get_supply_demand(code):
         return {"f": int(df['외국인'].sum()), "i": int(df['기관합계'].sum())}
     except: return {"f":0, "i":0}
 
+# [V33.0 수정] 전일비 계산 추가 및 전략 로직 유지
 def analyze_pro(code, name_override=None):
     try:
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=450))
@@ -525,10 +547,18 @@ def analyze_pro(code, name_override=None):
     except: return None
 
     curr = df.iloc[-1]
+    
+    # [V33.0 추가] 등락률 계산
+    try:
+        prev_close = df.iloc[-2]['Close']
+        chg_rate = (curr['Close'] - prev_close) / prev_close * 100
+    except: chg_rate = 0.0
+
     result_dict = {
         "name": name_override if name_override else code, 
         "code": code, 
         "price": int(curr['Close']),
+        "change_rate": chg_rate, # 등락률 데이터 추가
         "score": 50,
         "strategy": {}, 
         "fund_data": None, 
@@ -629,7 +659,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V32.9")
+st.title("💎 Quant Sniper V33.0")
 
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
     macro = get_macro_data()
@@ -679,7 +709,7 @@ with tab1:
                     st.write("###### 🏢 재무 펀더멘탈 & 실적")
                     render_fund_scorecard(res['fund_data'])
                     render_financial_table(res['fin_history'])
-                st.write("###### 🧠 큰손 투자 동향")
+                st.write("###### 🧠 큰손 투자 동향 (최근 20일 누적)")
                 render_investor_chart(res['investor_trend'])
                 st.write("###### 📰 AI 헤지펀드 매니저 분석")
                 if res['news']['method'] == "ai": 
@@ -779,7 +809,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V32.9 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V33.0 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
             send_telegram_msg(token, chat_id, msg)
