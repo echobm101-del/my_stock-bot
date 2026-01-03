@@ -247,10 +247,22 @@ REPO_NAME = "my_stock-bot"
 FILE_PATH = "my_watchlist_v7.json"
 
 @st.cache_data
-def get_krx_list():
-    try: df = fdr.StockListing('KRX'); return df
-    except: return pd.DataFrame()
-krx_df = get_krx_list()
+def get_krx_list_safe():
+    """안전하게 주식 리스트를 가져오는 함수 (에러 방지용)"""
+    try:
+        # 1. 일반적인 방식
+        df = fdr.StockListing('KRX')
+        return df
+    except Exception as e:
+        # 2. 에러 발생 시 KOSPI/KOSDAQ 따로 수집 시도
+        try:
+            df_kospi = fdr.StockListing('KOSPI')
+            df_kosdaq = fdr.StockListing('KOSDAQ')
+            return pd.concat([df_kospi, df_kosdaq])
+        except:
+            return pd.DataFrame() # 최후의 수단: 빈 데이터프레임 반환
+
+krx_df = get_krx_list_safe()
 
 def load_from_github():
     try:
@@ -824,10 +836,10 @@ with st.sidebar:
             
             if not target_keyword: st.warning("⚠️ 검색어를 입력하거나 테마를 선택해주세요!")
             else:
-                # [NEW] 0. 리스트가 비어있다면 강제 업데이트 (안전장치)
+                # [NEW] 0. 리스트가 비어있다면 강제 업데이트 (안전장치 - Robust Loading)
                 if krx_df.empty:
                     with st.spinner("최신 종목 리스트를 업데이트 중입니다..."):
-                        krx_df = fdr.StockListing('KRX')
+                        krx_df = get_krx_list_safe() # <--- 에러 없이 안전하게 호출
 
                 # [NEW] 1. 종목명/코드 검색 시도 (하이브리드 로직)
                 is_stock_found = False
