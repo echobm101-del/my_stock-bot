@@ -249,18 +249,49 @@ FILE_PATH = "my_watchlist_v7.json"
 @st.cache_data
 def get_krx_list_safe():
     """안전하게 주식 리스트를 가져오는 함수 (에러 방지용)"""
+    # 1. 1차 시도: FinanceDataReader (빠름)
     try:
-        # 1. 일반적인 방식
         df = fdr.StockListing('KRX')
-        return df
+        if not df.empty: return df
+    except: pass # 실패하면 조용히 넘어감
+
+    # 2. 2차 시도: PyKRX (강력함, 날짜 자동 보정)
+    try:
+        # 최근 5일 중 데이터가 있는 날짜 찾기 (주말/휴일 대비)
+        target_date = datetime.datetime.now()
+        for _ in range(5):
+            d_str = target_date.strftime("%Y%m%d")
+            try:
+                # KOSPI 종목 리스트 체크
+                tickers = stock.get_market_ticker_list(d_str, market="KOSPI")
+                if tickers: # 데이터가 있으면 성공
+                    break 
+            except: pass
+            target_date -= datetime.timedelta(days=1)
+        
+        d_str = target_date.strftime("%Y%m%d")
+        
+        # PyKRX로 전체 종목 가져오기 (KOSPI + KOSDAQ)
+        df_kospi = stock.get_market_cap_by_ticker(d_str, market="KOSPI")
+        df_kosdaq = stock.get_market_cap_by_ticker(d_str, market="KOSDAQ")
+        
+        # 데이터 합치기
+        df_list = []
+        if not df_kospi.empty:
+            df_kospi = df_kospi.reset_index()
+            df_list.append(df_kospi[['티커', '종목명']].rename(columns={'티커': 'Code', '종목명': 'Name'}))
+        
+        if not df_kosdaq.empty:
+            df_kosdaq = df_kosdaq.reset_index()
+            df_list.append(df_kosdaq[['티커', '종목명']].rename(columns={'티커': 'Code', '종목명': 'Name'}))
+            
+        if df_list:
+            return pd.concat(df_list, ignore_index=True)
+            
     except Exception as e:
-        # 2. 에러 발생 시 KOSPI/KOSDAQ 따로 수집 시도
-        try:
-            df_kospi = fdr.StockListing('KOSPI')
-            df_kosdaq = fdr.StockListing('KOSDAQ')
-            return pd.concat([df_kospi, df_kosdaq])
-        except:
-            return pd.DataFrame() # 최후의 수단: 빈 데이터프레임 반환
+        pass # 여기까지 실패하면 어쩔 수 없이 빈 데이터프레임
+
+    return pd.DataFrame() # 최후의 수단: 빈 데이터프레임
 
 krx_df = get_krx_list_safe()
 
