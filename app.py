@@ -40,7 +40,7 @@ st.markdown("""
 
     .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
     
-    /* [NEW] 이동평균선 상태 배지 스타일 */
+    /* 이동평균선 상태 배지 스타일 */
     .ma-status-container { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
     .ma-status-badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #555; background-color: #F2F4F6; border: 1px solid #E5E8EB; }
     .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; } /* 활성화(지지) */
@@ -168,7 +168,7 @@ def render_tech_metrics(stoch, vol_ratio):
         </div>
     </div>""", unsafe_allow_html=True)
 
-# [NEW] 이동평균선 상태 시각화 (누락된 부분 추가)
+# 이동평균선 상태 시각화
 def render_ma_status(ma_list):
     if not ma_list: return
     html = "<div class='ma-status-container'>"
@@ -471,10 +471,14 @@ def calculate_sniper_score(code):
         return score, tags, vol_ratio, change
     except: return 0, [], 0, 0
 
+# [NEW] 공급망 프록시 추가 (WTI, Copper)
 @st.cache_data(ttl=3600)
 def get_macro_data():
     results = {}
-    tickers = {"KOSPI": "KS11", "KOSDAQ": "KQ11", "S&P500": "US500", "USD/KRW": "USD/KRW", "US_10Y": "US10YT"}
+    tickers = {
+        "KOSPI": "KS11", "KOSDAQ": "KQ11", "S&P500": "US500", "USD/KRW": "USD/KRW", 
+        "US_10Y": "US10YT", "WTI": "CL=F", "구리": "HG=F" 
+    }
     for name, code in tickers.items():
         try:
             df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=14))
@@ -538,17 +542,34 @@ def get_company_guide_score(code):
     fund_data = {"per": {"val": per, "stat": per_stat, "txt": per_txt}, "pbr": {"val": pbr, "stat": pbr_stat, "txt": pbr_txt}, "div": {"val": div, "stat": div_stat, "txt": div_txt}}
     return min(score, 50), "분석완료", fund_data
 
+# [NEW] 공급망 키워드 분석 로직 추가
 def analyze_news_by_keywords(news_titles):
     pos_words = ["상승", "급등", "최고", "호재", "개선", "성장", "흑자", "수주", "돌파", "기대", "매수"]
     neg_words = ["하락", "급락", "최저", "악재", "우려", "감소", "적자", "이탈", "매도", "공매도"]
+    
+    # 공급망 관련 키워드
+    sc_pos = ["공급 안정", "수율 개선", "장기 계약", "원가 절감", "공장 가동"]
+    sc_neg = ["공급난", "품귀", "물류 대란", "원자재 상승", "지연", "숏티지", "부족"]
+
     score = 0; found_keywords = []
+    sc_detected = False
+    
     for title in news_titles:
         for w in pos_words:
             if w in title: score += 1; found_keywords.append(w)
         for w in neg_words:
             if w in title: score -= 1; found_keywords.append(w)
+        # 공급망 체크
+        for w in sc_pos:
+            if w in title: score += 2; found_keywords.append(w); sc_detected=True
+        for w in sc_neg:
+            if w in title: score -= 2; found_keywords.append(w); sc_detected=True
+            
     final_score = min(max(score, -10), 10)
-    summary = f"긍정 키워드 {len([w for w in found_keywords if w in pos_words])}개, 부정 키워드 {len([w for w in found_keywords if w in neg_words])}개 감지."
+    
+    summary = f"긍정 키워드 {len([w for w in found_keywords if w in pos_words or w in sc_pos])}개, 부정 키워드 {len([w for w in found_keywords if w in neg_words or w in sc_neg])}개 감지."
+    if sc_detected: summary += " [공급망 이슈 감지]"
+    
     return final_score, summary, "키워드 분석", ""
 
 def call_gemini_auto(prompt):
@@ -720,14 +741,13 @@ def send_telegram_msg(token, chat_id, msg):
 
 # --- [4. 메인 화면] ---
 
-# 제목 및 가이드 (수정된 텍스트 유지)
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
     st.title("💎 Quant Sniper V33.0")
 
 with col_guide:
-    st.write("") # 줄 간격 맞춤
+    st.write("") 
     st.write("") 
     with st.expander("📘 개발 리포트 & 가이드 (Click)", expanded=False):
         st.markdown("""
@@ -754,11 +774,12 @@ with col_guide:
         </div>
         """, unsafe_allow_html=True)
 
-with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
+with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
     macro = get_macro_data()
     if macro:
-        cols = st.columns(5)
-        keys = ["KOSPI", "KOSDAQ", "S&P500", "USD/KRW", "US_10Y"]
+        # [NEW] 컬럼 확장 (5 -> 7)
+        cols = st.columns(7)
+        keys = ["KOSPI", "KOSDAQ", "S&P500", "USD/KRW", "US_10Y", "WTI", "구리"]
         for i, key in enumerate(keys):
             d = macro.get(key, {"val": 0.0, "change": 0.0})
             color = "#F04452" if d['change'] > 0 else "#3182F6"
@@ -795,7 +816,7 @@ with tab1:
                 with col1:
                     st.write("###### 📈 기술적 분석 & 차트")
                     st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
-                    # [NEW] 이동평균선 배지 호출
+                    # 이동평균선 배지 호출
                     render_ma_status(res['ma_status'])
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     st.markdown(render_chart_legend(), unsafe_allow_html=True)
@@ -848,7 +869,7 @@ with tab2:
                 with col1:
                     st.write("###### 📈 기술적 분석")
                     st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
-                    # [NEW] 이동평균선 배지 호출
+                    # 이동평균선 배지 호출
                     render_ma_status(res['ma_status'])
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     st.markdown(render_chart_legend(), unsafe_allow_html=True)
@@ -878,7 +899,6 @@ with st.sidebar:
         THEME_KEYWORDS = { "직접 입력": None, "반도체": "반도체", "2차전지": "2차전지", "HBM": "HBM", "AI/인공지능": "지능형로봇", "로봇": "로봇", "제약바이오": "제약업체", "자동차/부품": "자동차", "방위산업": "방위산업", "원자력발전": "원자력발전", "초전도체": "초전도체", "저PBR": "은행" }
         selected_preset = st.selectbox("⚡ 인기 테마 선택", list(THEME_KEYWORDS.keys()))
         
-        # [수정됨] 하이브리드 검색 안내 문구
         with st.form(key="search_form"):
             user_input = ""
             if selected_preset == "직접 입력": 
@@ -892,54 +912,42 @@ with st.sidebar:
             
             if not target_keyword: st.warning("⚠️ 검색어를 입력하거나 테마를 선택해주세요!")
             else:
-                # [NEW] 0. 리스트가 비어있다면 강제 업데이트 (안전장치 - Robust Loading)
                 if krx_df.empty:
                     with st.spinner("최신 종목 리스트를 업데이트 중입니다..."):
-                        krx_df = get_krx_list_safe() # <--- 에러 없이 안전하게 호출
+                        krx_df = get_krx_list_safe() 
 
-                # [NEW] 1. 종목명/코드 검색 시도 (하이브리드 로직)
                 is_stock_found = False
                 target_code = None
                 
-                # 1-A. 숫자만 입력된 경우 -> 종목 코드로 검색
                 if target_keyword.isdigit() and not krx_df.empty:
                     if target_keyword in krx_df['Code'].values:
                         target_code = target_keyword
-                        # 이름 찾기
                         try:
                             found_name = krx_df[krx_df['Code'] == target_code].iloc[0]['Name']
-                            target_keyword = found_name # 이름으로 덮어쓰기 (화면 표시용)
+                            target_keyword = found_name 
                         except: pass
                 
-                # 1-B. 문자가 입력된 경우 -> 종목 이름으로 검색
                 elif not krx_df.empty and target_keyword in krx_df['Name'].values:
                     try:
                         row = krx_df[krx_df['Name'] == target_keyword].iloc[0]
                         target_code = row['Code']
                     except: pass
 
-                # 종목 코드를 찾았다면 -> 개별 분석 실행
                 if target_code:
                     try:
                         st.info(f"🔎 '{target_keyword}'(Code: {target_code}) 개별 종목 분석을 시작합니다...")
-                        
-                        # 개별 종목 분석을 위한 스코어 및 데이터 계산
                         score, tags, vol, chg = calculate_sniper_score(target_code)
-                        
-                        # 가격 정보 가져오기 (미리보기를 위함)
                         try:
                             now_df = fdr.DataReader(target_code, datetime.datetime.now() - datetime.timedelta(days=5))
                             price = int(now_df.iloc[-1]['Close']) if not now_df.empty else 0
                         except: price = 0
                         
-                        # 데이터 구조 생성
                         stock_info = {"code": target_code, "name": target_keyword, "price": price}
                         stock_info['sniper_score'] = score
                         stock_info['tags'] = tags
                         stock_info['vol_ratio'] = vol
                         stock_info['real_change'] = chg
                         
-                        # 미리보기 리스트에 단일 종목 등록
                         st.session_state['preview_list'] = [stock_info]
                         st.session_state['current_theme_name'] = f"개별 종목: {target_keyword}"
                         is_stock_found = True
@@ -947,7 +955,6 @@ with st.sidebar:
                     except Exception as e:
                         st.error(f"종목 분석 중 오류: {str(e)}")
 
-                # [EXISTING] 2. 종목이 아니면 기존 테마 검색 로직 수행
                 if not is_stock_found:
                     try:
                         with st.spinner(f"네이버 금융에서 '{target_keyword}' 관련주 찾는 중... (1~7p 스캔)"):
