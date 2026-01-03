@@ -59,9 +59,10 @@ st.markdown("""
     .news-link:hover { color: #3182F6; text-decoration: underline; }
     .news-date { font-size: 11px; color: #999; }
     
-    .metric-box { background: #F9FAFB; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #E5E8EB; }
-    .metric-title { font-size: 12px; color: #666; }
-    .metric-value { font-size: 18px; font-weight: bold; color: #333; }
+    .metric-box { background: #F9FAFB; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #E5E8EB; height: 100%; display: flex; flex-direction: column; justify-content: center; }
+    .metric-title { font-size: 12px; color: #666; margin-bottom: 4px; }
+    .metric-value { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 2px;}
+    .metric-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 700; display: inline-block; margin-top: 4px; }
 
     .sniper-tag { font-size: 10px; padding: 2px 5px; border-radius: 4px; font-weight: 700; margin-right: 4px; }
     .tag-vol { background: #FFF0EB; color: #D9480F; border: 1px solid #FFD8A8; }
@@ -471,7 +472,7 @@ def calculate_sniper_score(code):
         return score, tags, vol_ratio, change
     except: return 0, [], 0, 0
 
-# [NEW] 공급망 프록시 추가 (WTI, Copper)
+# 공급망 프록시 추가 (WTI, Copper)
 @st.cache_data(ttl=3600)
 def get_macro_data():
     results = {}
@@ -542,7 +543,7 @@ def get_company_guide_score(code):
     fund_data = {"per": {"val": per, "stat": per_stat, "txt": per_txt}, "pbr": {"val": pbr, "stat": pbr_stat, "txt": pbr_txt}, "div": {"val": div, "stat": div_stat, "txt": div_txt}}
     return min(score, 50), "분석완료", fund_data
 
-# [NEW] 공급망 키워드 분석 로직 추가
+# 공급망 키워드 분석 로직 추가
 def analyze_news_by_keywords(news_titles):
     pos_words = ["상승", "급등", "최고", "호재", "개선", "성장", "흑자", "수주", "돌파", "기대", "매수"]
     neg_words = ["하락", "급락", "최저", "악재", "우려", "감소", "적자", "이탈", "매도", "공매도"]
@@ -777,14 +778,49 @@ with col_guide:
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
     macro = get_macro_data()
     if macro:
-        # [NEW] 컬럼 확장 (5 -> 7)
+        # [NEW] 지표 해석 로직 및 UI 적용
         cols = st.columns(7)
         keys = ["KOSPI", "KOSDAQ", "S&P500", "USD/KRW", "US_10Y", "WTI", "구리"]
+        
         for i, key in enumerate(keys):
             d = macro.get(key, {"val": 0.0, "change": 0.0})
-            color = "#F04452" if d['change'] > 0 else "#3182F6"
+            
+            # 1. 색상 결정 (수치 등락 기준)
+            val_color = "#F04452" if d['change'] > 0 else "#3182F6"
+            
+            # 2. 해석(Insight) 배지 결정
+            badge_text = ""
+            badge_style = ""
+            
+            # A. 시장 지표 (지수) -> 상승이 호재
+            if key in ["KOSPI", "KOSDAQ", "S&P500"]:
+                if d['change'] > 0: 
+                    badge_text = "📈 양호/상승"; badge_style = "color:#F04452; background:#FFF1F1;"
+                else: 
+                    badge_text = "📉 조정/관망"; badge_style = "color:#3182F6; background:#E8F3FF;"
+            
+            # B. 부담 지표 (환율, 금리, 유가) -> 상승이 악재/부담
+            elif key in ["USD/KRW", "US_10Y", "WTI"]:
+                if d['change'] > 0:
+                    badge_text = "⚠️ 부담(상승)"; badge_style = "color:#D9480F; background:#FFF8E1;" # 오렌지 경고
+                else:
+                    badge_text = "🟢 안정/호재"; badge_style = "color:#087F5B; background:#E6FCF5;" # 초록 안정
+            
+            # C. 경기 지표 (구리) -> 상승이 경기회복 신호
+            elif key == "구리":
+                if d['change'] > 0:
+                    badge_text = "🏭 경기회복"; badge_style = "color:#F04452; background:#FFF1F1;"
+                else:
+                    badge_text = "☁️ 경기둔화"; badge_style = "color:#555; background:#F2F4F6;"
+            
             with cols[i]:
-                st.markdown(f"<div class='metric-box'><div class='metric-title'>{key}</div><div class='metric-value' style='color:{color}'>{d['val']:,.2f}</div><div style='font-size:12px; color:{color}'>{d['change']:+.2f}%</div></div>", unsafe_allow_html=True)
+                st.markdown(f"""
+                <div class='metric-box'>
+                    <div class='metric-title'>{key}</div>
+                    <div class='metric-value' style='color:{val_color}'>{d['val']:,.2f}</div>
+                    <div style='font-size:12px; color:{val_color}'>{d['change']:+.2f}%</div>
+                    <div class='metric-badge' style='{badge_style}'>{badge_text}</div>
+                </div>""", unsafe_allow_html=True)
     else: st.warning("거시 경제 데이터를 불러오지 못했습니다.")
 
 tab1, tab2 = st.tabs(["🔍 테마/종목 발굴", "📂 관심 종목"])
