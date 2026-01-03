@@ -19,7 +19,7 @@ import numpy as np
 from io import StringIO
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V32.2", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V32.4", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -74,450 +74,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- [2. 데이터 및 설정] ---
-REPO_OWNER = "echobm101-del"
-REPO_NAME = "my_stock-bot"
-FILE_PATH = "my_watchlist_v7.json"
-
-@st.cache_data
-def get_krx_list():
-    try: df = fdr.StockListing('KRX'); return df
-    except: return pd.DataFrame()
-krx_df = get_krx_list()
-
-def load_from_github():
-    try:
-        if "GITHUB_TOKEN" not in st.secrets: return {}
-        token = st.secrets["GITHUB_TOKEN"]
-        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        r = requests.get(url, headers=headers)
-        if r.status_code == 200:
-            content = base64.b64decode(r.json()['content']).decode('utf-8')
-            return json.loads(content)
-        return {}
-    except: return {}
-
-if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
-if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
-if 'current_theme_name' not in st.session_state: st.session_state['current_theme_name'] = ""
-
-# --- [2-1. 네이버 금융 테마 크롤링] ---
-
-@st.cache_data(ttl=1800)
-def get_naver_theme_stocks(keyword):
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    target_link = None
-    
-    for page in range(1, 8):
-        base_url = f"https://finance.naver.com/sise/theme.naver?&page={page}"
-        try:
-            res = requests.get(base_url, headers=headers)
-            res.encoding = 'EUC-KR' 
-            soup = BeautifulSoup(res.text, 'html.parser')
-            themes = soup.select('table.type_1 tr td.col_type1 a')
-            for t in themes:
-                if keyword.strip() in t.text.strip():
-                    target_link = "https://finance.naver.com" + t['href']
-                    break
-            if target_link: break
-        except: continue
-
-    if not target_link: return [], f"네이버 금융 테마에서 '{keyword}'를 찾을 수 없습니다."
-
-    try:
-        res_detail = requests.get(target_link, headers=headers)
-        res_detail.encoding = 'EUC-KR'
-        soup_detail = BeautifulSoup(res_detail.text, 'html.parser')
-        stocks = []
-        rows = soup_detail.select('div.box_type_l table.type_5 tr')
-        for row in rows:
-            name_tag = row.select_one('td.name a')
-            if name_tag:
-                code = name_tag['href'].split('=')[-1]
-                name = name_tag.text.strip()
-                price_txt = row.select('td.number')[0].text.strip().replace(',', '')
-                try: price = int(price_txt)
-                except: price = 0
-                stocks.append({"code": code, "name": name, "price": price})
-        return stocks, f"'{keyword}' 관련 테마 발견: {len(stocks)}개 종목"
-    except Exception as e: return [], f"크롤링 오류: {str(e)}"
-
-# [V31.4] 수급 데이터 강제 크롤링
-def get_investor_trend_from_naver(code):
-    try:
-        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers)
-        
-        try:
-            dfs = pd.read_html(StringIO(res.text), match='날짜', header=0, encoding='euc-kr')
-        except:
-            dfs = pd.read_html(StringIO(res.text), header=0, encoding='euc-kr')
-        
-        target_df = None
-        for df in dfs:
-            cols_str = " ".join([str(c) for c in df.columns])
-            if '기관' in cols_str and '외국인' in cols_str:
-                target_df = df
-                break
-        
-        if target_df is None and len(dfs) > 1: target_df = dfs[1]
-
-        if target_df is not None:
-            df = target_df.dropna().copy()
-            first_col = df.columns[0]
-            try:
-                df[first_col] = pd.to_datetime(df[first_col], format='%Y.%m.%d', errors='coerce')
-                df = df.dropna(subset=[first_col])
-            except: return pd.DataFrame()
-
-            df = df.rename(columns={first_col: '날짜'})
-            inst_col = [c for c in df.columns if '기관' in str(c)][0]
-            frgn_col = [c for c in df.columns if '외국인' in str(c)][0]
-            
-            df = df.iloc[:20].copy().sort_values('날짜')
-            df['기관'] = df[inst_col].astype(str).str.replace(',', '').astype(float)
-            df['외국인'] = df[frgn_col].astype(str).str.replace(',', '').astype(float)
-            df['개인'] = -(df['기관'] + df['외국인'])
-            
-            df['Cum_Individual'] = df['개인'].cumsum()
-            df['Cum_Foreigner'] = df['외국인'].cumsum()
-            df['Cum_Institution'] = df['기관'].cumsum()
-            df['Cum_Pension'] = 0 
-            return df
-    except: pass
-    return pd.DataFrame()
-
-@st.cache_data(ttl=3600)
-def get_investor_trend(code):
-    try:
-        end_d = datetime.datetime.now().strftime("%Y%m%d")
-        start_d = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
-        df = stock.get_market_investor_net_purchase_by_date(start_d, end_d, code)
-        if not df.empty:
-            df = df.tail(20).copy()
-            df['Cum_Individual'] = df['개인'].cumsum()
-            df['Cum_Foreigner'] = df['외국인'].cumsum()
-            df['Cum_Institution'] = df['기관합계'].cumsum()
-            df['Cum_Pension'] = df['연기금'].cumsum()
-            return df
-    except: pass
-    return get_investor_trend_from_naver(code)
-
-@st.cache_data(ttl=3600)
-def get_financial_history(code):
-    try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers)
-        df_list = pd.read_html(StringIO(res.text), encoding='euc-kr')
-        
-        for df in df_list:
-            if '최근 연간 실적' in str(df.columns) or '매출액' in str(df.iloc[:,0].values):
-                df = df.set_index(df.columns[0])
-                fin_data = []
-                cols = df.columns[-5:-1]
-                
-                for col in cols:
-                    try:
-                        col_name = col[1] if isinstance(col, tuple) else col
-                        val_sales = df.loc['매출액', col] if '매출액' in df.index else 0
-                        val_op = df.loc['영업이익', col] if '영업이익' in df.index else 0
-                        val_net = df.loc['당기순이익', col] if '당기순이익' in df.index else 0
-                        
-                        fin_data.append({
-                            "Date": str(col_name).strip(),
-                            "매출액": float(val_sales) if val_sales != '-' and pd.notnull(val_sales) else 0,
-                            "영업이익": float(val_op) if val_op != '-' and pd.notnull(val_op) else 0,
-                            "당기순이익": float(val_net) if val_net != '-' and pd.notnull(val_net) else 0
-                        })
-                    except: continue
-                return pd.DataFrame(fin_data)
-        return pd.DataFrame()
-    except: return pd.DataFrame()
-
-def calculate_sniper_score(code):
-    try:
-        df = fdr.DataReader(code, datetime.datetime.now() - datetime.timedelta(days=90))
-        if df.empty or len(df) < 20: return 0, [], 0, 0
-        curr = df.iloc[-1]
-        vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
-        score = 0; tags = []
-        vol_ratio = curr['Volume'] / vol_avg if vol_avg > 0 else 0
-        if vol_ratio >= 3.0: score += 40; tags.append("🔥 거래량폭발")
-        elif vol_ratio >= 1.5: score += 20; tags.append("📈 거래량증가")
-        ma20 = df['Close'].rolling(20).mean().iloc[-1]
-        if curr['Close'] > ma20 and curr['Close'] <= ma20 * 1.05: score += 30; tags.append("🏹 눌림목")
-        
-        try:
-            end_d = datetime.datetime.now().strftime("%Y%m%d")
-            start_d = (datetime.datetime.now() - datetime.timedelta(days=5)).strftime("%Y%m%d")
-            inv_df = stock.get_market_investor_net_purchase_by_date(start_d, end_d, code).tail(3)
-            if not inv_df.empty and (inv_df['기관합계'].sum() + inv_df['외국인'].sum() > 0): score += 30; tags.append("🏦 메이저매집")
-        except: pass
-        
-        change = (curr['Close'] - df.iloc[-2]['Close']) / df.iloc[-2]['Close'] * 100
-        if change > 15: tags.append("🚀 급등주")
-        return score, tags, vol_ratio, change
-    except: return 0, [], 0, 0
-
-# --- [2-2. 거시 경제 데이터] ---
-@st.cache_data(ttl=3600)
-def get_macro_data():
-    results = {}
-    tickers = {"KOSPI": "KS11", "KOSDAQ": "KQ11", "S&P500": "US500", "USD/KRW": "USD/KRW", "US_10Y": "US10YT"}
-    for name, code in tickers.items():
-        try:
-            df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=14))
-            if not df.empty:
-                curr = df.iloc[-1]
-                results[name] = {"val": curr['Close'], "change": (curr['Close'] - curr['Open']) / curr['Open'] * 100}
-            else: results[name] = {"val": 0.0, "change": 0.0}
-        except: results[name] = {"val": 0.0, "change": 0.0}
-    if all(v['val'] == 0.0 for v in results.values()): return None
-    return results
-
-# --- [3. 분석 엔진] ---
-
-@st.cache_data(ttl=1200)
-def get_company_guide_score(code):
-    per, pbr, div = 0.0, 0.0, 0.0
-    # 네이버 크롤링
-    try:
-        url = f"https://finance.naver.com/item/main.naver?code={code}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        res = requests.get(url, headers=headers)
-        if res.status_code == 200:
-            soup = BeautifulSoup(res.text, 'html.parser')
-            def get_val_by_id(id_name):
-                tag = soup.select_one(f"#{id_name}")
-                if tag:
-                    txt = tag.text.replace(',', '').replace('%', '').replace('배', '').strip()
-                    try: return float(txt)
-                    except: return 0.0
-                return 0.0
-            per = get_val_by_id("_per")
-            pbr = get_val_by_id("_pbr")
-            div = get_val_by_id("_dvr")
-    except: pass
-
-    # 백업 로직들
-    if per == 0 and pbr == 0:
-        if not krx_df.empty and code in krx_df['Code'].values:
-            try:
-                row = krx_df[krx_df['Code'] == code].iloc[0]
-                per = float(row.get('PER', 0)) if pd.notnull(row.get('PER')) else 0
-                pbr = float(row.get('PBR', 0)) if pd.notnull(row.get('PBR')) else 0
-                div = float(row.get('DividendYield', 0)) if pd.notnull(row.get('DividendYield')) else 0
-            except: pass
-
-    pbr_stat = "good" if 0 < pbr < 1.0 else ("neu" if 1.0 <= pbr < 2.5 else "bad")
-    pbr_txt = "저평가(좋음)" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가/정보없음")
-    per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
-    per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자/정보없음")
-    div_stat = "good" if div > 3.0 else "neu"
-    div_txt = "고배당" if div > 3.0 else "일반"
-
-    score = 20
-    if pbr_stat=="good": score+=15
-    if per_stat=="good": score+=10
-    if div_stat=="good": score+=5
-    
-    fund_data = {
-        "per": {"val": per, "stat": per_stat, "txt": per_txt},
-        "pbr": {"val": pbr, "stat": pbr_stat, "txt": pbr_txt},
-        "div": {"val": div, "stat": div_stat, "txt": div_txt}
-    }
-    return min(score, 50), "분석완료", fund_data
-
-def analyze_news_by_keywords(news_titles):
-    pos_words = ["상승", "급등", "최고", "호재", "개선", "성장", "흑자", "수주", "돌파", "기대", "매수"]
-    neg_words = ["하락", "급락", "최저", "악재", "우려", "감소", "적자", "이탈", "매도", "공매도"]
-    score = 0; found_keywords = []
-    for title in news_titles:
-        for w in pos_words:
-            if w in title: score += 1; found_keywords.append(w)
-        for w in neg_words:
-            if w in title: score -= 1; found_keywords.append(w)
-    final_score = min(max(score, -10), 10)
-    summary = f"긍정 키워드 {len([w for w in found_keywords if w in pos_words])}개, 부정 키워드 {len([w for w in found_keywords if w in neg_words])}개 감지."
-    return final_score, summary, "키워드 분석", ""
-
-def call_gemini_auto(prompt):
-    api_key = st.secrets.get("GOOGLE_API_KEY", "")
-    if not api_key: return None, "NO_KEY"
-    models = ["gemini-1.5-flash", "gemini-pro"]
-    for m in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
-        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
-        try:
-            res = requests.post(url, headers=headers, json=payload, timeout=6)
-            if res.status_code == 200: return res.json(), None
-        except: continue
-    return None, "ALL_FAILED"
-
-# [V32.1 Safe Mode] Fallback이 강화된 AI 뉴스 분석
-@st.cache_data(ttl=600)
-def get_news_sentiment_llm(company_name, trend_context=""):
-    news_titles = []; news_data = []
-    
-    # 1. News Fetching (Fail-Safe)
-    try:
-        query = f"{company_name} 주가"
-        encoded_query = urllib.parse.quote(query)
-        base_url = "https://news.google.com/rss/search"
-        rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
-        feed = feedparser.parse(rss_url)
-        for entry in feed.entries[:15]:
-            date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else ""
-            news_data.append({"title": entry.title, "link": entry.link, "date": date_str})
-            news_titles.append(entry.title)
-    except: pass # 뉴스 로딩 실패해도 진행
-    
-    if not news_titles: 
-        return {"score": 0, "headline": "뉴스 데이터 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립"}
-
-    # 2. AI Analysis (Fail-Safe)
-    try:
-        prompt = f"""
-        당신은 20년 경력의 베테랑 헤지펀드 매니저입니다. 아래 정보를 바탕으로 투자 의견을 JSON으로 제시하세요.
-        [대상 종목]: {company_name}
-        [현재 기술적 위치]: {trend_context}
-        [최근 뉴스 헤드라인]: {str(news_titles)}
-        [출력 형식 (JSON)]: {{ "score": -10~10, "opinion": "매수/관망/매도", "catalyst": "핵심키워드", "summary": "한줄평" }}
-        """
-        res_data, error_code = call_gemini_auto(prompt)
-        if res_data:
-            raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            js = json.loads(raw)
-            return {
-                "score": js.get('score', 0),
-                "headline": js.get('summary', ""),
-                "raw_news": news_data,
-                "method": "ai",
-                "catalyst": js.get('catalyst', ""),
-                "opinion": js.get('opinion', "중립")
-            }
-    except: pass
-            
-    # 3. Fallback (Keyword)
-    score, summary, _, _ = analyze_news_by_keywords(news_titles)
-    return {"score": score, "headline": summary, "raw_news": news_data, "method": "keyword", "catalyst": "", "opinion": ""}
-
-# [V32.2 수정] Zombie Mode (Never Die) 적용된 분석 함수
-def analyze_pro(code, name_override=None):
-    # [1] 필수 데이터 로딩 (여기서 실패하면 아예 못 그림)
-    try:
-        df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=450))
-        if df.empty or len(df) < 60: return None # 데이터 너무 적으면 패스
-    except: return None # 주가 데이터 없으면 패스
-
-    # [2] 기본값(Default) 초기화 - 좀비 모드 준비
-    curr = df.iloc[-1]
-    result_dict = {
-        "name": name_override if name_override else code, 
-        "code": code, 
-        "price": int(curr['Close']),
-        "score": 50, # 기본 점수
-        "strategy": {"buy": 0, "target": 0, "action": "판단보류"},
-        "fund_data": None, 
-        "ma_status": [], 
-        "trend_txt": "분석 중",
-        "news": {"score":0, "headline":"로딩 실패", "raw_news":[], "method":"none", "opinion":"", "catalyst":""}, 
-        "history": df, 
-        "supply": {"f":0, "i":0},
-        "stoch": {"k": 50, "d": 50},
-        "vol_ratio": 1.0,
-        "investor_trend": pd.DataFrame(),
-        "fin_history": pd.DataFrame()
-    }
-
-    # [3] 개별 데이터 로딩 (하나가 죽어도 나머지는 산다)
-    
-    # 3-1. 기술적 분석
-    try:
-        df['MA5'] = df['Close'].rolling(5).mean(); df['MA20'] = df['Close'].rolling(20).mean()
-        df['MA60'] = df['Close'].rolling(60).mean(); df['MA120'] = df['Close'].rolling(120).mean()
-        df['MA240'] = df['Close'].rolling(240).mean()
-        df['std'] = df['Close'].rolling(20).std()
-        df['BB_Upper'] = df['MA20'] + (df['std'] * 2); df['BB_Lower'] = df['MA20'] - (df['std'] * 2)
-        df['Vol_MA20'] = df['Volume'].rolling(20).mean()
-        
-        n=14; m=3; t=3
-        df['L14'] = df['Low'].rolling(window=n).min(); df['H14'] = df['High'].rolling(window=n).max()
-        df['%K'] = (df['Close'] - df['L14']) / (df['H14'] - df['L14']) * 100
-        df['%D'] = df['%K'].rolling(window=m).mean(); df['%J'] = df['%D'].rolling(window=t).mean()
-        
-        curr = df.iloc[-1] # 재갱신
-        
-        pass_cnt = 0
-        mas = [('5일', 'MA5'), ('20일', 'MA20'), ('60일', 'MA60'), ('120일', 'MA120'), ('240일', 'MA240')]
-        ma_status = []
-        for label, col in mas:
-            val = curr.get(col, 0)
-            if curr['Close'] >= val: 
-                pass_cnt += 1; ma_status.append({"label": label, "ok": True})
-            else: ma_status.append({"label": label, "ok": False})
-            
-        if pass_cnt >= 4: trend_txt = "강력한 상승 추세 (정배열)"
-        elif pass_cnt >= 3: trend_txt = "상승세 유지 (양호)"
-        elif pass_cnt >= 1: trend_txt = "하락 중 반등 시도"
-        else: trend_txt = "완전 역배열 (하락세)"
-        
-        result_dict['ma_status'] = ma_status
-        result_dict['trend_txt'] = trend_txt
-        result_dict['stoch'] = {"k": curr['%K'], "d": curr['%J']}
-        result_dict['vol_ratio'] = curr['Volume'] / curr['Vol_MA20'] if curr['Vol_MA20'] > 0 else 1.0
-        
-        tech_score = (pass_cnt * 6)
-        if curr['%K'] < 20: tech_score += 5 
-    except: tech_score = 0
-
-    # 3-2. 뉴스 (AI)
-    try:
-        result_dict['news'] = get_news_sentiment_llm(result_dict['name'], trend_context=result_dict['trend_txt'])
-    except: pass # 실패하면 기본값 유지
-
-    # 3-3. 펀더멘탈
-    try:
-        fund_score, fund_msg, fund_data = get_company_guide_score(code)
-        result_dict['fund_data'] = fund_data
-    except: fund_score = 0
-
-    # 3-4. 수급 & 재무 차트
-    try: result_dict['investor_trend'] = get_investor_trend(code)
-    except: pass
-    
-    try: result_dict['fin_history'] = get_financial_history(code)
-    except: pass
-    
-    try: result_dict['supply'] = get_supply_demand(code)
-    except: pass
-
-    # [4] 최종 점수 계산
-    try:
-        bonus = 0
-        if not result_dict['investor_trend'].empty: bonus += 5
-        if not result_dict['fin_history'].empty: bonus += 5
-        
-        final_score = int((tech_score * 0.4) + fund_score + bonus + result_dict['news']['score'])
-        result_dict['score'] = min(max(final_score, 0), 100)
-        
-        # 매수 의견
-        buy_sig = "관망"
-        if final_score >= 70: buy_sig = "강력매수"
-        elif final_score >= 60: buy_sig = "매수"
-        
-        result_dict['strategy'] = {
-            "buy": int(curr['MA20']) if 'MA20' in curr else 0,
-            "target": int(curr['Close']*1.1),
-            "action": buy_sig
-        }
-    except: pass
-
-    return result_dict
+# --- [2. 시각화 및 렌더링 함수 (NameError 방지 위해 최상단 배치)] ---
 
 def create_card_html(res):
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
@@ -638,12 +195,396 @@ def render_investor_chart(df):
     chart = alt.layer(bar, line).resolve_scale(y='independent').properties(height=250)
     st.altair_chart(chart, use_container_width=True)
 
+# --- [3. 데이터 로딩 및 분석 로직] ---
+REPO_OWNER = "echobm101-del"
+REPO_NAME = "my_stock-bot"
+FILE_PATH = "my_watchlist_v7.json"
+
+@st.cache_data
+def get_krx_list():
+    try: df = fdr.StockListing('KRX'); return df
+    except: return pd.DataFrame()
+krx_df = get_krx_list()
+
+def load_from_github():
+    try:
+        if "GITHUB_TOKEN" not in st.secrets: return {}
+        token = st.secrets["GITHUB_TOKEN"]
+        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+        r = requests.get(url, headers=headers)
+        if r.status_code == 200:
+            content = base64.b64decode(r.json()['content']).decode('utf-8')
+            return json.loads(content)
+        return {}
+    except: return {}
+
+if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
+if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
+if 'current_theme_name' not in st.session_state: st.session_state['current_theme_name'] = ""
+
+@st.cache_data(ttl=1800)
+def get_naver_theme_stocks(keyword):
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    target_link = None
+    for page in range(1, 8):
+        base_url = f"https://finance.naver.com/sise/theme.naver?&page={page}"
+        try:
+            res = requests.get(base_url, headers=headers)
+            res.encoding = 'EUC-KR' 
+            soup = BeautifulSoup(res.text, 'html.parser')
+            themes = soup.select('table.type_1 tr td.col_type1 a')
+            for t in themes:
+                if keyword.strip() in t.text.strip():
+                    target_link = "https://finance.naver.com" + t['href']
+                    break
+            if target_link: break
+        except: continue
+    if not target_link: return [], f"네이버 금융 테마에서 '{keyword}'를 찾을 수 없습니다."
+    try:
+        res_detail = requests.get(target_link, headers=headers)
+        res_detail.encoding = 'EUC-KR'
+        soup_detail = BeautifulSoup(res_detail.text, 'html.parser')
+        stocks = []
+        rows = soup_detail.select('div.box_type_l table.type_5 tr')
+        for row in rows:
+            name_tag = row.select_one('td.name a')
+            if name_tag:
+                code = name_tag['href'].split('=')[-1]
+                name = name_tag.text.strip()
+                price_txt = row.select('td.number')[0].text.strip().replace(',', '')
+                try: price = int(price_txt)
+                except: price = 0
+                stocks.append({"code": code, "name": name, "price": price})
+        return stocks, f"'{keyword}' 관련 테마 발견: {len(stocks)}개 종목"
+    except Exception as e: return [], f"크롤링 오류: {str(e)}"
+
+def get_investor_trend_from_naver(code):
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        try: dfs = pd.read_html(StringIO(res.text), match='날짜', header=0, encoding='euc-kr')
+        except: dfs = pd.read_html(StringIO(res.text), header=0, encoding='euc-kr')
+        target_df = None
+        for df in dfs:
+            cols_str = " ".join([str(c) for c in df.columns])
+            if '기관' in cols_str and '외국인' in cols_str: target_df = df; break
+        if target_df is None and len(dfs) > 1: target_df = dfs[1]
+        if target_df is not None:
+            df = target_df.dropna().copy()
+            first_col = df.columns[0]
+            try:
+                df[first_col] = pd.to_datetime(df[first_col], format='%Y.%m.%d', errors='coerce')
+                df = df.dropna(subset=[first_col])
+            except: return pd.DataFrame()
+            df = df.rename(columns={first_col: '날짜'})
+            inst_col = [c for c in df.columns if '기관' in str(c)][0]
+            frgn_col = [c for c in df.columns if '외국인' in str(c)][0]
+            df = df.iloc[:20].copy().sort_values('날짜')
+            df['기관'] = df[inst_col].astype(str).str.replace(',', '').astype(float)
+            df['외국인'] = df[frgn_col].astype(str).str.replace(',', '').astype(float)
+            df['개인'] = -(df['기관'] + df['외국인'])
+            df['Cum_Individual'] = df['개인'].cumsum()
+            df['Cum_Foreigner'] = df['외국인'].cumsum()
+            df['Cum_Institution'] = df['기관'].cumsum()
+            df['Cum_Pension'] = 0 
+            return df
+    except: pass
+    return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def get_investor_trend(code):
+    try:
+        end_d = datetime.datetime.now().strftime("%Y%m%d")
+        start_d = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
+        df = stock.get_market_investor_net_purchase_by_date(start_d, end_d, code)
+        if not df.empty:
+            df = df.tail(20).copy()
+            df['Cum_Individual'] = df['개인'].cumsum()
+            df['Cum_Foreigner'] = df['외국인'].cumsum()
+            df['Cum_Institution'] = df['기관합계'].cumsum()
+            df['Cum_Pension'] = df['연기금'].cumsum()
+            return df
+    except: pass
+    return get_investor_trend_from_naver(code)
+
+@st.cache_data(ttl=3600)
+def get_financial_history(code):
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        df_list = pd.read_html(StringIO(res.text), encoding='euc-kr')
+        for df in df_list:
+            if '최근 연간 실적' in str(df.columns) or '매출액' in str(df.iloc[:,0].values):
+                df = df.set_index(df.columns[0])
+                fin_data = []
+                cols = df.columns[-5:-1]
+                for col in cols:
+                    try:
+                        col_name = col[1] if isinstance(col, tuple) else col
+                        val_sales = df.loc['매출액', col] if '매출액' in df.index else 0
+                        val_op = df.loc['영업이익', col] if '영업이익' in df.index else 0
+                        val_net = df.loc['당기순이익', col] if '당기순이익' in df.index else 0
+                        fin_data.append({
+                            "Date": str(col_name).strip(),
+                            "매출액": float(val_sales) if val_sales != '-' and pd.notnull(val_sales) else 0,
+                            "영업이익": float(val_op) if val_op != '-' and pd.notnull(val_op) else 0,
+                            "당기순이익": float(val_net) if val_net != '-' and pd.notnull(val_net) else 0
+                        })
+                    except: continue
+                return pd.DataFrame(fin_data)
+        return pd.DataFrame()
+    except: return pd.DataFrame()
+
+def calculate_sniper_score(code):
+    try:
+        df = fdr.DataReader(code, datetime.datetime.now() - datetime.timedelta(days=90))
+        if df.empty or len(df) < 20: return 0, [], 0, 0
+        curr = df.iloc[-1]
+        vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+        score = 0; tags = []
+        vol_ratio = curr['Volume'] / vol_avg if vol_avg > 0 else 0
+        if vol_ratio >= 3.0: score += 40; tags.append("🔥 거래량폭발")
+        elif vol_ratio >= 1.5: score += 20; tags.append("📈 거래량증가")
+        ma20 = df['Close'].rolling(20).mean().iloc[-1]
+        if curr['Close'] > ma20 and curr['Close'] <= ma20 * 1.05: score += 30; tags.append("🏹 눌림목")
+        try:
+            end_d = datetime.datetime.now().strftime("%Y%m%d")
+            start_d = (datetime.datetime.now() - datetime.timedelta(days=5)).strftime("%Y%m%d")
+            inv_df = stock.get_market_investor_net_purchase_by_date(start_d, end_d, code).tail(3)
+            if not inv_df.empty and (inv_df['기관합계'].sum() + inv_df['외국인'].sum() > 0): score += 30; tags.append("🏦 메이저매집")
+        except: pass
+        change = (curr['Close'] - df.iloc[-2]['Close']) / df.iloc[-2]['Close'] * 100
+        if change > 15: tags.append("🚀 급등주")
+        return score, tags, vol_ratio, change
+    except: return 0, [], 0, 0
+
+@st.cache_data(ttl=3600)
+def get_macro_data():
+    results = {}
+    tickers = {"KOSPI": "KS11", "KOSDAQ": "KQ11", "S&P500": "US500", "USD/KRW": "USD/KRW", "US_10Y": "US10YT"}
+    for name, code in tickers.items():
+        try:
+            df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=14))
+            if not df.empty:
+                curr = df.iloc[-1]
+                results[name] = {"val": curr['Close'], "change": (curr['Close'] - curr['Open']) / curr['Open'] * 100}
+            else: results[name] = {"val": 0.0, "change": 0.0}
+        except: results[name] = {"val": 0.0, "change": 0.0}
+    if all(v['val'] == 0.0 for v in results.values()): return None
+    return results
+
+@st.cache_data(ttl=1200)
+def get_company_guide_score(code):
+    per, pbr, div = 0.0, 0.0, 0.0
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            def get_val_by_id(id_name):
+                tag = soup.select_one(f"#{id_name}")
+                if tag:
+                    txt = tag.text.replace(',', '').replace('%', '').replace('배', '').strip()
+                    try: return float(txt)
+                    except: return 0.0
+                return 0.0
+            per = get_val_by_id("_per")
+            pbr = get_val_by_id("_pbr")
+            div = get_val_by_id("_dvr")
+    except: pass
+    if per == 0 and pbr == 0:
+        if not krx_df.empty and code in krx_df['Code'].values:
+            try:
+                row = krx_df[krx_df['Code'] == code].iloc[0]
+                per = float(row.get('PER', 0)) if pd.notnull(row.get('PER')) else 0
+                pbr = float(row.get('PBR', 0)) if pd.notnull(row.get('PBR')) else 0
+                div = float(row.get('DividendYield', 0)) if pd.notnull(row.get('DividendYield')) else 0
+            except: pass
+    if per == 0 and pbr == 0:
+        try:
+            end_str = datetime.datetime.now().strftime("%Y%m%d")
+            start_str = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
+            df = stock.get_market_fundamental_by_date(start_str, end_str, code)
+            if not df.empty:
+                recent = df.iloc[-1]
+                per = float(recent.get('PER', 0))
+                pbr = float(recent.get('PBR', 0))
+                div = float(recent.get('DIV', 0))
+        except: pass
+    pbr_stat = "good" if 0 < pbr < 1.0 else ("neu" if 1.0 <= pbr < 2.5 else "bad")
+    pbr_txt = "저평가(좋음)" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가/정보없음")
+    per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
+    per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자/정보없음")
+    div_stat = "good" if div > 3.0 else "neu"
+    div_txt = "고배당" if div > 3.0 else "일반"
+    score = 20
+    if pbr_stat=="good": score+=15
+    if per_stat=="good": score+=10
+    if div_stat=="good": score+=5
+    fund_data = {"per": {"val": per, "stat": per_stat, "txt": per_txt}, "pbr": {"val": pbr, "stat": pbr_stat, "txt": pbr_txt}, "div": {"val": div, "stat": div_stat, "txt": div_txt}}
+    return min(score, 50), "분석완료", fund_data
+
+def analyze_news_by_keywords(news_titles):
+    pos_words = ["상승", "급등", "최고", "호재", "개선", "성장", "흑자", "수주", "돌파", "기대", "매수"]
+    neg_words = ["하락", "급락", "최저", "악재", "우려", "감소", "적자", "이탈", "매도", "공매도"]
+    score = 0; found_keywords = []
+    for title in news_titles:
+        for w in pos_words:
+            if w in title: score += 1; found_keywords.append(w)
+        for w in neg_words:
+            if w in title: score -= 1; found_keywords.append(w)
+    final_score = min(max(score, -10), 10)
+    summary = f"긍정 키워드 {len([w for w in found_keywords if w in pos_words])}개, 부정 키워드 {len([w for w in found_keywords if w in neg_words])}개 감지."
+    return final_score, summary, "키워드 분석", ""
+
+def call_gemini_auto(prompt):
+    api_key = st.secrets.get("GOOGLE_API_KEY", "")
+    if not api_key: return None, "NO_KEY"
+    models = ["gemini-1.5-flash", "gemini-pro"]
+    for m in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
+        try:
+            res = requests.post(url, headers=headers, json=payload, timeout=6)
+            if res.status_code == 200: return res.json(), None
+        except: continue
+    return None, "ALL_FAILED"
+
+@st.cache_data(ttl=600)
+def get_news_sentiment_llm(company_name, trend_context=""):
+    news_titles = []; news_data = []
+    try:
+        query = f"{company_name} 주가"
+        encoded_query = urllib.parse.quote(query)
+        base_url = "https://news.google.com/rss/search"
+        rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
+        feed = feedparser.parse(rss_url)
+        for entry in feed.entries[:15]:
+            date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else ""
+            news_data.append({"title": entry.title, "link": entry.link, "date": date_str})
+            news_titles.append(entry.title)
+    except: return {"score": 0, "headline": "뉴스 데이터 로딩 실패", "raw_news": [], "method": "error", "catalyst": "", "opinion": ""}
+    if not news_titles: return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립"}
+    try:
+        prompt = f"""당신은 20년 경력의 베테랑 헤지펀드 매니저입니다. 아래 정보를 바탕으로 투자 의견을 JSON으로 제시하세요. [대상 종목]: {company_name} [현재 기술적 위치]: {trend_context} [최근 뉴스 헤드라인]: {str(news_titles)} [출력 형식 (JSON)]: {{ "score": -10~10, "opinion": "매수/관망/매도", "catalyst": "핵심키워드", "summary": "한줄평" }}"""
+        res_data, error_code = call_gemini_auto(prompt)
+        if res_data:
+            raw = res_data['candidates'][0]['content']['parts'][0]['text']
+            js = json.loads(raw)
+            return {"score": js.get('score', 0), "headline": js.get('summary', ""), "raw_news": news_data, "method": "ai", "catalyst": js.get('catalyst', ""), "opinion": js.get('opinion', "중립")}
+    except: pass
+    score, summary, _, _ = analyze_news_by_keywords(news_titles)
+    return {"score": score, "headline": summary, "raw_news": news_data, "method": "keyword", "catalyst": "", "opinion": ""}
+
+def get_supply_demand(code):
+    try:
+        e = datetime.datetime.now().strftime("%Y%m%d")
+        s = (datetime.datetime.now()-datetime.timedelta(days=7)).strftime("%Y%m%d")
+        df = stock.get_market_investor_net_purchase_by_date(s, e, code).tail(3)
+        if df.empty: return {"f":0, "i":0}
+        return {"f": int(df['외국인'].sum()), "i": int(df['기관합계'].sum())}
+    except: return {"f":0, "i":0}
+
+def analyze_pro(code, name_override=None):
+    try:
+        df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=450))
+        if df.empty or len(df) < 60: return None
+    except: return None
+
+    curr = df.iloc[-1]
+    result_dict = {
+        "name": name_override if name_override else code, 
+        "code": code, 
+        "price": int(curr['Close']),
+        "score": 50,
+        "strategy": {"buy": 0, "target": 0, "action": "판단보류"},
+        "fund_data": None, 
+        "ma_status": [], 
+        "trend_txt": "분석 중",
+        "news": {"score":0, "headline":"로딩 실패", "raw_news":[], "method":"none", "opinion":"", "catalyst":""}, 
+        "history": df, 
+        "supply": {"f":0, "i":0},
+        "stoch": {"k": 50, "d": 50},
+        "vol_ratio": 1.0,
+        "investor_trend": pd.DataFrame(),
+        "fin_history": pd.DataFrame()
+    }
+
+    try:
+        df['MA5'] = df['Close'].rolling(5).mean(); df['MA20'] = df['Close'].rolling(20).mean()
+        df['MA60'] = df['Close'].rolling(60).mean(); df['MA120'] = df['Close'].rolling(120).mean()
+        df['MA240'] = df['Close'].rolling(240).mean()
+        df['std'] = df['Close'].rolling(20).std()
+        df['BB_Upper'] = df['MA20'] + (df['std'] * 2); df['BB_Lower'] = df['MA20'] - (df['std'] * 2)
+        df['Vol_MA20'] = df['Volume'].rolling(20).mean()
+        
+        n=14; m=3; t=3
+        df['L14'] = df['Low'].rolling(window=n).min(); df['H14'] = df['High'].rolling(window=n).max()
+        df['%K'] = (df['Close'] - df['L14']) / (df['H14'] - df['L14']) * 100
+        df['%D'] = df['%K'].rolling(window=m).mean(); df['%J'] = df['%D'].rolling(window=t).mean()
+        
+        curr = df.iloc[-1]
+        pass_cnt = 0
+        mas = [('5일', 'MA5'), ('20일', 'MA20'), ('60일', 'MA60'), ('120일', 'MA120'), ('240일', 'MA240')]
+        ma_status = []
+        for label, col in mas:
+            val = curr.get(col, 0)
+            if curr['Close'] >= val: pass_cnt += 1; ma_status.append({"label": label, "ok": True})
+            else: ma_status.append({"label": label, "ok": False})
+            
+        if pass_cnt >= 4: trend_txt = "강력한 상승 추세 (정배열)"
+        elif pass_cnt >= 3: trend_txt = "상승세 유지 (양호)"
+        elif pass_cnt >= 1: trend_txt = "하락 중 반등 시도"
+        else: trend_txt = "완전 역배열 (하락세)"
+        
+        result_dict['ma_status'] = ma_status
+        result_dict['trend_txt'] = trend_txt
+        result_dict['stoch'] = {"k": curr['%K'], "d": curr['%J']}
+        result_dict['vol_ratio'] = curr['Volume'] / curr['Vol_MA20'] if curr['Vol_MA20'] > 0 else 1.0
+        tech_score = (pass_cnt * 6)
+        if curr['%K'] < 20: tech_score += 5 
+    except: tech_score = 0
+
+    try: result_dict['news'] = get_news_sentiment_llm(result_dict['name'], trend_context=result_dict['trend_txt'])
+    except: pass 
+
+    try: fund_score, _, fund_data = get_company_guide_score(code); result_dict['fund_data'] = fund_data
+    except: fund_score = 0
+
+    try: result_dict['investor_trend'] = get_investor_trend(code)
+    except: pass
+    
+    try: result_dict['fin_history'] = get_financial_history(code)
+    except: pass
+    
+    try: result_dict['supply'] = get_supply_demand(code)
+    except: pass
+
+    try:
+        bonus = 0
+        if not result_dict['investor_trend'].empty: bonus += 5
+        if not result_dict['fin_history'].empty: bonus += 5
+        final_score = int((tech_score * 0.4) + fund_score + bonus + result_dict['news']['score'])
+        result_dict['score'] = min(max(final_score, 0), 100)
+        buy_sig = "관망"
+        if final_score >= 70: buy_sig = "강력매수"
+        elif final_score >= 60: buy_sig = "매수"
+        result_dict['strategy'] = {"buy": int(curr['MA20']) if 'MA20' in curr else 0, "target": int(curr['Close']*1.1), "action": buy_sig}
+    except: pass
+
+    return result_dict
+
 def send_telegram_msg(token, chat_id, msg):
     try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V32.2")
+st.title("💎 Quant Sniper V32.4")
 
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
     macro = get_macro_data()
@@ -655,15 +596,15 @@ with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", ex
             color = "#F04452" if d['change'] > 0 else "#3182F6"
             with cols[i]:
                 st.markdown(f"<div class='metric-box'><div class='metric-title'>{key}</div><div class='metric-value' style='color:{color}'>{d['val']:,.2f}</div><div style='font-size:12px; color:{color}'>{d['change']:+.2f}%</div></div>", unsafe_allow_html=True)
-        st.caption("※ USD/KRW는 수출 경쟁력, US_10Y는 글로벌 유동성 지표")
     else: st.warning("거시 경제 데이터를 불러오지 못했습니다.")
 
-tab1, tab2 = st.tabs(["🔍 테마/종목 발굴", "📂 나의 포트폴리오"])
+# [V32.4 수정] 탭 명칭 '나의 포트폴리오' -> '관심 종목'으로 변경
+tab1, tab2 = st.tabs(["🔍 테마/종목 발굴", "📂 관심 종목"])
 
 with tab1:
     if st.session_state.get('preview_list'):
         st.markdown(f"### 🔍 '{st.session_state['current_theme_name']}' 주도주 심층 분석 (미리보기)")
-        st.info("💡 마음에 드는 종목의 **'📌 관심종목 등록'** 버튼을 누르면 '나의 포트폴리오' 탭에 저장됩니다.")
+        st.info("💡 마음에 드는 종목의 **'📌 관심종목 등록'** 버튼을 누르면 '관심 종목' 탭에 저장됩니다.")
         
         with st.spinner("주도주 심층 분석 데이터 생성 중..."):
             preview_results = []
@@ -694,42 +635,36 @@ with tab1:
                     st.write("###### 🏢 재무 펀더멘탈 & 실적")
                     render_fund_scorecard(res['fund_data'])
                     render_financial_table(res['fin_history'])
-                
-                st.write("###### 🧠 큰손 투자 동향")
+                st.write("###### 🧠 큰손 투자 동향 (최근 20일 누적)")
                 render_investor_chart(res['investor_trend'])
-
                 st.write("###### 📰 AI 헤지펀드 매니저 분석")
                 if res['news']['method'] == "ai": 
-                    op = res['news']['opinion']
-                    badge_cls = "ai-opinion-hold"
+                    op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
                     if "매수" in op: badge_cls = "ai-opinion-buy"
                     elif "매도" in op: badge_cls = "ai-opinion-sell"
                     st.markdown(f"""<div class='news-ai'><div style='margin-bottom:8px;'><span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span><span style='font-size:13px; font-weight:700; margin-left:5px;'>💡 핵심 재료: {res['news']['catalyst']}</span></div><div style='font-size:13px; line-height:1.6;'><b>🤖 전문가 코멘트:</b> {res['news']['headline']}</div></div>""", unsafe_allow_html=True)
                 else: 
                     st.markdown(f"<div class='news-fallback'><b>⚠️ 단순 키워드 분석:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
-                
                 st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
                 for news in res['news']['raw_news']:
                     st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
-    else:
-        st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
+    else: st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
 
+# [V32.4 수정] 탭 내용 제목 변경
 with tab2:
-    st.markdown("### 📂 나의 포트폴리오 (Portfolio)")
+    st.markdown("### 📂 관심 종목 (Watchlist)")
     combined_watchlist = list(st.session_state['watchlist'].items())
-
     if not combined_watchlist: 
-        st.info("아직 포트폴리오가 비어있습니다. '테마/종목 발굴' 탭에서 종목을 추가해보세요.")
+        st.info("아직 관심 종목이 없습니다. '테마/종목 발굴' 탭에서 종목을 추가해보세요.")
     else:
-        with st.spinner("포트폴리오 데이터 갱신 중..."):
+        with st.spinner("관심 종목 데이터 갱신 중..."):
             wl_results = []
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 futures = [executor.submit(analyze_pro, info['code'], name) for name, info in combined_watchlist]
                 for f in concurrent.futures.as_completed(futures):
                     if f.result(): wl_results.append(f.result())
             wl_results.sort(key=lambda x: x['score'], reverse=True)
-
         for res in wl_results:
             st.markdown(create_card_html(res), unsafe_allow_html=True)
             with st.expander(f"📊 {res['name']} 상세 분석"):
@@ -744,20 +679,16 @@ with tab2:
                     st.write("###### 🏢 재무 펀더멘탈")
                     render_fund_scorecard(res['fund_data'])
                     render_financial_table(res['fin_history'])
-                
                 st.write("###### 🧠 큰손 투자 동향")
                 render_investor_chart(res['investor_trend'])
-                
                 st.write("###### 📰 AI 헤지펀드 매니저 분석")
                 if res['news']['method'] == "ai": 
-                    op = res['news']['opinion']
-                    badge_cls = "ai-opinion-hold"
+                    op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
                     if "매수" in op: badge_cls = "ai-opinion-buy"
                     elif "매도" in op: badge_cls = "ai-opinion-sell"
                     st.markdown(f"""<div class='news-ai'><div style='margin-bottom:8px;'><span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span><span style='font-size:13px; font-weight:700; margin-left:5px;'>💡 핵심 재료: {res['news']['catalyst']}</span></div><div style='font-size:13px; line-height:1.6;'><b>🤖 전문가 코멘트:</b> {res['news']['headline']}</div></div>""", unsafe_allow_html=True)
                 else:
                     st.markdown(f"<div class='news-fallback'><b>⚠️ 단순 키워드 분석:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
-                
                 st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
                 for news in res['news']['raw_news']:
                     st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
@@ -766,20 +697,7 @@ with tab2:
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
-        THEME_KEYWORDS = {
-            "직접 입력": None,
-            "반도체": "반도체",
-            "2차전지": "2차전지",
-            "HBM": "HBM",
-            "AI/인공지능": "지능형로봇",
-            "로봇": "로봇",
-            "제약바이오": "제약업체",
-            "자동차/부품": "자동차",
-            "방위산업": "방위산업",
-            "원자력발전": "원자력발전",
-            "초전도체": "초전도체",
-            "저PBR": "은행"
-        }
+        THEME_KEYWORDS = { "직접 입력": None, "반도체": "반도체", "2차전지": "2차전지", "HBM": "HBM", "AI/인공지능": "지능형로봇", "로봇": "로봇", "제약바이오": "제약업체", "자동차/부품": "자동차", "방위산업": "방위산업", "원자력발전": "원자력발전", "초전도체": "초전도체", "저PBR": "은행" }
         selected_preset = st.selectbox("⚡ 인기 테마 선택", list(THEME_KEYWORDS.keys()))
         with st.form(key="search_form"):
             user_input = ""
@@ -790,7 +708,6 @@ with st.sidebar:
         if submit_btn:
             if selected_preset == "직접 입력": target_keyword = user_input
             else: target_keyword = THEME_KEYWORDS[selected_preset]
-
             if not target_keyword: st.warning("⚠️ 검색어를 입력하거나 테마를 선택해주세요!")
             else:
                 try:
@@ -804,10 +721,7 @@ with st.sidebar:
                         total_items = min(len(raw_stocks), 5) 
                         for i, stock_info in enumerate(raw_stocks[:total_items]):
                             score, tags, vol, chg = calculate_sniper_score(stock_info['code'])
-                            stock_info['sniper_score'] = score
-                            stock_info['tags'] = tags
-                            stock_info['vol_ratio'] = vol
-                            stock_info['real_change'] = chg
+                            stock_info['sniper_score'] = score; stock_info['tags'] = tags; stock_info['vol_ratio'] = vol; stock_info['real_change'] = chg
                             processed_stocks.append(stock_info)
                             my_bar.progress((i + 1) / total_items, text=f"{stock_info['name']} 분석 완료...")
                         my_bar.empty()
@@ -822,10 +736,9 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V32.2 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V32.4 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
-            for i, r in enumerate(wl_results[:3]): 
-                msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
+            for i, r in enumerate(wl_results[:3]): msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
             send_telegram_msg(token, chat_id, msg)
             st.success("전송 완료!")
         else: st.warning("설정 확인 필요")
