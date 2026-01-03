@@ -76,7 +76,6 @@ st.markdown("""
 
 # --- [2. 시각화 및 렌더링 함수] ---
 
-# [V33.0 수정] HTML 노출 버그 수정 및 등락률 추가
 def create_card_html(res):
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
     
@@ -85,19 +84,17 @@ def create_card_html(res):
     stop_price = res['strategy'].get('stop', 0)
     buy_basis = res['strategy'].get('buy_basis', '20일선')
     
-    # 등락률 계산 및 색상 적용
     chg = res.get('change_rate', 0.0)
     if chg > 0:
-        chg_color = "#F04452" # 빨강
+        chg_color = "#F04452"
         chg_txt = f"(+{chg:.2f}% ▲)"
     elif chg < 0:
-        chg_color = "#3182F6" # 파랑
+        chg_color = "#3182F6"
         chg_txt = f"({chg:.2f}% ▼)"
     else:
-        chg_color = "#333333" # 검정
+        chg_color = "#333333"
         chg_txt = f"({chg:.2f}% -)"
 
-    # HTML 문자열을 f-string으로 안전하게 생성 (들여쓰기 문제 원천 차단)
     html = f"""
     <div class='toss-card'>
         <div style='display:flex; justify-content:space-between; align-items:center;'>
@@ -539,7 +536,6 @@ def get_supply_demand(code):
         return {"f": int(df['외국인'].sum()), "i": int(df['기관합계'].sum())}
     except: return {"f":0, "i":0}
 
-# [V33.0 수정] 전일비 계산 추가 및 전략 로직 유지
 def analyze_pro(code, name_override=None):
     try:
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=450))
@@ -548,7 +544,7 @@ def analyze_pro(code, name_override=None):
 
     curr = df.iloc[-1]
     
-    # [V33.0 추가] 등락률 계산
+    # 등락률 계산
     try:
         prev_close = df.iloc[-2]['Close']
         chg_rate = (curr['Close'] - prev_close) / prev_close * 100
@@ -558,7 +554,7 @@ def analyze_pro(code, name_override=None):
         "name": name_override if name_override else code, 
         "code": code, 
         "price": int(curr['Close']),
-        "change_rate": chg_rate, # 등락률 데이터 추가
+        "change_rate": chg_rate, 
         "score": 50,
         "strategy": {}, 
         "fund_data": None, 
@@ -659,7 +655,40 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V33.0")
+
+# [수정됨] 제목 옆에 가이드 버튼 추가
+# 기존 st.title("💎 Quant Sniper V33.0") 코드를 아래 2-컬럼 구조로 변경함
+col_title, col_guide = st.columns([0.7, 0.3])
+
+with col_title:
+    st.title("💎 Quant Sniper V33.0")
+
+with col_guide:
+    st.write("") # 줄 간격 맞춤
+    st.write("") 
+    with st.expander("📘 개발 리포트 & 가이드 (Click)", expanded=False):
+        st.markdown("""
+        **1. 개발 배경 (Vision)**
+        > "주린이에게 20년 경력 애널리스트의 안목을."
+        
+        이 프로그램은 감이 아닌 **데이터에 기반하여 연 20% 이상의 수익**을 목표로 합니다.
+        
+        ---
+        **2. 핵심 기능 (Mechanism)**
+        * **📊 데이터 분석:** 감정 없는 객관적 지표
+        * **⚡ 매매 시그널:** 명확한 타이밍 제시
+        * **📱 직관성:** 쉬운 UI/UX
+        
+        ---
+        **3. 개발 철학 (Manifesto)**
+        * **확장성:** 새로운 알고리즘 즉시 적용
+        * **안정성:** 견고한 시스템 설계
+        * **사용자 중심:** 쉬운 사용성 최우선
+        
+        <div style="text-align: right; color: grey; font-size: 0.8em; margin-top: 10px;">
+            Designed by Investment Partner
+        </div>
+        """, unsafe_allow_html=True)
 
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
     macro = get_macro_data()
@@ -822,34 +851,3 @@ with st.sidebar:
             st.session_state['watchlist'][name] = {"code": code}
             st.rerun()
     if st.button("초기화"): st.session_state['watchlist'] = {}; st.session_state['preview_list'] = []; st.rerun()
-import streamlit as st
-
-# 화면 구분선
-st.markdown("---")
-
-# 📘 프로젝트 가이드 (접이식 메뉴)
-# 'expanded=False'는 처음엔 닫혀있다는 뜻입니다. (클릭하면 열림)
-with st.expander("📘 프로젝트 가이드 & 개발 미션 보기 (Click)", expanded=False):
-    
-    st.markdown("""
-    ### 1. 개발 배경 (Vision)
-    > **"주린이에게 20년 경력 애널리스트의 안목을."**
-    
-    이 프로그램은 막연한 감이 아닌, **데이터에 기반하여 연 20% 이상의 안정적 수익**을 목표로 하는 투자자를 위해 개발되었습니다.
-    
-    ### 2. 핵심 기능 (Mechanism)
-    * **📊 데이터 분석:** 감정이 배제된 객관적 지표 산출
-    * **⚡ 매매 시그널:** 명확한 매수/매도 타이밍 제시
-    * **📱 직관성:** 누구나 이해하기 쉬운 UI 제공
-    
-    ### 3. 개발 철학 (Manifesto)
-    이 프로젝트는 지속 가능한 투자를 위해 다음 원칙을 지킵니다.
-    1. **확장성 (Scalability):** 새로운 알고리즘을 수용하는 구조
-    2. **안정성 (Stability):** 멈추지 않는 견고한 시스템
-    3. **사용자 중심 (User-First):** 개발자보다 사용자가 편한 도구
-    
-    ---
-    <div style="text-align: center; color: grey; font-size: 0.8em;">
-        Designed to be your smartest investment partner.
-    </div>
-    """, unsafe_allow_html=True)
