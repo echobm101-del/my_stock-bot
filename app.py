@@ -19,7 +19,7 @@ import numpy as np
 from io import StringIO
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V31.6", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V31.7", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -540,7 +540,7 @@ def render_fund_scorecard(fund_data):
         <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>
     </div>""", unsafe_allow_html=True)
 
-# [V31.6 수정] 재무 테이블 증감률(%) 추가 (시인성 UP)
+# [V31.6] 재무 데이터 테이블
 def render_financial_table(df):
     if df.empty:
         st.caption("재무 데이터가 없습니다.")
@@ -559,24 +559,16 @@ def render_financial_table(df):
         
         for i, val in enumerate(vals):
             display_val = f"{int(val):,}"
-            
-            # 증감률 계산 로직 추가
-            change_txt = ""
-            color_class = ""
-            arrow = ""
+            change_txt = ""; color_class = ""; arrow = ""
             
             if i > 0:
                 prev = vals[i-1]
                 if prev != 0:
                     pct = (val - prev) / abs(prev) * 100
                     if pct > 0: 
-                        color_class = "text-red"
-                        arrow = "▲"
-                        change_txt = f"<span class='change-rate'>(+{pct:.1f}%)</span>"
+                        color_class = "text-red"; arrow = "▲"; change_txt = f"<span class='change-rate'>(+{pct:.1f}%)</span>"
                     elif pct < 0: 
-                        color_class = "text-blue"
-                        arrow = "▼"
-                        change_txt = f"<span class='change-rate'>({pct:.1f}%)</span>"
+                        color_class = "text-blue"; arrow = "▼"; change_txt = f"<span class='change-rate'>({pct:.1f}%)</span>"
             
             html += f"<td class='{color_class}'>{display_val} {arrow} {change_txt}</td>"
         html += "</tr>"
@@ -585,7 +577,7 @@ def render_financial_table(df):
     st.markdown(html, unsafe_allow_html=True)
     st.caption("※ 단위: 억 원 / (괄호): 전분기/전년 대비 증감률")
 
-# [V31.6 수정] 수급 차트 Combo Chart (선 + 막대) 적용
+# [V31.6] 수급 Combo Chart
 def render_investor_chart(df):
     if df.empty:
         st.caption("수급 데이터가 없습니다. (장중/집계 지연 가능성)")
@@ -595,61 +587,26 @@ def render_investor_chart(df):
     if '날짜' not in df.columns: 
         if 'index' in df.columns: df.rename(columns={'index': '날짜'}, inplace=True)
     
-    # 1. Melt for Line (Cumulative)
     cum_cols = [c for c in ['Cum_Individual', 'Cum_Foreigner', 'Cum_Institution', 'Cum_Pension'] if c in df.columns]
     df_line = df.melt('날짜', value_vars=cum_cols, var_name='Key', value_name='Cumulative')
     
-    # 2. Melt for Bar (Daily) - Prepare daily columns
-    daily_map = {
-        'Cum_Individual': '개인',
-        'Cum_Foreigner': '외국인',
-        'Cum_Institution': '기관', # or 기관합계
-        'Cum_Pension': '연기금'
-    }
-    
-    # Ensure daily columns exist (Naver crawler might name it '기관')
+    daily_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관', 'Cum_Pension': '연기금'}
     if '기관합계' in df.columns: daily_map['Cum_Institution'] = '기관합계'
     
-    # Add Daily val to df_line directly for simpler layering
     def get_daily(row):
         col = daily_map.get(row['Key'])
-        if col and col in df.columns:
-            return df.loc[df['날짜'] == row['날짜'], col].values[0]
+        if col and col in df.columns: return df.loc[df['날짜'] == row['날짜'], col].values[0]
         return 0
     
     df_line['Daily'] = df_line.apply(get_daily, axis=1)
     
-    # Type mapping for Legend
-    type_map = {
-        'Cum_Individual': '개인',
-        'Cum_Foreigner': '외국인',
-        'Cum_Institution': '기관합계',
-        'Cum_Pension': '연기금'
-    }
+    type_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
     df_line['Type'] = df_line['Key'].map(type_map)
 
-    # Base Chart
     base = alt.Chart(df_line).encode(x=alt.X('날짜:T', axis=alt.Axis(format='%m-%d', title=None)))
+    bar = base.mark_bar(opacity=0.3).encode(y=alt.Y('Daily:Q', axis=alt.Axis(title='일별 순매수 (막대)', titleColor='#888')), color=alt.Color('Type:N'))
+    line = base.mark_line().encode(y=alt.Y('Cumulative:Q', axis=alt.Axis(title='누적 순매수 (선)')), color=alt.Color('Type:N', legend=alt.Legend(title="투자자")), tooltip=[alt.Tooltip('날짜:T', format='%Y-%m-%d'), alt.Tooltip('Type:N', title='투자자'), alt.Tooltip('Cumulative:Q', format=',', title='📈 누적'), alt.Tooltip('Daily:Q', format=',', title='💰 당일(강도)')])
 
-    # Layer 1: Bar (Daily Volume - Intensity) - 투명도 줘서 배경으로
-    bar = base.mark_bar(opacity=0.3).encode(
-        y=alt.Y('Daily:Q', axis=alt.Axis(title='일별 순매수 (막대)', titleColor='#888')),
-        color=alt.Color('Type:N')
-    )
-
-    # Layer 2: Line (Cumulative Trend)
-    line = base.mark_line().encode(
-        y=alt.Y('Cumulative:Q', axis=alt.Axis(title='누적 순매수 (선)')),
-        color=alt.Color('Type:N', legend=alt.Legend(title="투자자")),
-        tooltip=[
-            alt.Tooltip('날짜:T', format='%Y-%m-%d'),
-            alt.Tooltip('Type:N', title='투자자'),
-            alt.Tooltip('Cumulative:Q', format=',', title='📈 누적'),
-            alt.Tooltip('Daily:Q', format=',', title='💰 당일(강도)')
-        ]
-    )
-
-    # Combine with independent scales
     chart = alt.layer(bar, line).resolve_scale(y='independent').properties(height=250)
     st.altair_chart(chart, use_container_width=True)
 
@@ -657,10 +614,9 @@ def send_telegram_msg(token, chat_id, msg):
     try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
     except: pass
 
-# --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V31.6")
+# --- [4. 메인 화면 및 탭 구조] ---
+st.title("💎 Quant Sniper V31.7")
 
-# 4-1. 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
     macro = get_macro_data()
     if macro:
@@ -674,53 +630,97 @@ with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", ex
         st.caption("※ USD/KRW는 수출 경쟁력, US_10Y는 글로벌 유동성 지표")
     else: st.warning("거시 경제 데이터를 불러오지 못했습니다.")
 
-# 4-2. 검색 결과
-if st.session_state.get('preview_list'):
-    st.markdown(f"### 🔍 '{st.session_state['current_theme_name']}' 주도주 심층 분석 (미리보기)")
-    st.info("💡 마음에 드는 종목의 **'📌 관심종목 등록'** 버튼을 누르면 영구 저장됩니다.")
-    
-    with st.spinner("주도주 심층 분석 데이터 생성 중..."):
-        preview_results = []
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            futures = [executor.submit(analyze_pro, item['code'], item['name']) for item in st.session_state['preview_list']]
-            for f in concurrent.futures.as_completed(futures):
-                if f.result(): preview_results.append(f.result())
-        preview_results.sort(key=lambda x: x['score'], reverse=True)
+# [V31.7] 탭(Tab) 구조 도입
+tab1, tab2 = st.tabs(["🔍 테마/종목 발굴", "📂 나의 포트폴리오"])
 
-    for res in preview_results:
-        st.markdown(create_card_html(res), unsafe_allow_html=True)
+# --- [Tab 1] 테마/종목 발굴 ---
+with tab1:
+    if st.session_state.get('preview_list'):
+        st.markdown(f"### 🔍 '{st.session_state['current_theme_name']}' 주도주 심층 분석 (미리보기)")
+        st.info("💡 마음에 드는 종목의 **'📌 관심종목 등록'** 버튼을 누르면 '나의 포트폴리오' 탭에 저장됩니다.")
         
-        with st.expander(f"📊 {res['name']} 상세 분석 및 추가"):
-            col_add, col_info = st.columns([1, 5])
-            with col_add:
-                if st.button(f"📌 {res['name']} 관심종목 등록", key=f"add_{res['code']}"):
-                    st.session_state['watchlist'][res['name']] = {'code': res['code']}
-                    st.success(f"✅ {res['name']} 추가 완료!")
-                    time.sleep(0.5)
-                    st.rerun()
+        with st.spinner("주도주 심층 분석 데이터 생성 중..."):
+            preview_results = []
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [executor.submit(analyze_pro, item['code'], item['name']) for item in st.session_state['preview_list']]
+                for f in concurrent.futures.as_completed(futures):
+                    if f.result(): preview_results.append(f.result())
+            preview_results.sort(key=lambda x: x['score'], reverse=True)
+
+        for res in preview_results:
+            st.markdown(create_card_html(res), unsafe_allow_html=True)
             
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("###### 📈 기술적 분석 & 차트")
-                st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
-                render_tech_metrics(res['stoch'], res['vol_ratio'])
-                st.markdown(render_chart_legend(), unsafe_allow_html=True)
-                st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
-            with col2:
-                st.write("###### 🏢 재무 펀더멘탈 & 실적")
-                render_fund_scorecard(res['fund_data'])
-                render_financial_table(res['fin_history']) # V31.6 Smart Table
-            
-            st.write("###### 🧠 큰손 투자 동향 (추세 + 강도)")
-            render_investor_chart(res['investor_trend']) # V31.6 Combo Chart
-            
-            st.write("###### 📰 뉴스 심층 분석")
-            if res['news']['method'] == "ai": st.markdown(f"<div class='news-ai'><b>🤖 AI 심층 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
-            else: st.markdown(f"<div class='news-fallback'><b>⚠️ 단순 키워드 분석:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
-            st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
-            for news in res['news']['raw_news']:
-                st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            with st.expander(f"📊 {res['name']} 상세 분석 및 추가"):
+                col_add, col_info = st.columns([1, 5])
+                with col_add:
+                    if st.button(f"📌 {res['name']} 관심종목 등록", key=f"add_{res['code']}"):
+                        st.session_state['watchlist'][res['name']] = {'code': res['code']}
+                        st.success(f"✅ {res['name']} 추가 완료!")
+                        time.sleep(0.5)
+                        st.rerun()
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("###### 📈 기술적 분석 & 차트")
+                    st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
+                    render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                with col2:
+                    st.write("###### 🏢 재무 펀더멘탈 & 실적")
+                    render_fund_scorecard(res['fund_data'])
+                    render_financial_table(res['fin_history'])
+                
+                st.write("###### 🧠 큰손 투자 동향 (최근 20일 누적)")
+                render_investor_chart(res['investor_trend'])
+
+                st.write("###### 📰 뉴스 심층 분석")
+                if res['news']['method'] == "ai": st.markdown(f"<div class='news-ai'><b>🤖 AI 심층 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
+                else: st.markdown(f"<div class='news-fallback'><b>⚠️ 단순 키워드 분석:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
+    else:
+        st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
+
+# --- [Tab 2] 나의 포트폴리오 (구 Watchlist) ---
+with tab2:
+    st.markdown("### 📂 나의 포트폴리오 (Portfolio)")
+    combined_watchlist = list(st.session_state['watchlist'].items())
+
+    if not combined_watchlist: 
+        st.info("아직 포트폴리오가 비어있습니다. '테마/종목 발굴' 탭에서 종목을 추가해보세요.")
+    else:
+        with st.spinner("포트폴리오 데이터 갱신 중..."):
+            wl_results = []
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [executor.submit(analyze_pro, info['code'], name) for name, info in combined_watchlist]
+                for f in concurrent.futures.as_completed(futures):
+                    if f.result(): wl_results.append(f.result())
+            wl_results.sort(key=lambda x: x['score'], reverse=True)
+
+        for res in wl_results:
+            st.markdown(create_card_html(res), unsafe_allow_html=True)
+            with st.expander(f"📊 {res['name']} 상세 분석"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("###### 📈 기술적 분석")
+                    st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
+                    render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                with col2:
+                    st.write("###### 🏢 재무 펀더멘탈")
+                    render_fund_scorecard(res['fund_data'])
+                    render_financial_table(res['fin_history'])
+                
+                st.write("###### 🧠 큰손 투자 동향 (최근 20일 누적)")
+                render_investor_chart(res['investor_trend'])
+                
+                st.write("###### 📰 뉴스 심층 분석")
+                if res['news']['method'] == "ai": st.markdown(f"<div class='news-ai'><b>🤖 AI 심층 요약:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
+                else: st.markdown(f"<div class='news-fallback'><b>⚠️ 단순 키워드 분석:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
+                st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
+                for news in res['news']['raw_news']:
+                    st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
@@ -795,7 +795,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V31.6 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V31.7 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
