@@ -823,102 +823,114 @@ with st.sidebar:
             st.rerun()
     if st.button("초기화"): st.session_state['watchlist'] = {}; st.session_state['preview_list'] = []; st.rerun()
 # ==========================================
-# [프로젝트 가이드 팝업 기능 추가]
-# 이 코드를 app.py 맨 아래에 붙여넣으세요.
+# [프로젝트 가이드 팝업 기능: 수정버전]
+# 기존 코드를 지우고 이 코드로 교체하세요.
 # ==========================================
 import streamlit as st
 
-st.markdown("""
-    <style>
-        /* 1. 우측 하단 고정 버튼 스타일 */
-        #project-mission-btn {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            border: none;
-            border-radius: 50px;
-            padding: 12px 24px;
-            font-size: 14px;
-            font-weight: bold;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-            cursor: pointer;
-            z-index: 999999; /* 최상단 노출 */
-            transition: all 0.3s ease;
-        }
-        #project-mission-btn:hover { transform: translateY(-3px); box-shadow: 0 6px 20px rgba(0,0,0,0.4); }
+# 팝업에 들어갈 내용을 HTML 변수로 저장
+mission_html = """
+<style>
+    /* 1. 우측 하단 고정 버튼 */
+    #project-mission-btn {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        color: white;
+        border: none;
+        border-radius: 50px;
+        padding: 12px 24px;
+        font-size: 14px;
+        font-weight: bold;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        cursor: pointer;
+        z-index: 999999;
+        transition: transform 0.2s;
+    }
+    #project-mission-btn:hover { transform: translateY(-3px); }
 
-        /* 2. 모달(팝업) 배경 스타일 */
-        #mission-modal-overlay {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background-color: rgba(0, 0, 0, 0.7);
-            z-index: 1000000;
-            backdrop-filter: blur(4px);
-        }
+    /* 2. 모달(팝업) 배경 (기본적으로 숨김 상태) */
+    #mission-modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background-color: rgba(0, 0, 0, 0.7);
+        z-index: 1000000;
+        backdrop-filter: blur(4px);
+    }
 
-        /* 3. 모달 콘텐츠 스타일 */
-        #mission-modal-content {
-            position: relative;
-            background-color: white;
-            margin: 10% auto;
-            padding: 0;
-            width: 90%; max-width: 600px;
-            border-radius: 12px;
-            box-shadow: 0 15px 40px rgba(0,0,0,0.5);
-            overflow: hidden;
-            font-family: sans-serif;
-        }
-        .modal-header { background: #1e3c72; color: white; padding: 20px; }
-        .modal-header h2 { margin: 0; font-size: 20px; }
-        .modal-body { padding: 25px; max-height: 60vh; overflow-y: auto; color: #333; line-height: 1.6; }
-        .section-title { color: #1e3c72; font-weight: bold; margin-top: 20px; border-left: 4px solid #f39c12; padding-left: 10px; }
-        .close-btn { position: absolute; top: 15px; right: 20px; color: white; font-size: 24px; cursor: pointer; }
-    </style>
+    /* 3. 모달 콘텐츠 */
+    #mission-modal-content {
+        position: relative;
+        background-color: white;
+        margin: 10% auto;
+        padding: 0;
+        width: 90%; max-width: 600px;
+        border-radius: 12px;
+        box-shadow: 0 15px 40px rgba(0,0,0,0.5);
+        font-family: sans-serif;
+        animation: fadeIn 0.3s;
+    }
+    
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-20px); } to { opacity: 1; transform: translateY(0); } }
 
-    <button id="project-mission-btn" onclick="openModal()">
-        📘 가이드 & 미션
-    </button>
+    .modal-header { background: #1e3c72; color: white; padding: 20px; border-radius: 12px 12px 0 0; }
+    .modal-header h2 { margin: 0; font-size: 20px; color: white; }
+    .modal-body { padding: 25px; max-height: 60vh; overflow-y: auto; color: #333; line-height: 1.6; text-align: left; }
+    .section-title { color: #1e3c72; font-weight: bold; margin-top: 20px; border-left: 4px solid #f39c12; padding-left: 10px; }
+    
+    /* 닫기 버튼 */
+    .close-btn { 
+        position: absolute; top: 15px; right: 20px; 
+        color: white; font-size: 24px; cursor: pointer; font-weight: bold;
+    }
+    .close-btn:hover { color: #f39c12; }
+</style>
 
-    <div id="mission-modal-overlay">
-        <div id="mission-modal-content">
-            <span class="close-btn" onclick="closeModal()">&times;</span>
-            <div class="modal-header">
-                <h2>프로젝트 개발 리포트</h2>
-                <small>Project Identity & Manifesto</small>
-            </div>
-            <div class="modal-body">
-                <div class="section-title">1. 개발 배경 (Vision)</div>
-                <p><strong>"주린이에게 20년 경력 애널리스트의 안목을."</strong><br>
-                이 프로그램은 막연한 감이 아닌, 데이터에 기반하여 <strong>연 20% 이상의 안정적 수익</strong>을 목표로 하는 투자자를 위해 개발되었습니다.</p>
-                
-                <div class="section-title">2. 핵심 기능 (Mechanism)</div>
-                <p>
-                • <strong>데이터 분석:</strong> 감정이 배제된 객관적 지표 산출<br>
-                • <strong>매매 시그널:</strong> 명확한 매수/매도 타이밍 제시<br>
-                • <strong>직관성:</strong> 누구나 이해하기 쉬운 UI 제공
-                </p>
+<button id="project-mission-btn" onclick="document.getElementById('mission-modal-overlay').style.display='block'">
+    📘 가이드 & 미션
+</button>
 
-                <div class="section-title">3. 개발 철학 (Manifesto)</div>
-                <p>지속 가능한 투자를 위해 <strong>확장성, 안정성, 사용자 중심</strong> 설계를 원칙으로 코드를 작성했습니다.</p>
-                <br>
-                <div style="text-align:center; color:#888; font-size:12px;">Designed to be your smartest partner.</div>
-            </div>
+<div id="mission-modal-overlay">
+    <div id="mission-modal-content">
+        <span class="close-btn" onclick="document.getElementById('mission-modal-overlay').style.display='none'">&times;</span>
+        
+        <div class="modal-header">
+            <h2>프로젝트 개발 리포트</h2>
+            <small style="color: #ccc;">Project Identity & Manifesto</small>
+        </div>
+        
+        <div class="modal-body">
+            <div class="section-title">1. 개발 배경 (Vision)</div>
+            <p><strong>"주린이에게 20년 경력 애널리스트의 안목을."</strong><br>
+            이 프로그램은 막연한 감이 아닌, 데이터에 기반하여 <strong>연 20% 이상의 안정적 수익</strong>을 목표로 하는 투자자를 위해 개발되었습니다.</p>
+            
+            <div class="section-title">2. 핵심 기능 (Mechanism)</div>
+            <p>
+            • <strong>데이터 분석:</strong> 감정이 배제된 객관적 지표 산출<br>
+            • <strong>매매 시그널:</strong> 명확한 매수/매도 타이밍 제시<br>
+            • <strong>직관성:</strong> 누구나 이해하기 쉬운 UI 제공
+            </p>
+
+            <div class="section-title">3. 개발 철학 (Manifesto)</div>
+            <p>지속 가능한 투자를 위해 <strong>확장성, 안정성, 사용자 중심</strong> 설계를 원칙으로 코드를 작성했습니다.</p>
+            <br>
+            <div style="text-align:center; color:#888; font-size:12px;">Designed to be your smartest partner.</div>
         </div>
     </div>
+</div>
 
-    <script>
-        function openModal() {
-            document.getElementById("mission-modal-overlay").style.display = "block";
+<script>
+    // 배경을 클릭했을 때도 닫히게 하는 보조 스크립트
+    var modal = document.getElementById('mission-modal-overlay');
+    window.onclick = function(event) {
+        if (event.target == modal) {
+            modal.style.display = "none";
         }
-        function closeModal() {
-            document.getElementById("mission-modal-overlay").style.display = "none";
-        }
-        // 배경 클릭 시 닫기
-        document.getElementById("mission-modal-overlay").addEventListener("click", function(e) {
-            if (e.target === this) { closeModal(); }
-        });
-    </script>
-    """, unsafe_allow_html=True)
+    }
+</script>
+"""
+
+# HTML 렌더링
+st.markdown(mission_html, unsafe_allow_html=True)
