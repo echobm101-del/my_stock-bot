@@ -19,7 +19,7 @@ import numpy as np
 from io import StringIO
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V32.4", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V32.5", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -74,7 +74,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- [2. 시각화 및 렌더링 함수 (NameError 방지 위해 최상단 배치)] ---
+# --- [2. 시각화 및 렌더링 함수] ---
 
 def create_card_html(res):
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
@@ -88,15 +88,45 @@ def create_card_html(res):
     </div>
     """)
 
+# [V32.5 수정] 차트에 매수(▲)/매도(▼) 마커 추가 함수
 def create_chart_clean(df):
     try:
-        chart_data = df.tail(120).reset_index()
+        # 데이터 복사 및 전처리
+        chart_data = df.tail(120).copy().reset_index()
+        
+        # 매매 신호 계산 (20일선 기준)
+        # Prev_Close, Prev_MA20을 만들어 골든크로스/데드크로스 판별
+        chart_data['Prev_Close'] = chart_data['Close'].shift(1)
+        chart_data['Prev_MA20'] = chart_data['MA20'].shift(1)
+        
+        # Buy: 어제는 20일선 아래, 오늘은 20일선 위 (상향 돌파)
+        chart_data['Buy_Signal'] = (chart_data['Prev_Close'] <= chart_data['Prev_MA20']) & (chart_data['Close'] > chart_data['MA20'])
+        
+        # Sell: 어제는 20일선 위, 오늘은 20일선 아래 (하향 이탈)
+        chart_data['Sell_Signal'] = (chart_data['Prev_Close'] >= chart_data['Prev_MA20']) & (chart_data['Close'] < chart_data['MA20'])
+        
+        # Base Chart
         base = alt.Chart(chart_data).encode(x=alt.X('Date:T', axis=alt.Axis(format='%m-%d', title=None)))
+        
+        # Layers
         band = base.mark_area(opacity=0.15, color='#868E96').encode(y='BB_Lower:Q', y2='BB_Upper:Q')
         line = base.mark_line(color='#000000').encode(y='Close:Q')
-        ma20 = base.mark_line(color='#F2A529').encode(y='MA20:Q')
-        ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q')
-        return (band + line + ma20 + ma60).properties(height=250)
+        ma20 = base.mark_line(color='#F2A529').encode(y='MA20:Q') # 생명선
+        ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q') # 수급선
+        
+        # Buy Markers (Red Triangle Up)
+        buy_points = base.mark_point(shape='triangle-up', color='#F04452', size=100, opacity=1).encode(
+            y='Close:Q',
+            tooltip=[alt.Tooltip('Date', format='%Y-%m-%d'), alt.Tooltip('Close', format=','), alt.Tooltip('MA20', format=',')]
+        ).transform_filter(alt.datum.Buy_Signal == True)
+        
+        # Sell Markers (Blue Triangle Down)
+        sell_points = base.mark_point(shape='triangle-down', color='#3182F6', size=100, opacity=1).encode(
+            y='Close:Q',
+            tooltip=[alt.Tooltip('Date', format='%Y-%m-%d'), alt.Tooltip('Close', format=','), alt.Tooltip('MA20', format=',')]
+        ).transform_filter(alt.datum.Sell_Signal == True)
+
+        return (band + line + ma20 + ma60 + buy_points + sell_points).properties(height=250)
     except: return alt.Chart(pd.DataFrame()).mark_text()
 
 def render_tech_metrics(stoch, vol_ratio):
@@ -121,10 +151,10 @@ def render_tech_metrics(stoch, vol_ratio):
 
 def render_chart_legend():
     return """<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center;'>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가(검정)</div>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(황색)</div>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(파랑)</div>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:12px; background:#868E96; opacity:0.3; margin-right:4px;'></div>볼린저밴드(회색)</div>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가</div>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(생명선)</div>
+        <div style='display:flex; align-items:center;'><div style='width:0; height:0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid #F04452; margin-right:4px;'></div>매수시그널(돌파)</div>
+        <div style='display:flex; align-items:center;'><div style='width:0; height:0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid #3182F6; margin-right:4px;'></div>매도시그널(이탈)</div>
     </div>"""
 
 def render_fund_scorecard(fund_data):
@@ -584,7 +614,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V32.4")
+st.title("💎 Quant Sniper V32.5")
 
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
     macro = get_macro_data()
@@ -598,7 +628,6 @@ with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", ex
                 st.markdown(f"<div class='metric-box'><div class='metric-title'>{key}</div><div class='metric-value' style='color:{color}'>{d['val']:,.2f}</div><div style='font-size:12px; color:{color}'>{d['change']:+.2f}%</div></div>", unsafe_allow_html=True)
     else: st.warning("거시 경제 데이터를 불러오지 못했습니다.")
 
-# [V32.4 수정] 탭 명칭 '나의 포트폴리오' -> '관심 종목'으로 변경
 tab1, tab2 = st.tabs(["🔍 테마/종목 발굴", "📂 관심 종목"])
 
 with tab1:
@@ -651,7 +680,6 @@ with tab1:
                 st.markdown("</div>", unsafe_allow_html=True)
     else: st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
 
-# [V32.4 수정] 탭 내용 제목 변경
 with tab2:
     st.markdown("### 📂 관심 종목 (Watchlist)")
     combined_watchlist = list(st.session_state['watchlist'].items())
@@ -736,7 +764,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V32.4 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V32.5 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
             send_telegram_msg(token, chat_id, msg)
