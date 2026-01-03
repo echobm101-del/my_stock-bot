@@ -19,7 +19,7 @@ import numpy as np
 from io import StringIO
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V32.5", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V32.8", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -76,54 +76,53 @@ st.markdown("""
 
 # --- [2. 시각화 및 렌더링 함수] ---
 
+# [V32.8 수정] 전략 표기 시 '매수 기준선' 이름 명시
 def create_card_html(res):
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
+    
+    # 전략 데이터 추출 (analyze_pro에서 종합 판단된 값)
+    buy_price = res['strategy'].get('buy', 0)
+    target_price = res['strategy'].get('target', 0)
+    stop_price = res['strategy'].get('stop', 0)
+    buy_basis = res['strategy'].get('buy_basis', '20일선') # 매수 기준 (5/20/60일선)
+    
     return textwrap.dedent(f"""
     <div class='toss-card'>
         <div style='display:flex; justify-content:space-between; align-items:center;'>
             <div><span class='stock-name'>{res['name']}</span><span class='stock-code'>{res['code']}</span><div class='big-price'>{res['price']:,}원</div></div>
             <div style='text-align:right;'><div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div><div class='badge-clean' style='background-color:{score_col}20; color:{score_col};'>{res['strategy']['action']}</div></div>
         </div>
-        <div style='margin-top:10px; color:#666; font-size:13px;'>{res['trend_txt']}</div>
+        
+        <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>
+            <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🔵 매수 {buy_price:,}<br><span style='font-size:10px; opacity:0.7;'>({buy_basis} 기준)</span></div>
+            <div style='color:#F04452; background-color:#FFF1F1; padding:6px; border-radius:6px;'>🎯 목표 {target_price:,}<br><span style='font-size:10px; opacity:0.7;'>(익절가)</span></div>
+            <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 손절 {stop_price:,}<br><span style='font-size:10px; opacity:0.7;'>(방어선)</span></div>
+        </div>
+        
+        <div style='margin-top:8px; color:#888; font-size:12px; text-align:right;'>{res['trend_txt']}</div>
     </div>
     """)
 
-# [V32.5 수정] 차트에 매수(▲)/매도(▼) 마커 추가 함수
 def create_chart_clean(df):
     try:
-        # 데이터 복사 및 전처리
         chart_data = df.tail(120).copy().reset_index()
-        
-        # 매매 신호 계산 (20일선 기준)
-        # Prev_Close, Prev_MA20을 만들어 골든크로스/데드크로스 판별
         chart_data['Prev_Close'] = chart_data['Close'].shift(1)
         chart_data['Prev_MA20'] = chart_data['MA20'].shift(1)
-        
-        # Buy: 어제는 20일선 아래, 오늘은 20일선 위 (상향 돌파)
         chart_data['Buy_Signal'] = (chart_data['Prev_Close'] <= chart_data['Prev_MA20']) & (chart_data['Close'] > chart_data['MA20'])
-        
-        # Sell: 어제는 20일선 위, 오늘은 20일선 아래 (하향 이탈)
         chart_data['Sell_Signal'] = (chart_data['Prev_Close'] >= chart_data['Prev_MA20']) & (chart_data['Close'] < chart_data['MA20'])
         
-        # Base Chart
         base = alt.Chart(chart_data).encode(x=alt.X('Date:T', axis=alt.Axis(format='%m-%d', title=None)))
-        
-        # Layers
         band = base.mark_area(opacity=0.15, color='#868E96').encode(y='BB_Lower:Q', y2='BB_Upper:Q')
         line = base.mark_line(color='#000000').encode(y='Close:Q')
-        ma20 = base.mark_line(color='#F2A529').encode(y='MA20:Q') # 생명선
-        ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q') # 수급선
+        ma20 = base.mark_line(color='#F2A529').encode(y='MA20:Q')
+        ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q')
         
-        # Buy Markers (Red Triangle Up)
         buy_points = base.mark_point(shape='triangle-up', color='#F04452', size=100, opacity=1).encode(
-            y='Close:Q',
-            tooltip=[alt.Tooltip('Date', format='%Y-%m-%d'), alt.Tooltip('Close', format=','), alt.Tooltip('MA20', format=',')]
+            y='Close:Q', tooltip=[alt.Tooltip('Date', format='%Y-%m-%d'), alt.Tooltip('Close', format=','), alt.Tooltip('MA20', format=',')]
         ).transform_filter(alt.datum.Buy_Signal == True)
         
-        # Sell Markers (Blue Triangle Down)
         sell_points = base.mark_point(shape='triangle-down', color='#3182F6', size=100, opacity=1).encode(
-            y='Close:Q',
-            tooltip=[alt.Tooltip('Date', format='%Y-%m-%d'), alt.Tooltip('Close', format=','), alt.Tooltip('MA20', format=',')]
+            y='Close:Q', tooltip=[alt.Tooltip('Date', format='%Y-%m-%d'), alt.Tooltip('Close', format=','), alt.Tooltip('MA20', format=',')]
         ).transform_filter(alt.datum.Sell_Signal == True)
 
         return (band + line + ma20 + ma60 + buy_points + sell_points).properties(height=250)
@@ -520,6 +519,7 @@ def get_supply_demand(code):
         return {"f": int(df['외국인'].sum()), "i": int(df['기관합계'].sum())}
     except: return {"f":0, "i":0}
 
+# [V32.8 수정] Comprehensive Dynamic Strategy Logic
 def analyze_pro(code, name_override=None):
     try:
         df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=450))
@@ -532,7 +532,7 @@ def analyze_pro(code, name_override=None):
         "code": code, 
         "price": int(curr['Close']),
         "score": 50,
-        "strategy": {"buy": 0, "target": 0, "action": "판단보류"},
+        "strategy": {}, # Strategy will be filled dynamically
         "fund_data": None, 
         "ma_status": [], 
         "trend_txt": "분석 중",
@@ -600,11 +600,42 @@ def analyze_pro(code, name_override=None):
         if not result_dict['investor_trend'].empty: bonus += 5
         if not result_dict['fin_history'].empty: bonus += 5
         final_score = int((tech_score * 0.4) + fund_score + bonus + result_dict['news']['score'])
-        result_dict['score'] = min(max(final_score, 0), 100)
-        buy_sig = "관망"
-        if final_score >= 70: buy_sig = "강력매수"
-        elif final_score >= 60: buy_sig = "매수"
-        result_dict['strategy'] = {"buy": int(curr['MA20']) if 'MA20' in curr else 0, "target": int(curr['Close']*1.1), "action": buy_sig}
+        final_score = min(max(final_score, 0), 100)
+        result_dict['score'] = final_score
+
+        # [V32.8 Dynamic Strategy Logic]
+        # 점수에 따라 타겟과 손절 비율, 매수 기준선을 다르게 설정
+        if final_score >= 80:
+            # S급: 공격적
+            buy_basis_col = 'MA5'
+            target_ratio = 1.20 # +20%
+            stop_ratio = 0.97   # -3%
+            action_txt = "🔥 강력매수"
+        elif final_score >= 60:
+            # A급: 표준
+            buy_basis_col = 'MA20'
+            target_ratio = 1.15 # +15%
+            stop_ratio = 0.95   # -5%
+            action_txt = "매수"
+        else:
+            # B급: 보수적
+            buy_basis_col = 'MA60' # 깊은 눌림목
+            if curr.get('MA60', 0) == 0: buy_basis_col = 'MA20' # MA60 없으면 MA20
+            target_ratio = 1.10 # +10%
+            stop_ratio = 0.90   # -10%
+            action_txt = "관망/단기"
+
+        buy_price = int(curr.get(buy_basis_col, 0))
+        if buy_price == 0: buy_price = int(curr['Close']) # Fallback
+
+        result_dict['strategy'] = {
+            "buy": buy_price,
+            "buy_basis": buy_basis_col.replace('MA', '') + "일선", # "5일선", "20일선"
+            "target": int(curr['Close'] * target_ratio),
+            "stop": int(buy_price * stop_ratio),
+            "action": action_txt
+        }
+
     except: pass
 
     return result_dict
@@ -614,7 +645,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V32.5")
+st.title("💎 Quant Sniper V32.8")
 
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
     macro = get_macro_data()
@@ -764,7 +795,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V32.5 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V32.8 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
             send_telegram_msg(token, chat_id, msg)
