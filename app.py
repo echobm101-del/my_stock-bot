@@ -18,7 +18,7 @@ import urllib.parse
 import numpy as np
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V28.1", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V29.0", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -433,7 +433,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V28.1")
+st.title("💎 Quant Sniper V29.0")
 
 # 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -492,13 +492,24 @@ else:
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     
-    # [V28.1 수정] UI 반응성 개선 (진행바, 입력검증, Rerun)
+    # [V29.0 Update] 지능형 테마 검색 UI 개선 (하이브리드 선택 방식)
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
-        theme_keyword = st.text_input("테마 키워드 (예: 반도체, AI, 2차전지)")
+        
+        # 1. 인기 테마 프리셋 제공
+        preset_themes = ["직접 입력", "반도체", "2차전지", "HBM", "AI/인공지능", "로봇", "제약바이오", "자동차/부품", "방위산업", "원자력발전", "초전도체", "저PBR"]
+        selected_preset = st.selectbox("⚡ 인기 테마 선택", preset_themes)
+        
+        # 2. 선택 값에 따른 입력창 처리
+        if selected_preset == "직접 입력":
+            theme_keyword = st.text_input("검색할 테마 입력", placeholder="예: 리튬, 화장품, 엔터")
+        else:
+            # "AI/인공지능" 같은 경우 슬래시 앞부분만 사용하거나 그대로 사용
+            theme_keyword = selected_preset.split("/")[0]
+            st.info(f"✅ 선택된 테마: **{theme_keyword}**")
         
         if st.button("테마 스캔 및 스코어링 시작"):
             if not theme_keyword:
-                st.warning("⚠️ 먼저 테마 키워드를 입력해주세요!")
+                st.warning("⚠️ 검색어를 입력하거나 테마를 선택해주세요!")
             else:
                 try:
                     with st.spinner(f"네이버 금융에서 '{theme_keyword}' 관련주 찾는 중..."):
@@ -508,10 +519,9 @@ with st.sidebar:
                         st.success(msg)
                         processed_stocks = []
                         
-                        # 진행률 표시 바
                         progress_text = "주도주 스코어링 분석 중..."
                         my_bar = st.progress(0, text=progress_text)
-                        total_items = min(len(raw_stocks), 10) # 상위 10개만 분석
+                        total_items = min(len(raw_stocks), 10) 
                         
                         for i, stock_info in enumerate(raw_stocks[:total_items]):
                             score, tags, vol, chg = calculate_sniper_score(stock_info['code'])
@@ -524,17 +534,16 @@ with st.sidebar:
                         
                         my_bar.empty()
                         
-                        # 정렬 및 결과 저장
                         processed_stocks.sort(key=lambda x: x['sniper_score'], reverse=True)
                         st.session_state['theme_search_result'] = processed_stocks
-                        st.rerun() # [중요] 화면 즉시 갱신
+                        st.rerun()
                         
                     else:
                         st.error(f"❌ 결과 없음: {msg}")
                 except Exception as e:
                     st.error(f"🚫 시스템 오류 발생: {str(e)}")
         
-        # 검색 결과 표시 및 선택
+        # 검색 결과 표시
         if st.session_state['theme_search_result']:
             st.write("---")
             st.write("✅ **분석 결과 (스나이퍼 스코어 순)**")
@@ -577,7 +586,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'results' in locals() and results:
-            msg = f"💎 Quant Sniper V28.1 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V29.0 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(results[:3]): 
                 msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
