@@ -814,7 +814,7 @@ with st.sidebar:
         with st.form(key="search_form"):
             user_input = ""
             if selected_preset == "직접 입력": 
-                user_input = st.text_input("검색할 테마 또는 종목명 입력", placeholder="예: 리튬, 삼성전자")
+                user_input = st.text_input("검색할 테마 또는 종목명 입력", placeholder="예: 리튬, 삼성전자, 005930")
             else: st.info(f"✅ 선택된 테마: **{THEME_KEYWORDS[selected_preset]}**")
             submit_btn = st.form_submit_button("지능형 분석 시작")
         
@@ -824,14 +824,36 @@ with st.sidebar:
             
             if not target_keyword: st.warning("⚠️ 검색어를 입력하거나 테마를 선택해주세요!")
             else:
-                # [NEW] 1. 종목명 검색 시도 (하이브리드 로직)
+                # [NEW] 0. 리스트가 비어있다면 강제 업데이트 (안전장치)
+                if krx_df.empty:
+                    with st.spinner("최신 종목 리스트를 업데이트 중입니다..."):
+                        krx_df = fdr.StockListing('KRX')
+
+                # [NEW] 1. 종목명/코드 검색 시도 (하이브리드 로직)
                 is_stock_found = False
-                # krx_df의 'Name' 컬럼에서 정확히 일치하는 종목이 있는지 확인
-                if not krx_df.empty and target_keyword in krx_df['Name'].values:
+                target_code = None
+                
+                # 1-A. 숫자만 입력된 경우 -> 종목 코드로 검색
+                if target_keyword.isdigit() and not krx_df.empty:
+                    if target_keyword in krx_df['Code'].values:
+                        target_code = target_keyword
+                        # 이름 찾기
+                        try:
+                            found_name = krx_df[krx_df['Code'] == target_code].iloc[0]['Name']
+                            target_keyword = found_name # 이름으로 덮어쓰기 (화면 표시용)
+                        except: pass
+                
+                # 1-B. 문자가 입력된 경우 -> 종목 이름으로 검색
+                elif not krx_df.empty and target_keyword in krx_df['Name'].values:
                     try:
-                        st.info(f"🔎 '{target_keyword}' 개별 종목 분석을 시작합니다...")
                         row = krx_df[krx_df['Name'] == target_keyword].iloc[0]
                         target_code = row['Code']
+                    except: pass
+
+                # 종목 코드를 찾았다면 -> 개별 분석 실행
+                if target_code:
+                    try:
+                        st.info(f"🔎 '{target_keyword}'(Code: {target_code}) 개별 종목 분석을 시작합니다...")
                         
                         # 개별 종목 분석을 위한 스코어 및 데이터 계산
                         score, tags, vol, chg = calculate_sniper_score(target_code)
