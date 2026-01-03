@@ -169,6 +169,7 @@ def render_chart_legend():
     return """<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center;'>
         <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가</div>
         <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(생명선)</div>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(수급선)</div>
         <div style='display:flex; align-items:center;'><div style='width:0; height:0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-bottom: 8px solid #F04452; margin-right:4px;'></div>매수시그널(돌파)</div>
         <div style='display:flex; align-items:center;'><div style='width:0; height:0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 8px solid #3182F6; margin-right:4px;'></div>매도시그널(이탈)</div>
     </div>"""
@@ -217,6 +218,7 @@ def render_financial_table(df):
     st.markdown(html, unsafe_allow_html=True)
     st.caption("※ 단위: 억 원 / (괄호): 전분기/전년 대비 증감률")
 
+# [수정된 부분] HTS 국룰 색상 적용
 def render_investor_chart(df):
     if df.empty:
         st.caption("수급 데이터가 없습니다. (장중/집계 지연 가능성)")
@@ -226,18 +228,37 @@ def render_investor_chart(df):
         if 'index' in df.columns: df.rename(columns={'index': '날짜'}, inplace=True)
     cum_cols = [c for c in ['Cum_Individual', 'Cum_Foreigner', 'Cum_Institution', 'Cum_Pension'] if c in df.columns]
     df_line = df.melt('날짜', value_vars=cum_cols, var_name='Key', value_name='Cumulative')
-    daily_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관', 'Cum_Pension': '연기금'}
+    daily_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
     if '기관합계' in df.columns: daily_map['Cum_Institution'] = '기관합계'
+    
     def get_daily(row):
         col = daily_map.get(row['Key'])
         if col and col in df.columns: return df.loc[df['날짜'] == row['날짜'], col].values[0]
         return 0
     df_line['Daily'] = df_line.apply(get_daily, axis=1)
+    
     type_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
     df_line['Type'] = df_line['Key'].map(type_map)
+
+    # [수정] 색상 매핑 (Scale) 정의
+    # 개인(초록), 외국인(빨강), 기관(파랑), 연기금(갈색)
+    domain = ['개인', '외국인', '기관합계', '연기금']
+    range_ = ['#228B22', '#F04452', '#3182F6', '#8B4513'] # ForestGreen, Red, Blue, SaddleBrown
+    color_scale = alt.Scale(domain=domain, range=range_)
+
     base = alt.Chart(df_line).encode(x=alt.X('날짜:T', axis=alt.Axis(format='%m-%d', title=None)))
-    bar = base.mark_bar(opacity=0.3).encode(y=alt.Y('Daily:Q', axis=alt.Axis(title='일별 순매수 (막대)', titleColor='#888')), color=alt.Color('Type:N'))
-    line = base.mark_line().encode(y=alt.Y('Cumulative:Q', axis=alt.Axis(title='누적 순매수 (선)')), color=alt.Color('Type:N', legend=alt.Legend(title="투자자")), tooltip=[alt.Tooltip('날짜:T', format='%Y-%m-%d'), alt.Tooltip('Type:N', title='투자자'), alt.Tooltip('Cumulative:Q', format=',', title='📈 누적'), alt.Tooltip('Daily:Q', format=',', title='💰 당일(강도)')])
+    
+    bar = base.mark_bar(opacity=0.3).encode(
+        y=alt.Y('Daily:Q', axis=alt.Axis(title='일별 순매수 (막대)', titleColor='#888')), 
+        color=alt.Color('Type:N', scale=color_scale, legend=None) # 범례 중복 방지
+    )
+    
+    line = base.mark_line().encode(
+        y=alt.Y('Cumulative:Q', axis=alt.Axis(title='누적 순매수 (선)')), 
+        color=alt.Color('Type:N', scale=color_scale, legend=alt.Legend(title="투자자")), 
+        tooltip=[alt.Tooltip('날짜:T', format='%Y-%m-%d'), alt.Tooltip('Type:N', title='투자자'), alt.Tooltip('Cumulative:Q', format=',', title='📈 누적'), alt.Tooltip('Daily:Q', format=',', title='💰 당일(강도)')]
+    )
+    
     chart = alt.layer(bar, line).resolve_scale(y='independent').properties(height=250)
     st.altair_chart(chart, use_container_width=True)
 
