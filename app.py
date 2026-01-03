@@ -18,7 +18,7 @@ import urllib.parse
 import numpy as np
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V30.3", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V30.4", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -89,47 +89,33 @@ if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_fro
 if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
 if 'current_theme_name' not in st.session_state: st.session_state['current_theme_name'] = ""
 
-# --- [2-1. V30.3 수정: 인코딩 이슈 해결 및 매칭 로직 강화] ---
+# --- [2-1. 네이버 금융 테마 크롤링] ---
 
 @st.cache_data(ttl=1800)
 def get_naver_theme_stocks(keyword):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Referer': 'https://finance.naver.com/'
-    }
-    
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Referer': 'https://finance.naver.com/'}
     target_link = None
     
-    # 1페이지부터 7페이지까지 순회
     for page in range(1, 8):
         base_url = f"https://finance.naver.com/sise/theme.naver?&page={page}"
         try:
             res = requests.get(base_url, headers=headers)
-            # [V30.3 중요] 네이버 금융은 EUC-KR을 사용하므로 인코딩 강제 지정
-            res.encoding = 'EUC-KR' 
+            res.encoding = 'EUC-KR'
             soup = BeautifulSoup(res.text, 'html.parser')
-            
             themes = soup.select('table.type_1 tr td.col_type1 a')
             for t in themes:
-                # 공백 제거 후 비교 (매칭 정확도 향상)
-                clean_theme = t.text.strip()
-                clean_key = keyword.strip()
-                if clean_key in clean_theme:
+                if keyword.strip() in t.text.strip():
                     target_link = "https://finance.naver.com" + t['href']
                     break
-            
             if target_link: break
-            
-        except Exception: continue
+        except: continue
 
     if not target_link: return [], f"네이버 금융 테마에서 '{keyword}'를 찾을 수 없습니다."
 
-    # 상세 페이지 크롤링
     try:
         res_detail = requests.get(target_link, headers=headers)
-        res_detail.encoding = 'EUC-KR' # [V30.3] 상세 페이지도 인코딩 고정
+        res_detail.encoding = 'EUC-KR'
         soup_detail = BeautifulSoup(res_detail.text, 'html.parser')
-        
         stocks = []
         rows = soup_detail.select('div.box_type_l table.type_5 tr')
         for row in rows:
@@ -141,44 +127,33 @@ def get_naver_theme_stocks(keyword):
                 try: price = int(price_txt)
                 except: price = 0
                 stocks.append({"code": code, "name": name, "price": price})
-        
         return stocks, f"'{keyword}' 관련 테마 발견: {len(stocks)}개 종목"
-    except Exception as e:
-        return [], f"상세 페이지 크롤링 오류: {str(e)}"
+    except Exception as e: return [], f"크롤링 오류: {str(e)}"
 
 def calculate_sniper_score(code):
     try:
         df = fdr.DataReader(code, datetime.datetime.now() - datetime.timedelta(days=90))
         if df.empty or len(df) < 20: return 0, [], 0, 0
-        
         curr = df.iloc[-1]
         vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
-        
         score = 0; tags = []
-        
         vol_ratio = curr['Volume'] / vol_avg if vol_avg > 0 else 0
         if vol_ratio >= 3.0: score += 40; tags.append("🔥 거래량폭발")
         elif vol_ratio >= 1.5: score += 20; tags.append("📈 거래량증가")
-            
         ma20 = df['Close'].rolling(20).mean().iloc[-1]
-        if curr['Close'] > ma20 and curr['Close'] <= ma20 * 1.05:
-            score += 30; tags.append("🏹 눌림목")
+        if curr['Close'] > ma20 and curr['Close'] <= ma20 * 1.05: score += 30; tags.append("🏹 눌림목")
         
         try:
             end_d = datetime.datetime.now().strftime("%Y%m%d")
             start_d = (datetime.datetime.now() - datetime.timedelta(days=5)).strftime("%Y%m%d")
             inv_df = stock.get_market_investor_net_purchase_by_date(start_d, end_d, code).tail(3)
-            if not inv_df.empty:
-                net_buy = inv_df['기관합계'].sum() + inv_df['외국인'].sum()
-                if net_buy > 0: score += 30; tags.append("🏦 메이저매집")
+            if not inv_df.empty and (inv_df['기관합계'].sum() + inv_df['외국인'].sum() > 0): score += 30; tags.append("🏦 메이저매집")
         except: pass
         
         change = (curr['Close'] - df.iloc[-2]['Close']) / df.iloc[-2]['Close'] * 100
         if change > 15: tags.append("🚀 급등주")
-        
         return score, tags, vol_ratio, change
-    except:
-        return 0, [], 0, 0
+    except: return 0, [], 0, 0
 
 # --- [2-2. 거시 경제 데이터] ---
 @st.cache_data(ttl=3600)
@@ -196,49 +171,84 @@ def get_macro_data():
     if all(v['val'] == 0.0 for v in results.values()): return None
     return results
 
-# --- [3. 분석 엔진 V30.3] ---
+# --- [3. 분석 엔진 V30.4 (재무 데이터 0.0 해결)] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
+    """
+    [V30.4 수정] 재무 데이터 3중 안전망 (Triple Fallback)
+    1. 네이버 금융 직접 크롤링 (가장 최신/정확)
+    2. StockListing 데이터 (백업)
+    3. Pykrx (최후의 수단)
+    """
+    per, pbr, div = 0.0, 0.0, 0.0
+    
+    # [1단계] 네이버 금융 직접 크롤링 (가장 강력)
     try:
-        end_str = datetime.datetime.now().strftime("%Y%m%d")
-        start_str = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
-        
-        per, pbr, div = 0, 0, 0
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            
+            # 네이버 금융 페이지 내 id 태그에서 값 추출 (_per, _pbr, _dvr)
+            def get_val_by_id(id_name):
+                tag = soup.select_one(f"#{id_name}")
+                if tag:
+                    txt = tag.text.replace(',', '').replace('%', '').replace('배', '').strip()
+                    try: return float(txt)
+                    except: return 0.0
+                return 0.0
+
+            per = get_val_by_id("_per")
+            pbr = get_val_by_id("_pbr")
+            div = get_val_by_id("_dvr")
+    except: pass
+
+    # [2단계] 크롤링 실패(0.0) 시 StockListing 백업 사용
+    if per == 0 and pbr == 0:
+        if not krx_df.empty and code in krx_df['Code'].values:
+            try:
+                row = krx_df[krx_df['Code'] == code].iloc[0]
+                per = float(row.get('PER', 0)) if pd.notnull(row.get('PER')) else 0
+                pbr = float(row.get('PBR', 0)) if pd.notnull(row.get('PBR')) else 0
+                div = float(row.get('DividendYield', 0)) if pd.notnull(row.get('DividendYield')) else 0
+            except: pass
+
+    # [3단계] 여전히 0이면 Pykrx 시도
+    if per == 0 and pbr == 0:
         try:
+            end_str = datetime.datetime.now().strftime("%Y%m%d")
+            start_str = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
             df = stock.get_market_fundamental_by_date(start_str, end_str, code)
             if not df.empty:
                 recent = df.iloc[-1]
-                per = recent.get('PER', 0); pbr = recent.get('PBR', 0); div = recent.get('DIV', 0)
+                per = float(recent.get('PER', 0))
+                pbr = float(recent.get('PBR', 0))
+                div = float(recent.get('DIV', 0))
         except: pass
 
-        if (per == 0 or pbr == 0) and not krx_df.empty and code in krx_df['Code'].values:
-            row = krx_df[krx_df['Code'] == code].iloc[0]
-            per = row.get('PER', 0); pbr = row.get('PBR', 0); div = row.get('DividendYield', 0)
-        
-        if per is None: per = 0; 
-        if pbr is None: pbr = 0; 
-        if div is None: div = 0
+    # 상태 평가 로직 (기존 유지)
+    pbr_stat = "good" if 0 < pbr < 1.0 else ("neu" if 1.0 <= pbr < 2.5 else "bad")
+    pbr_txt = "저평가(좋음)" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가/정보없음")
+    
+    per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
+    per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자/정보없음")
+    
+    div_stat = "good" if div > 3.0 else "neu"
+    div_txt = "고배당" if div > 3.0 else "일반"
 
-        pbr_stat = "good" if pbr < 1.0 else ("neu" if pbr < 2.5 else "bad")
-        pbr_txt = "저평가(좋음)" if pbr < 1.0 else ("적정" if pbr < 2.5 else "고평가(주의)")
-        per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
-        per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자")
-        div_stat = "good" if div > 3.0 else "neu"
-        div_txt = "고배당" if div > 3.0 else "일반"
-
-        score = 20
-        if pbr_stat=="good": score+=15
-        if per_stat=="good": score+=10
-        if div_stat=="good": score+=5
-        
-        fund_data = {
-            "per": {"val": float(per), "stat": per_stat, "txt": per_txt},
-            "pbr": {"val": float(pbr), "stat": pbr_stat, "txt": pbr_txt},
-            "div": {"val": float(div), "stat": div_stat, "txt": div_txt}
-        }
-        return min(score, 50), "분석완료", fund_data
-    except: return 25, "분석실패", {}
+    score = 20
+    if pbr_stat=="good": score+=15
+    if per_stat=="good": score+=10
+    if div_stat=="good": score+=5
+    
+    fund_data = {
+        "per": {"val": per, "stat": per_stat, "txt": per_txt},
+        "pbr": {"val": pbr, "stat": pbr_stat, "txt": pbr_txt},
+        "div": {"val": div, "stat": div_stat, "txt": div_txt}
+    }
+    return min(score, 50), "분석완료", fund_data
 
 def analyze_news_by_keywords(news_titles):
     pos_words = ["상승", "급등", "최고", "호재", "개선", "성장", "흑자", "수주", "돌파", "기대", "매수"]
@@ -412,15 +422,23 @@ def render_chart_legend():
     </div>"""
 
 def render_fund_scorecard(fund_data):
-    if not fund_data: st.info("재무 정보가 없습니다."); return
+    # [V30.4] 재무 정보가 없는 경우 0.0으로라도 표시되도록 처리
+    if not fund_data: 
+        st.info("재무 정보 로딩 실패 (일시적 오류)"); return
+    
+    per = fund_data['per']['val']
+    pbr = fund_data['pbr']['val']
+    div = fund_data['div']['val']
+
     per_col = "#F04452" if fund_data['per']['stat']=='good' else ("#3182F6" if fund_data['per']['stat']=='bad' else "#333")
     pbr_col = "#F04452" if fund_data['pbr']['stat']=='good' else ("#3182F6" if fund_data['pbr']['stat']=='bad' else "#333")
     div_col = "#F04452" if fund_data['div']['stat']=='good' else "#333"
+    
     st.markdown(f"""
     <div class='fund-grid-v2'>
-        <div class='fund-item-v2'><div class='fund-title-v2'>PER</div><div class='fund-value-v2' style='color:{per_col}'>{fund_data['per']['val']:.1f}배</div><div class='fund-desc-v2' style='background-color:{per_col}20; color:{per_col}'>{fund_data['per']['txt']}</div></div>
-        <div class='fund-item-v2'><div class='fund-title-v2'>PBR</div><div class='fund-value-v2' style='color:{pbr_col}'>{fund_data['pbr']['val']:.1f}배</div><div class='fund-desc-v2' style='background-color:{pbr_col}20; color:{pbr_col}'>{fund_data['pbr']['txt']}</div></div>
-        <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{fund_data['div']['val']:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>
+        <div class='fund-item-v2'><div class='fund-title-v2'>PER</div><div class='fund-value-v2' style='color:{per_col}'>{per:.1f}배</div><div class='fund-desc-v2' style='background-color:{per_col}20; color:{per_col}'>{fund_data['per']['txt']}</div></div>
+        <div class='fund-item-v2'><div class='fund-title-v2'>PBR</div><div class='fund-value-v2' style='color:{pbr_col}'>{pbr:.1f}배</div><div class='fund-desc-v2' style='background-color:{pbr_col}20; color:{pbr_col}'>{fund_data['pbr']['txt']}</div></div>
+        <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>
     </div>""", unsafe_allow_html=True)
 
 def send_telegram_msg(token, chat_id, msg):
@@ -428,7 +446,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V30.3")
+st.title("💎 Quant Sniper V30.4")
 
 # 4-1. 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -539,15 +557,14 @@ with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
-        # [V30.3 수정] 네이버 금융 테마명과 100% 일치하도록 매핑 정교화
         THEME_KEYWORDS = {
             "직접 입력": None,
             "반도체": "반도체",
             "2차전지": "2차전지",
             "HBM": "HBM",
-            "AI/인공지능": "인공지능", # '지능형로봇/인공지능(AI)' -> '인공지능'
+            "AI/인공지능": "지능형로봇",
             "로봇": "로봇",
-            "제약바이오": "제약업체", # [수정] '제약' -> '제약업체' (정확한 테마명)
+            "제약바이오": "제약업체",
             "자동차/부품": "자동차",
             "방위산업": "방위산업",
             "원자력발전": "원자력발전",
@@ -569,7 +586,6 @@ with st.sidebar:
             else:
                 try:
                     with st.spinner(f"네이버 금융에서 '{theme_keyword}' 관련주 찾는 중... (1~7p 스캔)"):
-                        # [V30.3] 인코딩 고정 + 다중 페이지 스캔
                         raw_stocks, msg = get_naver_theme_stocks(theme_keyword)
                     
                     if raw_stocks:
@@ -605,7 +621,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V30.3 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V30.4 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
