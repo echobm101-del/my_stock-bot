@@ -656,7 +656,7 @@ def send_telegram_msg(token, chat_id, msg):
 
 # --- [4. 메인 화면] ---
 
-# [수정됨] 제목 옆에 가이드 버튼 추가 (사장님의 의도를 담은 내용으로 업데이트 완료)
+# 제목 및 가이드 (수정된 텍스트 유지)
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
@@ -769,7 +769,15 @@ with tab2:
             wl_results.sort(key=lambda x: x['score'], reverse=True)
         for res in wl_results:
             st.markdown(create_card_html(res), unsafe_allow_html=True)
-            with st.expander(f"📊 {res['name']} 상세 분석"):
+            with st.expander(f"📊 {res['name']} 상세 분석 및 삭제"):
+                # [삭제 버튼 유지]
+                if st.button(f"🗑️ {res['name']} 관심종목에서 삭제하기", key=f"delete_{res['code']}"):
+                    if res['name'] in st.session_state['watchlist']:
+                        del st.session_state['watchlist'][res['name']]
+                        st.success(f"{res['name']} 삭제되었습니다.")
+                        time.sleep(0.5)
+                        st.rerun()
+
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write("###### 📈 기술적 분석")
@@ -801,38 +809,77 @@ with st.sidebar:
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
         THEME_KEYWORDS = { "직접 입력": None, "반도체": "반도체", "2차전지": "2차전지", "HBM": "HBM", "AI/인공지능": "지능형로봇", "로봇": "로봇", "제약바이오": "제약업체", "자동차/부품": "자동차", "방위산업": "방위산업", "원자력발전": "원자력발전", "초전도체": "초전도체", "저PBR": "은행" }
         selected_preset = st.selectbox("⚡ 인기 테마 선택", list(THEME_KEYWORDS.keys()))
+        
+        # [수정됨] 하이브리드 검색 안내 문구
         with st.form(key="search_form"):
             user_input = ""
-            if selected_preset == "직접 입력": user_input = st.text_input("검색할 테마 입력", placeholder="예: 리튬, 화장품, 엔터")
+            if selected_preset == "직접 입력": 
+                user_input = st.text_input("검색할 테마 또는 종목명 입력", placeholder="예: 리튬, 삼성전자")
             else: st.info(f"✅ 선택된 테마: **{THEME_KEYWORDS[selected_preset]}**")
-            submit_btn = st.form_submit_button("테마 분석 및 미리보기")
+            submit_btn = st.form_submit_button("지능형 분석 시작")
         
         if submit_btn:
-            if selected_preset == "직접 입력": target_keyword = user_input
+            if selected_preset == "직접 입력": target_keyword = user_input.strip()
             else: target_keyword = THEME_KEYWORDS[selected_preset]
+            
             if not target_keyword: st.warning("⚠️ 검색어를 입력하거나 테마를 선택해주세요!")
             else:
-                try:
-                    with st.spinner(f"네이버 금융에서 '{target_keyword}' 관련주 찾는 중... (1~7p 스캔)"):
-                        raw_stocks, msg = get_naver_theme_stocks(target_keyword)
-                    if raw_stocks:
-                        st.success(msg)
-                        processed_stocks = []
-                        progress_text = "주도주 스코어링 분석 중..."
-                        my_bar = st.progress(0, text=progress_text)
-                        total_items = min(len(raw_stocks), 5) 
-                        for i, stock_info in enumerate(raw_stocks[:total_items]):
-                            score, tags, vol, chg = calculate_sniper_score(stock_info['code'])
-                            stock_info['sniper_score'] = score; stock_info['tags'] = tags; stock_info['vol_ratio'] = vol; stock_info['real_change'] = chg
-                            processed_stocks.append(stock_info)
-                            my_bar.progress((i + 1) / total_items, text=f"{stock_info['name']} 분석 완료...")
-                        my_bar.empty()
-                        processed_stocks.sort(key=lambda x: x['sniper_score'], reverse=True)
-                        st.session_state['preview_list'] = processed_stocks
-                        st.session_state['current_theme_name'] = target_keyword
+                # [NEW] 1. 종목명 검색 시도 (하이브리드 로직)
+                is_stock_found = False
+                # krx_df의 'Name' 컬럼에서 정확히 일치하는 종목이 있는지 확인
+                if not krx_df.empty and target_keyword in krx_df['Name'].values:
+                    try:
+                        st.info(f"🔎 '{target_keyword}' 개별 종목 분석을 시작합니다...")
+                        row = krx_df[krx_df['Name'] == target_keyword].iloc[0]
+                        target_code = row['Code']
+                        
+                        # 개별 종목 분석을 위한 스코어 및 데이터 계산
+                        score, tags, vol, chg = calculate_sniper_score(target_code)
+                        
+                        # 가격 정보 가져오기 (미리보기를 위함)
+                        try:
+                            now_df = fdr.DataReader(target_code, datetime.datetime.now() - datetime.timedelta(days=5))
+                            price = int(now_df.iloc[-1]['Close']) if not now_df.empty else 0
+                        except: price = 0
+                        
+                        # 데이터 구조 생성
+                        stock_info = {"code": target_code, "name": target_keyword, "price": price}
+                        stock_info['sniper_score'] = score
+                        stock_info['tags'] = tags
+                        stock_info['vol_ratio'] = vol
+                        stock_info['real_change'] = chg
+                        
+                        # 미리보기 리스트에 단일 종목 등록
+                        st.session_state['preview_list'] = [stock_info]
+                        st.session_state['current_theme_name'] = f"개별 종목: {target_keyword}"
+                        is_stock_found = True
                         st.rerun()
-                    else: st.error(f"❌ 결과 없음: {msg}")
-                except Exception as e: st.error(f"🚫 시스템 오류 발생: {str(e)}")
+                    except Exception as e:
+                        st.error(f"종목 분석 중 오류: {str(e)}")
+
+                # [EXISTING] 2. 종목이 아니면 기존 테마 검색 로직 수행
+                if not is_stock_found:
+                    try:
+                        with st.spinner(f"네이버 금융에서 '{target_keyword}' 관련주 찾는 중... (1~7p 스캔)"):
+                            raw_stocks, msg = get_naver_theme_stocks(target_keyword)
+                        if raw_stocks:
+                            st.success(msg)
+                            processed_stocks = []
+                            progress_text = "주도주 스코어링 분석 중..."
+                            my_bar = st.progress(0, text=progress_text)
+                            total_items = min(len(raw_stocks), 5) 
+                            for i, stock_info in enumerate(raw_stocks[:total_items]):
+                                score, tags, vol, chg = calculate_sniper_score(stock_info['code'])
+                                stock_info['sniper_score'] = score; stock_info['tags'] = tags; stock_info['vol_ratio'] = vol; stock_info['real_change'] = chg
+                                processed_stocks.append(stock_info)
+                                my_bar.progress((i + 1) / total_items, text=f"{stock_info['name']} 분석 완료...")
+                            my_bar.empty()
+                            processed_stocks.sort(key=lambda x: x['sniper_score'], reverse=True)
+                            st.session_state['preview_list'] = processed_stocks
+                            st.session_state['current_theme_name'] = target_keyword
+                            st.rerun()
+                        else: st.error(f"❌ 결과 없음: {msg}")
+                    except Exception as e: st.error(f"🚫 시스템 오류 발생: {str(e)}")
 
     if st.button("🚀 텔레그램으로 리포트 전송"):
         token = st.secrets.get("TELEGRAM_TOKEN", "")
