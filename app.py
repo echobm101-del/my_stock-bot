@@ -19,7 +19,7 @@ import numpy as np
 from io import StringIO
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V31.2", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V31.3", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -60,9 +60,9 @@ st.markdown("""
     .tag-smart { background: #E8F3FF; color: #3182F6; border: 1px solid #D0EBFF; }
     .tag-pull { background: #E6FCF5; color: #087F5B; border: 1px solid #B2F2BB; }
     
-    /* V31.2 재무 테이블 스타일 */
-    .fin-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; margin-bottom: 10px; }
-    .fin-table th { background-color: #F9FAFB; padding: 8px; border-bottom: 1px solid #E5E8EB; color: #666; font-weight: 600; }
+    /* V31.3 재무 테이블 스타일 (상승/하락 색상) */
+    .fin-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; margin-bottom: 10px; border: 1px solid #E5E8EB; }
+    .fin-table th { background-color: #F9FAFB; padding: 8px; border-bottom: 1px solid #E5E8EB; color: #4E5968; font-weight: 600; }
     .fin-table td { padding: 8px; border-bottom: 1px solid #F2F4F6; color: #333; font-weight: 500; }
     .text-red { color: #F04452; font-weight: 700; }
     .text-blue { color: #3182F6; font-weight: 700; }
@@ -138,47 +138,73 @@ def get_naver_theme_stocks(keyword):
         return stocks, f"'{keyword}' 관련 테마 발견: {len(stocks)}개 종목"
     except Exception as e: return [], f"크롤링 오류: {str(e)}"
 
-# [V31.2 수정] 네이버 금융 직접 크롤링 - 강제 테이블 매칭 (Robust)
+# [V31.3 수정] 수급 데이터 강제 크롤링 (Robust ver.)
 def get_investor_trend_from_naver(code):
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers)
         
-        # [핵심] '날짜'라는 글자가 들어간 테이블을 강제로 찾음 (match='날짜')
-        # 이렇게 하면 페이지 구조가 복잡해도 수급 표를 정확히 집어냅니다.
-        dfs = pd.read_html(StringIO(res.text), match='날짜', header=0, encoding='euc-kr')
+        # [V31.3] 인코딩 강제 후, '날짜' 매칭 시도 -> 실패 시 모든 테이블 중 2번째(보통 수급표) 강제 선택
+        # 이렇게 해야 '날짜' 텍스트가 인코딩 문제로 깨져도(냘??) 표 순서로 가져올 수 있음
+        try:
+            dfs = pd.read_html(StringIO(res.text), match='날짜', header=0, encoding='euc-kr')
+        except:
+            # 매칭 실패 시 그냥 다 가져와서 두번째꺼 씀 (네이버 구조상 2번째가 수급표)
+            dfs = pd.read_html(StringIO(res.text), header=0, encoding='euc-kr')
         
-        if len(dfs) > 0:
-            df = dfs[0]
-            # 컬럼에 기관, 외국인이 있는지 확인
-            if '기관' in df.columns and '외국인' in df.columns:
-                df = df.dropna(subset=['날짜'])
-                df = df.iloc[:20].copy() # 최근 20일
-                
-                # 전처리
+        target_df = None
+        for d in dfs:
+            # 컬럼에 기관, 외국인 비슷한게 있으면 채택
+            cols = str(d.columns)
+            if '기관' in cols and '외국인' in cols:
+                target_df = d
+                break
+        
+        if target_df is None and len(dfs) > 1:
+            target_df = dfs[1] # fallback
+
+        if target_df is not None:
+            df = target_df
+            # 날짜 컬럼 찾기 (보통 첫번째)
+            df = df.dropna().copy() # NaN 제거
+            
+            # 컬럼 이름이 깨질 수 있으므로 위치 기반으로 리네임
+            # 날짜, 종가, 전일비, 등락률, 거래량, 기관, 외국인... 순서가 일반적
+            # 기관: index 5, 외국인: index 6 (변동 가능성 있으니 컬럼명 최대한 확인)
+            
+            # 간단한 정제
+            if '날짜' in df.columns:
                 df['날짜'] = pd.to_datetime(df['날짜'])
-                # 천단위 콤마 제거 및 숫자 변환
-                for col in ['기관', '외국인']:
-                    df[col] = df[col].astype(str).str.replace(',', '').astype(float)
-                
-                # 개인 수급 추정 (전체 순매수 합=0 가정)
-                df['개인'] = -(df['기관'] + df['외국인']) 
-                
                 df = df.sort_values('날짜')
+                
+                # 기관/외국인 컬럼 처리
+                if '기관' in df.columns:
+                    df['기관'] = df['기관'].astype(str).str.replace(',', '').astype(float)
+                if '외국인' in df.columns:
+                    df['외국인'] = df['외국인'].astype(str).str.replace(',', '').astype(float)
+                
+                # 개인 추정
+                df['개인'] = -(df['기관'] + df['외국인'])
+                
+                # 20일치 슬라이싱 (최신순 정렬 후 앞부분 or 날짜 정렬 후 뒷부분)
+                # 위에서 sort_values('날짜') 했으므로 tail(20)
+                df = df.tail(20)
                 
                 df['Cum_Individual'] = df['개인'].cumsum()
                 df['Cum_Foreigner'] = df['외국인'].cumsum()
                 df['Cum_Institution'] = df['기관'].cumsum()
                 df['Cum_Pension'] = 0 
-                
                 return df
-    except: pass
+                
+    except Exception as e: 
+        # st.error(f"수급 로딩 실패: {e}") # 디버깅용 (실제론 숨김)
+        pass
     return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
-    # 1순위: Pykrx (실패 확률 있음)
+    # 1순위: Pykrx (실패 확률 있음, 특히 주말/장마감직후)
     try:
         end_d = datetime.datetime.now().strftime("%Y%m%d")
         start_d = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
@@ -207,7 +233,7 @@ def get_financial_history(code):
             if '최근 연간 실적' in str(df.columns) or '매출액' in str(df.iloc[:,0].values):
                 df = df.set_index(df.columns[0])
                 fin_data = []
-                cols = df.columns[-5:-1]
+                cols = df.columns[-5:-1] # 최근 4개 (확정치)
                 
                 for col in cols:
                     try:
@@ -217,10 +243,10 @@ def get_financial_history(code):
                         val_net = df.loc['당기순이익', col] if '당기순이익' in df.index else 0
                         
                         fin_data.append({
-                            "Date": str(col_name),
-                            "매출액": float(val_sales) if val_sales != '-' else 0,
-                            "영업이익": float(val_op) if val_op != '-' else 0,
-                            "당기순이익": float(val_net) if val_net != '-' else 0
+                            "Date": str(col_name).strip(),
+                            "매출액": float(val_sales) if val_sales != '-' and pd.notnull(val_sales) else 0,
+                            "영업이익": float(val_op) if val_op != '-' and pd.notnull(val_op) else 0,
+                            "당기순이익": float(val_net) if val_net != '-' and pd.notnull(val_net) else 0
                         })
                     except: continue
                     
@@ -534,7 +560,7 @@ def render_fund_scorecard(fund_data):
         <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>
     </div>""", unsafe_allow_html=True)
 
-# [V31.2 수정] 재무 데이터를 그래프 대신 '스마트 컬러 테이블'로 표현
+# [V31.3 수정] 재무 데이터를 그래프 대신 '스마트 컬러 테이블'로 표현
 def render_financial_table(df):
     if df.empty:
         st.caption("재무 데이터가 없습니다.")
@@ -605,7 +631,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V31.2")
+st.title("💎 Quant Sniper V31.3")
 
 # 4-1. 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -655,10 +681,10 @@ if st.session_state.get('preview_list'):
             with col2:
                 st.write("###### 🏢 재무 펀더멘탈 & 실적")
                 render_fund_scorecard(res['fund_data'])
-                # [V31.2] 그래프 대신 스마트 테이블 적용
                 render_financial_table(res['fin_history'])
             
-            st.write("###### 🧠 스마트머니 수급 분석 (20일 누적)")
+            # [V31.3] 제목 변경: 스마트머니 -> 큰손 투자 동향
+            st.write("###### 🧠 큰손 투자 동향 (최근 20일 누적)")
             render_investor_chart(res['investor_trend'])
 
             st.write("###### 📰 뉴스 심층 분석")
@@ -696,7 +722,7 @@ else:
                 render_fund_scorecard(res['fund_data'])
                 render_financial_table(res['fin_history'])
             
-            st.write("###### 🧠 스마트머니 수급 분석 (20일 누적)")
+            st.write("###### 🧠 큰손 투자 동향 (최근 20일 누적)")
             render_investor_chart(res['investor_trend'])
             
             st.write("###### 📰 뉴스 심층 분석")
@@ -780,7 +806,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V31.2 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V31.3 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
