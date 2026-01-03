@@ -218,7 +218,7 @@ def render_financial_table(df):
     st.markdown(html, unsafe_allow_html=True)
     st.caption("※ 단위: 억 원 / (괄호): 전분기/전년 대비 증감률")
 
-# [수정된 부분] HTS 국룰 색상 적용
+# [수정된 부분] HTS 국룰 색상 + 범례 노출 보완
 def render_investor_chart(df):
     if df.empty:
         st.caption("수급 데이터가 없습니다. (장중/집계 지연 가능성)")
@@ -240,22 +240,26 @@ def render_investor_chart(df):
     type_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
     df_line['Type'] = df_line['Key'].map(type_map)
 
-    # [수정] 색상 매핑 (Scale) 정의
+    # [색상 설정] HTS 국룰 색상
     # 개인(초록), 외국인(빨강), 기관(파랑), 연기금(갈색)
     domain = ['개인', '외국인', '기관합계', '연기금']
     range_ = ['#228B22', '#F04452', '#3182F6', '#8B4513'] # ForestGreen, Red, Blue, SaddleBrown
     color_scale = alt.Scale(domain=domain, range=range_)
+    
+    # [범례 설정] 상단 배치 (orient='top')
+    color_encoding = alt.Color('Type:N', scale=color_scale, legend=alt.Legend(title="투자자", orient="top"))
 
     base = alt.Chart(df_line).encode(x=alt.X('날짜:T', axis=alt.Axis(format='%m-%d', title=None)))
     
+    # 막대와 선 차트 모두에 동일한 color_encoding 적용 (범례 누락 방지)
     bar = base.mark_bar(opacity=0.3).encode(
         y=alt.Y('Daily:Q', axis=alt.Axis(title='일별 순매수 (막대)', titleColor='#888')), 
-        color=alt.Color('Type:N', scale=color_scale, legend=None) # 범례 중복 방지
+        color=color_encoding
     )
     
     line = base.mark_line().encode(
         y=alt.Y('Cumulative:Q', axis=alt.Axis(title='누적 순매수 (선)')), 
-        color=alt.Color('Type:N', scale=color_scale, legend=alt.Legend(title="투자자")), 
+        color=color_encoding,
         tooltip=[alt.Tooltip('날짜:T', format='%Y-%m-%d'), alt.Tooltip('Type:N', title='투자자'), alt.Tooltip('Cumulative:Q', format=',', title='📈 누적'), alt.Tooltip('Daily:Q', format=',', title='💰 당일(강도)')]
     )
     
