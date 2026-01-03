@@ -19,7 +19,7 @@ import numpy as np
 from io import StringIO
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V31.1", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V31.2", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -59,6 +59,13 @@ st.markdown("""
     .tag-vol { background: #FFF0EB; color: #D9480F; border: 1px solid #FFD8A8; }
     .tag-smart { background: #E8F3FF; color: #3182F6; border: 1px solid #D0EBFF; }
     .tag-pull { background: #E6FCF5; color: #087F5B; border: 1px solid #B2F2BB; }
+    
+    /* V31.2 재무 테이블 스타일 */
+    .fin-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; margin-bottom: 10px; }
+    .fin-table th { background-color: #F9FAFB; padding: 8px; border-bottom: 1px solid #E5E8EB; color: #666; font-weight: 600; }
+    .fin-table td { padding: 8px; border-bottom: 1px solid #F2F4F6; color: #333; font-weight: 500; }
+    .text-red { color: #F04452; font-weight: 700; }
+    .text-blue { color: #3182F6; font-weight: 700; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -131,52 +138,47 @@ def get_naver_theme_stocks(keyword):
         return stocks, f"'{keyword}' 관련 테마 발견: {len(stocks)}개 종목"
     except Exception as e: return [], f"크롤링 오류: {str(e)}"
 
-# [V31.1 추가] 네이버 금융 직접 크롤링으로 수급 데이터 확보 (Pykrx 대체용)
+# [V31.2 수정] 네이버 금융 직접 크롤링 - 강제 테이블 매칭 (Robust)
 def get_investor_trend_from_naver(code):
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers)
         
-        # 테이블 파싱 (일별 시세/수급이 있는 테이블)
-        dfs = pd.read_html(StringIO(res.text), attrs={'class': 'type2'}, header=0, encoding='euc-kr')
+        # [핵심] '날짜'라는 글자가 들어간 테이블을 강제로 찾음 (match='날짜')
+        # 이렇게 하면 페이지 구조가 복잡해도 수급 표를 정확히 집어냅니다.
+        dfs = pd.read_html(StringIO(res.text), match='날짜', header=0, encoding='euc-kr')
         
-        if len(dfs) >= 2: # 보통 두번째 테이블이 일별 매매동향
-            df = dfs[1]
-            # 컬럼 정리: 날짜, 종가, 전일비, 등락률, 거래량, 기관, 외국인...
-            # 네이버 테이블 헤더 구조가 복잡할 수 있으니 위치기반으로 추출
-            # 보통: [날짜, 종가, 전일비, 등락률, 거래량, 기관, 외국인, ...] 순서
-            if '날짜' in df.columns and '기관' in df.columns and '외국인' in df.columns:
-                df = df.dropna(subset=['날짜']) # 날짜 없는 행 제거
+        if len(dfs) > 0:
+            df = dfs[0]
+            # 컬럼에 기관, 외국인이 있는지 확인
+            if '기관' in df.columns and '외국인' in df.columns:
+                df = df.dropna(subset=['날짜'])
                 df = df.iloc[:20].copy() # 최근 20일
                 
-                # 데이터 정제 (숫자 변환)
+                # 전처리
                 df['날짜'] = pd.to_datetime(df['날짜'])
-                df['기관'] = df['기관'].astype(str).str.replace(',', '').astype(float)
-                df['외국인'] = df['외국인'].astype(str).str.replace(',', '').astype(float)
+                # 천단위 콤마 제거 및 숫자 변환
+                for col in ['기관', '외국인']:
+                    df[col] = df[col].astype(str).str.replace(',', '').astype(float)
                 
-                # 개인은 계산으로 추정 (순매수 합은 0에 수렴한다는 가정 하에, 정확하진 않지만 추세용)
-                # 혹은 네이버에서 제공하지 않으면 0으로 처리하거나 제외
-                # 여기서는 기관/외인 위주로 보여주되 개인은 역수로 추정하여 시각화
+                # 개인 수급 추정 (전체 순매수 합=0 가정)
                 df['개인'] = -(df['기관'] + df['외국인']) 
                 
-                # 정렬 (과거 -> 최신)
                 df = df.sort_values('날짜')
                 
-                # 누적 계산
                 df['Cum_Individual'] = df['개인'].cumsum()
                 df['Cum_Foreigner'] = df['외국인'].cumsum()
                 df['Cum_Institution'] = df['기관'].cumsum()
-                df['Cum_Pension'] = 0 # 네이버 기본페이지엔 연기금 별도표기 없음 (0 처리)
+                df['Cum_Pension'] = 0 
                 
                 return df
     except: pass
     return pd.DataFrame()
 
-# [V31.0 -> V31.1 수정] 투자자별 매매 동향 (Pykrx -> 실패시 네이버 크롤링)
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
-    # 1순위: Pykrx (상세 데이터: 연기금 포함)
+    # 1순위: Pykrx (실패 확률 있음)
     try:
         end_d = datetime.datetime.now().strftime("%Y%m%d")
         start_d = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
@@ -190,7 +192,7 @@ def get_investor_trend(code):
             return df
     except: pass
     
-    # 2순위: 네이버 직접 크롤링 (연기금 제외, 기관/외인/개인만)
+    # 2순위: 네이버 직접 크롤링 (강력한 백업)
     return get_investor_trend_from_naver(code)
 
 @st.cache_data(ttl=3600)
@@ -240,7 +242,6 @@ def calculate_sniper_score(code):
         if curr['Close'] > ma20 and curr['Close'] <= ma20 * 1.05: score += 30; tags.append("🏹 눌림목")
         
         try:
-            # 스코어링 단계에서는 속도를 위해 최근 3일치만 빠르게 체크 (Pykrx 실패시 패스)
             end_d = datetime.datetime.now().strftime("%Y%m%d")
             start_d = (datetime.datetime.now() - datetime.timedelta(days=5)).strftime("%Y%m%d")
             inv_df = stock.get_market_investor_net_purchase_by_date(start_d, end_d, code).tail(3)
@@ -268,13 +269,11 @@ def get_macro_data():
     if all(v['val'] == 0.0 for v in results.values()): return None
     return results
 
-# --- [3. 분석 엔진 V31.1] ---
+# --- [3. 분석 엔진] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
     per, pbr, div = 0.0, 0.0, 0.0
-    
-    # [1단계] 네이버 금융 직접 크롤링
     try:
         url = f"https://finance.naver.com/item/main.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -293,7 +292,6 @@ def get_company_guide_score(code):
             div = get_val_by_id("_dvr")
     except: pass
 
-    # [2단계] 백업
     if per == 0 and pbr == 0:
         if not krx_df.empty and code in krx_df['Code'].values:
             try:
@@ -303,7 +301,6 @@ def get_company_guide_score(code):
                 div = float(row.get('DividendYield', 0)) if pd.notnull(row.get('DividendYield')) else 0
             except: pass
 
-    # [3단계] Pykrx
     if per == 0 and pbr == 0:
         try:
             end_str = datetime.datetime.now().strftime("%Y%m%d")
@@ -537,43 +534,53 @@ def render_fund_scorecard(fund_data):
         <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>
     </div>""", unsafe_allow_html=True)
 
-# [V31.1 수정] 재무 차트 시인성 개선 (이중 축: Dual Axis)
-def render_financial_chart(df):
+# [V31.2 수정] 재무 데이터를 그래프 대신 '스마트 컬러 테이블'로 표현
+def render_financial_table(df):
     if df.empty:
         st.caption("재무 데이터가 없습니다.")
         return
     
-    # Base Chart
-    base = alt.Chart(df).encode(x=alt.X('Date', axis=alt.Axis(title=None)))
-
-    # Layer 1: 매출액 (Bar, Left Axis)
-    bar = base.mark_bar(color='#E8F3FF').encode(
-        y=alt.Y('매출액', axis=alt.Axis(title='매출액 (좌측)', titleColor='#888')),
-        tooltip=['Date', '매출액']
-    )
-
-    # Layer 2: 영업이익 (Line, Right Axis)
-    line_op = base.mark_line(color='#F04452').encode(
-        y=alt.Y('영업이익', axis=alt.Axis(title='이익 (우측)', titleColor='#F04452')),
-        tooltip=['Date', '영업이익']
-    )
+    # HTML Table Header
+    html = "<table class='fin-table'><thead><tr><th>구분</th>"
+    dates = df['Date'].tolist()
+    for d in dates:
+        html += f"<th>{d}</th>"
+    html += "</tr></thead><tbody>"
     
-    # Layer 3: 순이익 (Line, Right Axis)
-    line_net = base.mark_line(color='#22B8CF', strokeDash=[5, 5]).encode(
-        y=alt.Y('당기순이익', axis=alt.Axis(title='')),
-        tooltip=['Date', '당기순이익']
-    )
-
-    # Combine using independent scales
-    chart = alt.layer(bar, line_op, line_net).resolve_scale(y='independent').properties(height=200)
-    st.altair_chart(chart, use_container_width=True)
+    # Rows: 매출액, 영업이익, 당기순이익
+    metrics = ['매출액', '영업이익', '당기순이익']
+    for m in metrics:
+        html += f"<tr><td>{m}</td>"
+        vals = df[m].tolist()
+        
+        for i, val in enumerate(vals):
+            # 단위 변환 (억 원) - 간단히 표시
+            display_val = f"{int(val):,}"
+            
+            # 색상 로직: 이전 분기 대비 상승/하락
+            color_class = ""
+            arrow = ""
+            if i > 0:
+                prev = vals[i-1]
+                if val > prev: 
+                    color_class = "text-red"
+                    arrow = "▲"
+                elif val < prev: 
+                    color_class = "text-blue"
+                    arrow = "▼"
+            
+            html += f"<td class='{color_class}'>{display_val} {arrow}</td>"
+        html += "</tr>"
+    
+    html += "</tbody></table>"
+    st.markdown(html, unsafe_allow_html=True)
+    st.caption("※ 단위: 억 원 / 전분기 대비 증감 색상 표시")
 
 def render_investor_chart(df):
     if df.empty:
         st.caption("수급 데이터가 없습니다. (장중/집계 지연 가능성)")
         return
     
-    # Long format for Altair
     df_long = df.reset_index().melt('날짜', value_vars=[c for c in ['Cum_Individual', 'Cum_Foreigner', 'Cum_Institution', 'Cum_Pension'] if c in df.columns], var_name='Type', value_name='Volume')
     
     type_map = {
@@ -598,7 +605,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V31.1")
+st.title("💎 Quant Sniper V31.2")
 
 # 4-1. 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -648,7 +655,8 @@ if st.session_state.get('preview_list'):
             with col2:
                 st.write("###### 🏢 재무 펀더멘탈 & 실적")
                 render_fund_scorecard(res['fund_data'])
-                render_financial_chart(res['fin_history'])
+                # [V31.2] 그래프 대신 스마트 테이블 적용
+                render_financial_table(res['fin_history'])
             
             st.write("###### 🧠 스마트머니 수급 분석 (20일 누적)")
             render_investor_chart(res['investor_trend'])
@@ -686,7 +694,7 @@ else:
             with col2:
                 st.write("###### 🏢 재무 펀더멘탈")
                 render_fund_scorecard(res['fund_data'])
-                render_financial_chart(res['fin_history'])
+                render_financial_table(res['fin_history'])
             
             st.write("###### 🧠 스마트머니 수급 분석 (20일 누적)")
             render_investor_chart(res['investor_trend'])
@@ -772,7 +780,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V31.1 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V31.2 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
