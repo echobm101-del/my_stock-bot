@@ -18,7 +18,7 @@ import urllib.parse
 import numpy as np
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V30.4", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V30.5", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -175,23 +175,15 @@ def get_macro_data():
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
-    """
-    [V30.4 수정] 재무 데이터 3중 안전망 (Triple Fallback)
-    1. 네이버 금융 직접 크롤링 (가장 최신/정확)
-    2. StockListing 데이터 (백업)
-    3. Pykrx (최후의 수단)
-    """
     per, pbr, div = 0.0, 0.0, 0.0
     
-    # [1단계] 네이버 금융 직접 크롤링 (가장 강력)
+    # [1단계] 네이버 금융 직접 크롤링
     try:
         url = f"https://finance.naver.com/item/main.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers)
         if res.status_code == 200:
             soup = BeautifulSoup(res.text, 'html.parser')
-            
-            # 네이버 금융 페이지 내 id 태그에서 값 추출 (_per, _pbr, _dvr)
             def get_val_by_id(id_name):
                 tag = soup.select_one(f"#{id_name}")
                 if tag:
@@ -199,13 +191,12 @@ def get_company_guide_score(code):
                     try: return float(txt)
                     except: return 0.0
                 return 0.0
-
             per = get_val_by_id("_per")
             pbr = get_val_by_id("_pbr")
             div = get_val_by_id("_dvr")
     except: pass
 
-    # [2단계] 크롤링 실패(0.0) 시 StockListing 백업 사용
+    # [2단계] 백업
     if per == 0 and pbr == 0:
         if not krx_df.empty and code in krx_df['Code'].values:
             try:
@@ -215,7 +206,7 @@ def get_company_guide_score(code):
                 div = float(row.get('DividendYield', 0)) if pd.notnull(row.get('DividendYield')) else 0
             except: pass
 
-    # [3단계] 여전히 0이면 Pykrx 시도
+    # [3단계] Pykrx
     if per == 0 and pbr == 0:
         try:
             end_str = datetime.datetime.now().strftime("%Y%m%d")
@@ -228,13 +219,10 @@ def get_company_guide_score(code):
                 div = float(recent.get('DIV', 0))
         except: pass
 
-    # 상태 평가 로직 (기존 유지)
     pbr_stat = "good" if 0 < pbr < 1.0 else ("neu" if 1.0 <= pbr < 2.5 else "bad")
     pbr_txt = "저평가(좋음)" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가/정보없음")
-    
     per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
     per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자/정보없음")
-    
     div_stat = "good" if div > 3.0 else "neu"
     div_txt = "고배당" if div > 3.0 else "일반"
 
@@ -393,47 +381,15 @@ def create_chart_clean(df):
     ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q')
     return (band + line + ma20 + ma60).properties(height=250)
 
-def render_tech_metrics(stoch, vol_ratio):
-    k = stoch['k']
-    if k < 20: stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"; stoch_sub = "매수 기회 탐색"; stoch_cls = "buy"
-    elif k > 80: stoch_txt = f"🔴 과열 구간 ({k:.1f}%)"; stoch_sub = "매도/조정 주의"; stoch_cls = "sell"
-    else: stoch_txt = f"⚪ 중립 구간 ({k:.1f}%)"; stoch_sub = "추세 지속"; stoch_cls = ""
-
-    if vol_ratio >= 2.0: vol_txt = f"🔥 거래량 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
-    elif vol_ratio >= 1.2: vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
-    else: vol_txt = "☁️ 거래량 평이"; vol_cls = ""
-
-    st.markdown(f"""
-    <div class='tech-status-box'>
-        <div class='status-badge {stoch_cls}'>
-            <div>📊 스토캐스틱</div><div style='font-size:16px; margin-top:4px;'>{stoch_txt}</div><div style='font-size:11px; opacity:0.8;'>{stoch_sub}</div>
-        </div>
-        <div class='status-badge {vol_cls}'>
-            <div>📢 거래강도(전일비)</div><div style='font-size:16px; margin-top:4px;'>{vol_txt}</div><div style='font-size:11px; opacity:0.8;'>평소보다 {vol_ratio:.1f}배 활발</div>
-        </div>
-    </div>""", unsafe_allow_html=True)
-
-def render_chart_legend():
-    return """<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center;'>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가(검정)</div>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(황색)</div>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(파랑)</div>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:12px; background:#868E96; opacity:0.3; margin-right:4px;'></div>볼린저밴드(회색)</div>
-    </div>"""
-
 def render_fund_scorecard(fund_data):
-    # [V30.4] 재무 정보가 없는 경우 0.0으로라도 표시되도록 처리
     if not fund_data: 
         st.info("재무 정보 로딩 실패 (일시적 오류)"); return
-    
     per = fund_data['per']['val']
     pbr = fund_data['pbr']['val']
     div = fund_data['div']['val']
-
     per_col = "#F04452" if fund_data['per']['stat']=='good' else ("#3182F6" if fund_data['per']['stat']=='bad' else "#333")
     pbr_col = "#F04452" if fund_data['pbr']['stat']=='good' else ("#3182F6" if fund_data['pbr']['stat']=='bad' else "#333")
     div_col = "#F04452" if fund_data['div']['stat']=='good' else "#333"
-    
     st.markdown(f"""
     <div class='fund-grid-v2'>
         <div class='fund-item-v2'><div class='fund-title-v2'>PER</div><div class='fund-value-v2' style='color:{per_col}'>{per:.1f}배</div><div class='fund-desc-v2' style='background-color:{per_col}20; color:{per_col}'>{fund_data['per']['txt']}</div></div>
@@ -446,7 +402,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V30.4")
+st.title("💎 Quant Sniper V30.5")
 
 # 4-1. 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -556,6 +512,7 @@ else:
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     
+    # [V30.5 Fix] Form을 적용하여 입력값 증발 문제 해결
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
         THEME_KEYWORDS = {
             "직접 입력": None,
@@ -572,21 +529,34 @@ with st.sidebar:
             "저PBR": "은행"
         }
         
+        # 1. 셀렉트박스는 폼 밖에서 즉시 반영 (직접입력 모드 전환을 위해)
         selected_preset = st.selectbox("⚡ 인기 테마 선택", list(THEME_KEYWORDS.keys()))
         
-        if selected_preset == "직접 입력":
-            theme_keyword = st.text_input("검색할 테마 입력", placeholder="예: 리튬, 화장품, 엔터")
-        else:
-            theme_keyword = THEME_KEYWORDS[selected_preset]
-            st.info(f"✅ 검색 키워드: **'{theme_keyword}'** (매칭 최적화)")
-        
-        if st.button("테마 분석 및 미리보기"):
-            if not theme_keyword:
+        # 2. 텍스트 입력과 제출 버튼은 폼으로 감싸서 엔터 키 입력 시 리로딩 방지
+        with st.form(key="search_form"):
+            user_input = ""
+            if selected_preset == "직접 입력":
+                user_input = st.text_input("검색할 테마 입력", placeholder="예: 리튬, 화장품, 엔터")
+            else:
+                # 선택된 테마를 사용자에게 확인시켜주는 용도 (수정 불가)
+                st.info(f"✅ 선택된 테마: **{THEME_KEYWORDS[selected_preset]}**")
+            
+            submit_btn = st.form_submit_button("테마 분석 및 미리보기")
+            
+        # 3. 폼 제출 버튼이 눌렸을 때만 로직 실행
+        if submit_btn:
+            # 최종 검색어 결정
+            if selected_preset == "직접 입력":
+                target_keyword = user_input
+            else:
+                target_keyword = THEME_KEYWORDS[selected_preset]
+
+            if not target_keyword:
                 st.warning("⚠️ 검색어를 입력하거나 테마를 선택해주세요!")
             else:
                 try:
-                    with st.spinner(f"네이버 금융에서 '{theme_keyword}' 관련주 찾는 중... (1~7p 스캔)"):
-                        raw_stocks, msg = get_naver_theme_stocks(theme_keyword)
+                    with st.spinner(f"네이버 금융에서 '{target_keyword}' 관련주 찾는 중... (1~7p 스캔)"):
+                        raw_stocks, msg = get_naver_theme_stocks(target_keyword)
                     
                     if raw_stocks:
                         st.success(msg)
@@ -609,9 +579,8 @@ with st.sidebar:
                         
                         processed_stocks.sort(key=lambda x: x['sniper_score'], reverse=True)
                         st.session_state['preview_list'] = processed_stocks
-                        st.session_state['current_theme_name'] = theme_keyword
+                        st.session_state['current_theme_name'] = target_keyword
                         st.rerun()
-                        
                     else:
                         st.error(f"❌ 결과 없음: {msg}")
                 except Exception as e:
@@ -621,7 +590,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V30.4 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V30.5 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
