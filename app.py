@@ -18,21 +18,19 @@ import urllib.parse
 import numpy as np
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V30.1", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V30.3", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
     .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
     
-    /* 재무 성적표 스타일 */
     .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
     .fund-item-v2 { text-align: center; }
     .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
     .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
     .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
     
-    /* 기술적 지표 직관적 스타일 */
     .tech-status-box { display: flex; gap: 10px; margin-bottom: 5px; }
     .status-badge { flex: 1; padding: 10px; border-radius: 8px; text-align: center; font-size: 13px; font-weight: 700; color: #4E5968; background: #F2F4F6; border: 1px solid #E5E8EB; }
     .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; }
@@ -91,33 +89,46 @@ if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_fro
 if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
 if 'current_theme_name' not in st.session_state: st.session_state['current_theme_name'] = ""
 
-# --- [2-1. 네이버 금융 테마 크롤링 & 스코어링] ---
+# --- [2-1. V30.3 수정: 인코딩 이슈 해결 및 매칭 로직 강화] ---
 
 @st.cache_data(ttl=1800)
 def get_naver_theme_stocks(keyword):
-    # [V30.1 수정] 헤더 강화 (봇 차단 회피)
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://finance.naver.com/'
     }
-    base_url = "https://finance.naver.com/sise/theme.naver"
     
-    try:
-        res = requests.get(base_url, headers=headers)
-        soup = BeautifulSoup(res.content.decode('cp949', 'ignore'), 'html.parser')
-        
-        target_link = None
-        themes = soup.select('table.type_1 tr td.col_type1 a')
-        for t in themes:
-            # 부분 일치 확인 (예: '제약' 검색 시 '제약업체' 매칭)
-            if keyword in t.text:
-                target_link = "https://finance.naver.com" + t['href']
-                break
-        
-        if not target_link: return [], f"네이버 금융에서 '{keyword}' 관련 테마를 찾을 수 없습니다."
+    target_link = None
+    
+    # 1페이지부터 7페이지까지 순회
+    for page in range(1, 8):
+        base_url = f"https://finance.naver.com/sise/theme.naver?&page={page}"
+        try:
+            res = requests.get(base_url, headers=headers)
+            # [V30.3 중요] 네이버 금융은 EUC-KR을 사용하므로 인코딩 강제 지정
+            res.encoding = 'EUC-KR' 
+            soup = BeautifulSoup(res.text, 'html.parser')
+            
+            themes = soup.select('table.type_1 tr td.col_type1 a')
+            for t in themes:
+                # 공백 제거 후 비교 (매칭 정확도 향상)
+                clean_theme = t.text.strip()
+                clean_key = keyword.strip()
+                if clean_key in clean_theme:
+                    target_link = "https://finance.naver.com" + t['href']
+                    break
+            
+            if target_link: break
+            
+        except Exception: continue
 
+    if not target_link: return [], f"네이버 금융 테마에서 '{keyword}'를 찾을 수 없습니다."
+
+    # 상세 페이지 크롤링
+    try:
         res_detail = requests.get(target_link, headers=headers)
-        soup_detail = BeautifulSoup(res_detail.content.decode('cp949', 'ignore'), 'html.parser')
+        res_detail.encoding = 'EUC-KR' # [V30.3] 상세 페이지도 인코딩 고정
+        soup_detail = BeautifulSoup(res_detail.text, 'html.parser')
         
         stocks = []
         rows = soup_detail.select('div.box_type_l table.type_5 tr')
@@ -133,7 +144,7 @@ def get_naver_theme_stocks(keyword):
         
         return stocks, f"'{keyword}' 관련 테마 발견: {len(stocks)}개 종목"
     except Exception as e:
-        return [], f"크롤링 오류: {str(e)}"
+        return [], f"상세 페이지 크롤링 오류: {str(e)}"
 
 def calculate_sniper_score(code):
     try:
@@ -185,12 +196,11 @@ def get_macro_data():
     if all(v['val'] == 0.0 for v in results.values()): return None
     return results
 
-# --- [3. 분석 엔진 V30.1] ---
+# --- [3. 분석 엔진 V30.3] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
     try:
-        # [V30.1] 데이터 안정성 강화
         end_str = datetime.datetime.now().strftime("%Y%m%d")
         start_str = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
         
@@ -200,9 +210,8 @@ def get_company_guide_score(code):
             if not df.empty:
                 recent = df.iloc[-1]
                 per = recent.get('PER', 0); pbr = recent.get('PBR', 0); div = recent.get('DIV', 0)
-        except: pass # pykrx 실패 시 무시하고 fallback으로 이동
+        except: pass
 
-        # Fallback: pykrx 데이터가 없거나 0이면 krx_df 사용
         if (per == 0 or pbr == 0) and not krx_df.empty and code in krx_df['Code'].values:
             row = krx_df[krx_df['Code'] == code].iloc[0]
             per = row.get('PER', 0); pbr = row.get('PBR', 0); div = row.get('DividendYield', 0)
@@ -419,7 +428,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V30.1")
+st.title("💎 Quant Sniper V30.3")
 
 # 4-1. 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -529,23 +538,21 @@ else:
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     
-    # [V30.1 수정] 스마트 키워드 매핑 적용
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
-        
-        # 실제 검색 효율이 높은 키워드 맵핑 (UI 표시명 -> 실제 검색명)
+        # [V30.3 수정] 네이버 금융 테마명과 100% 일치하도록 매핑 정교화
         THEME_KEYWORDS = {
             "직접 입력": None,
             "반도체": "반도체",
             "2차전지": "2차전지",
             "HBM": "HBM",
-            "AI/인공지능": "지능형로봇", # 네이버 테마명이 '지능형로봇/인공지능(AI)'임
+            "AI/인공지능": "인공지능", # '지능형로봇/인공지능(AI)' -> '인공지능'
             "로봇": "로봇",
-            "제약바이오": "제약", # '제약'으로 검색하면 관련 테마 다수 노출
+            "제약바이오": "제약업체", # [수정] '제약' -> '제약업체' (정확한 테마명)
             "자동차/부품": "자동차",
             "방위산업": "방위산업",
             "원자력발전": "원자력발전",
             "초전도체": "초전도체",
-            "저PBR": "은행" # 저PBR 대표 업종
+            "저PBR": "은행"
         }
         
         selected_preset = st.selectbox("⚡ 인기 테마 선택", list(THEME_KEYWORDS.keys()))
@@ -561,7 +568,8 @@ with st.sidebar:
                 st.warning("⚠️ 검색어를 입력하거나 테마를 선택해주세요!")
             else:
                 try:
-                    with st.spinner(f"네이버 금융에서 '{theme_keyword}' 관련주 찾는 중..."):
+                    with st.spinner(f"네이버 금융에서 '{theme_keyword}' 관련주 찾는 중... (1~7p 스캔)"):
+                        # [V30.3] 인코딩 고정 + 다중 페이지 스캔
                         raw_stocks, msg = get_naver_theme_stocks(theme_keyword)
                     
                     if raw_stocks:
@@ -597,7 +605,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V30.1 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V30.3 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
