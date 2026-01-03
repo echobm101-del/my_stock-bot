@@ -18,7 +18,7 @@ import urllib.parse
 import numpy as np
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V30.5", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V30.6", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -96,11 +96,12 @@ def get_naver_theme_stocks(keyword):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Referer': 'https://finance.naver.com/'}
     target_link = None
     
+    # [V30.3] 1~7페이지 순회
     for page in range(1, 8):
         base_url = f"https://finance.naver.com/sise/theme.naver?&page={page}"
         try:
             res = requests.get(base_url, headers=headers)
-            res.encoding = 'EUC-KR'
+            res.encoding = 'EUC-KR' # 인코딩 고정
             soup = BeautifulSoup(res.text, 'html.parser')
             themes = soup.select('table.type_1 tr td.col_type1 a')
             for t in themes:
@@ -171,10 +172,13 @@ def get_macro_data():
     if all(v['val'] == 0.0 for v in results.values()): return None
     return results
 
-# --- [3. 분석 엔진 V30.4 (재무 데이터 0.0 해결)] ---
+# --- [3. 분석 엔진 V30.4 (재무 데이터 0.0 해결 로직 포함)] ---
 
 @st.cache_data(ttl=1200)
 def get_company_guide_score(code):
+    """
+    [V30.4 Fix] 재무 데이터 0.0 문제 해결을 위한 Triple Fallback
+    """
     per, pbr, div = 0.0, 0.0, 0.0
     
     # [1단계] 네이버 금융 직접 크롤링
@@ -196,7 +200,7 @@ def get_company_guide_score(code):
             div = get_val_by_id("_dvr")
     except: pass
 
-    # [2단계] 백업
+    # [2단계] 백업 (StockListing)
     if per == 0 and pbr == 0:
         if not krx_df.empty and code in krx_df['Code'].values:
             try:
@@ -381,9 +385,38 @@ def create_chart_clean(df):
     ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q')
     return (band + line + ma20 + ma60).properties(height=250)
 
+# [복구된 함수 1] NameError 해결을 위해 복구
+def render_tech_metrics(stoch, vol_ratio):
+    k = stoch['k']
+    if k < 20: stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"; stoch_sub = "매수 기회 탐색"; stoch_cls = "buy"
+    elif k > 80: stoch_txt = f"🔴 과열 구간 ({k:.1f}%)"; stoch_sub = "매도/조정 주의"; stoch_cls = "sell"
+    else: stoch_txt = f"⚪ 중립 구간 ({k:.1f}%)"; stoch_sub = "추세 지속"; stoch_cls = ""
+
+    if vol_ratio >= 2.0: vol_txt = f"🔥 거래량 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
+    elif vol_ratio >= 1.2: vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
+    else: vol_txt = "☁️ 거래량 평이"; vol_cls = ""
+
+    st.markdown(f"""
+    <div class='tech-status-box'>
+        <div class='status-badge {stoch_cls}'>
+            <div>📊 스토캐스틱</div><div style='font-size:16px; margin-top:4px;'>{stoch_txt}</div><div style='font-size:11px; opacity:0.8;'>{stoch_sub}</div>
+        </div>
+        <div class='status-badge {vol_cls}'>
+            <div>📢 거래강도(전일비)</div><div style='font-size:16px; margin-top:4px;'>{vol_txt}</div><div style='font-size:11px; opacity:0.8;'>평소보다 {vol_ratio:.1f}배 활발</div>
+        </div>
+    </div>""", unsafe_allow_html=True)
+
+# [복구된 함수 2] NameError 해결을 위해 복구
+def render_chart_legend():
+    return """<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center;'>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가(검정)</div>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(황색)</div>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(파랑)</div>
+        <div style='display:flex; align-items:center;'><div style='width:12px; height:12px; background:#868E96; opacity:0.3; margin-right:4px;'></div>볼린저밴드(회색)</div>
+    </div>"""
+
 def render_fund_scorecard(fund_data):
-    if not fund_data: 
-        st.info("재무 정보 로딩 실패 (일시적 오류)"); return
+    if not fund_data: st.info("재무 정보 로딩 실패 (일시적 오류)"); return
     per = fund_data['per']['val']
     pbr = fund_data['pbr']['val']
     div = fund_data['div']['val']
@@ -402,7 +435,7 @@ def send_telegram_msg(token, chat_id, msg):
     except: pass
 
 # --- [4. 메인 화면] ---
-st.title("💎 Quant Sniper V30.5")
+st.title("💎 Quant Sniper V30.6")
 
 # 4-1. 거시 경제
 with st.expander("🌍 글로벌 거시 경제 대시보드 (Click to Open)", expanded=False):
@@ -512,7 +545,7 @@ else:
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     
-    # [V30.5 Fix] Form을 적용하여 입력값 증발 문제 해결
+    # [V30.5 Fix] Form 적용 및 검색 로직
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
         THEME_KEYWORDS = {
             "직접 입력": None,
@@ -529,27 +562,20 @@ with st.sidebar:
             "저PBR": "은행"
         }
         
-        # 1. 셀렉트박스는 폼 밖에서 즉시 반영 (직접입력 모드 전환을 위해)
         selected_preset = st.selectbox("⚡ 인기 테마 선택", list(THEME_KEYWORDS.keys()))
         
-        # 2. 텍스트 입력과 제출 버튼은 폼으로 감싸서 엔터 키 입력 시 리로딩 방지
         with st.form(key="search_form"):
             user_input = ""
             if selected_preset == "직접 입력":
                 user_input = st.text_input("검색할 테마 입력", placeholder="예: 리튬, 화장품, 엔터")
             else:
-                # 선택된 테마를 사용자에게 확인시켜주는 용도 (수정 불가)
                 st.info(f"✅ 선택된 테마: **{THEME_KEYWORDS[selected_preset]}**")
             
             submit_btn = st.form_submit_button("테마 분석 및 미리보기")
             
-        # 3. 폼 제출 버튼이 눌렸을 때만 로직 실행
         if submit_btn:
-            # 최종 검색어 결정
-            if selected_preset == "직접 입력":
-                target_keyword = user_input
-            else:
-                target_keyword = THEME_KEYWORDS[selected_preset]
+            if selected_preset == "직접 입력": target_keyword = user_input
+            else: target_keyword = THEME_KEYWORDS[selected_preset]
 
             if not target_keyword:
                 st.warning("⚠️ 검색어를 입력하거나 테마를 선택해주세요!")
@@ -590,7 +616,7 @@ with st.sidebar:
         token = st.secrets.get("TELEGRAM_TOKEN", "")
         chat_id = st.secrets.get("CHAT_ID", "")
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V30.5 리포트 ({datetime.date.today()})\n\n"
+            msg = f"💎 Quant Sniper V30.6 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
