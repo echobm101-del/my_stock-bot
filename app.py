@@ -34,7 +34,7 @@ except Exception as e:
 # ==============================================================================
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Final Diagnosis)", page_icon="🕵️", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Robust Mode)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -589,30 +589,45 @@ def analyze_news_by_keywords(news_titles):
     
     return final_score, summary, "키워드 분석", ""
 
+# -------------------------------------------------------------------------
+# [핵심 수정] AI 모델 자동 우회 기능 추가
+# 1.5 Flash가 안되면 자동으로 Pro로 넘어가는 똑똑한 함수입니다.
+# -------------------------------------------------------------------------
 def call_gemini_auto(prompt):
-    # [수정] secrets에서 가져온 API KEY 사용
     api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "Error: Secrets에서 GOOGLE_API_KEY를 찾을 수 없습니다."
     
-    models = ["gemini-1.5-flash", "gemini-pro"]
+    # 모델 목록 (1.5 Flash -> Pro -> 1.5 Pro 순서로 시도)
+    models = ["gemini-1.5-flash", "gemini-pro", "gemini-1.5-pro"]
+    
+    last_error = ""
+    
     for m in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         headers = {"Content-Type": "application/json"}
         payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
+        
         try:
-            res = requests.post(url, headers=headers, json=payload, timeout=10) # 타임아웃 10초로 연장
+            # 타임아웃을 10초로 넉넉하게 설정
+            res = requests.post(url, headers=headers, json=payload, timeout=10)
+            
             if res.status_code == 200: 
+                # 성공하면 즉시 결과 반환 (멈춤)
                 return res.json(), None
             else:
-                # [진단용] 실패 시 상태 코드 반환
-                return None, f"HTTP {res.status_code}: {res.text}"
+                # 실패하면 에러 기록하고 다음 모델로 넘어감 (Continue)
+                last_error = f"Model {m} Error: {res.status_code} {res.text}"
+                continue 
         except Exception as e:
-            return None, f"통신 오류: {str(e)}"
-    return None, "ALL_FAILED (모든 모델 시도 실패)"
+            # 통신 에러가 나도 다음 모델로 넘어감
+            last_error = f"Connection Error: {str(e)}"
+            continue
+            
+    # 모든 모델이 실패했을 때만 에러 반환
+    return None, f"All models failed. Last error: {last_error}"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
-    # stock_data_context가 없는 경우(기존 호출 호환성) 빈 딕셔너리 처리
     if stock_data_context is None: stock_data_context = {}
 
     news_titles = []; news_data = []
@@ -622,7 +637,6 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         base_url = "https://news.google.com/rss/search"
         rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
         feed = feedparser.parse(rss_url)
-        # 토큰 절약 및 최신 이슈 집중을 위해 상위 10개만 사용
         for entry in feed.entries[:10]:
             date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else ""
             news_data.append({"title": entry.title, "link": entry.link, "date": date_str})
@@ -633,17 +647,12 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
     if not news_titles: 
         return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": ""}
 
-    # ------------------------------------------------------------------
-    # [변경] 1번(데이터 융합) + 2번(심층 추론) 하이브리드 프롬프트 적용
-    # ------------------------------------------------------------------
     try:
-        # 데이터 융합: 차트/재무/수급 데이터를 텍스트로 변환
         trend = stock_data_context.get('trend', '분석중')
         pbr = stock_data_context.get('pbr', 0)
         per = stock_data_context.get('per', 0)
         supply = stock_data_context.get('supply', '정보없음')
         
-        # 펀더멘탈 상태 코멘트 생성
         fund_comment = ""
         if pbr > 0 and pbr < 1.0: fund_comment += "PBR 1배 미만 저평가 상태,"
         elif pbr > 2.5: fund_comment += "PBR 다소 고평가 상태,"
@@ -682,7 +691,6 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         if res_data:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            # JSON 파싱 안정성 확보
             raw = raw.replace("```json", "").replace("```", "").strip()
             js = json.loads(raw)
             
@@ -693,27 +701,19 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 "method": "ai",
                 "catalyst": js.get('catalyst', ""),
                 "opinion": js.get('opinion', "중립"),
-                "risk": js.get('risk', "특이사항 없음") # 리스크 필드 추가
+                "risk": js.get('risk', "특이사항 없음")
             }
         else:
-             # [진단용 수정] 에러 발생 시 UI에 직접 표시하기 위해 예외 발생시킴
-             raise Exception(error_msg)
+             # 모든 모델이 실패한 경우에만 에러 출력
+             st.error(f"🚨 AI 분석 실패: {error_msg}")
+             pass
 
     except Exception as e:
-        # [진단용 수정] 에러 메시지를 'headline'에 담아서 화면에 강제 출력
-        # st.error 대신 텍스트로 보여줍니다.
-        score, summary, _, _ = analyze_news_by_keywords(news_titles)
-        return {
-            "score": score,
-            "headline": f"⛔ 에러 발생: {str(e)}", # 여기에 에러 내용이 뜹니다
-            "raw_news": news_data,
-            "method": "keyword", 
-            "catalyst": "시스템 오류",
-            "opinion": "분석불가",
-            "risk": "API 키 또는 통신 상태를 확인하세요."
-        }
+        # 시스템 에러 발생 시
+        st.error(f"🚨 시스템 오류: {str(e)}")
+        pass 
 
-    # Fallback (도달하지 않음)
+    # Fallback
     score, summary, _, _ = analyze_news_by_keywords(news_titles)
     return {"score": score, "headline": summary, "raw_news": news_data, "method": "keyword", "catalyst": "", "opinion": "", "risk": ""}
 
@@ -874,7 +874,7 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V33.0 (Final Diagnosis)")
+    st.title("💎 Quant Sniper V33.0 (Robust Mode)")
 
 with col_guide:
     st.write("") 
@@ -1084,7 +1084,6 @@ with tab2:
                         </div>
                     </div>""", unsafe_allow_html=True)
                 else:
-                    # [수정] 에러 메시지를 포함한 Fallback UI
                     st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
                 
                 st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
