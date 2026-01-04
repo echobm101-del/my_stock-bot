@@ -8,3 +8,4 @@ beautifulsoup4
 lxml
 feedparser
 setuptools
+google-generativeai
