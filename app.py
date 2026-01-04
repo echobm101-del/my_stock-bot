@@ -17,27 +17,10 @@ import feedparser
 import urllib.parse
 import numpy as np
 from io import StringIO
-import sys
-import subprocess
 
 # ==============================================================================
-# [긴급 패치] 구글 공식 AI 라이브러리(SDK) 강제 설치 및 연동
-# 서버의 라이브러리가 낡았을 경우, 최신 버전(1.5 Flash 지원)으로 강제 업데이트합니다.
-# ==============================================================================
-try:
-    import google.generativeai as genai
-    # 버전 확인 후 너무 낮으면 업그레이드 시도 (이 부분은 로그로만 남김)
-except ImportError:
-    pass
-
-# 무조건 최신 버전으로 재설치/업그레이드 명령 실행 (1.5 Flash 인식용)
-try:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "google-generativeai"])
-    import google.generativeai as genai
-except Exception as e:
-    st.error(f"라이브러리 설치 실패: {e}")
-
 # [보안 설정] Streamlit Secrets에서 키 가져오기
+# ==============================================================================
 try:
     USER_GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
     USER_TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
@@ -49,13 +32,8 @@ except Exception as e:
     USER_CHAT_ID = ""
     USER_GOOGLE_API_KEY = ""
 
-# 구글 AI 설정 초기화 (공식 SDK 사용)
-if USER_GOOGLE_API_KEY:
-    genai.configure(api_key=USER_GOOGLE_API_KEY)
-# ==============================================================================
-
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Official SDK)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Direct API Fix)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -610,8 +588,27 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [핵심 수정] 공식 SDK(genai)를 사용한 완벽한 AI 분석 함수
+# [핵심] API v1b (꼼수) -> v1 (정품) 교체
 # -------------------------------------------------------------------------
+def call_gemini_v1_direct(prompt):
+    api_key = USER_GOOGLE_API_KEY
+    if not api_key: return None, "NO_KEY"
+    
+    # [변경] v1beta -> v1 (정식 버전) / gemini-pro (표준 모델)
+    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={api_key}"
+    
+    headers = {"Content-Type": "application/json"}
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=15)
+        if res.status_code == 200:
+            return res.json(), None
+        else:
+            return None, f"HTTP Error {res.status_code}: {res.text}"
+    except Exception as e:
+        return None, f"Connection Error: {str(e)}"
+
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
@@ -633,14 +630,10 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
     if not news_titles: 
         return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": ""}
 
-    # ------------------------------------------------------------------
-    # 공식 SDK를 이용한 AI 분석 호출 (404 에러 원천 차단)
-    # ------------------------------------------------------------------
     try:
         if not USER_GOOGLE_API_KEY:
             raise Exception("API Key가 설정되지 않았습니다.")
 
-        # 데이터 융합: 차트/재무/수급 데이터를 텍스트로 변환
         trend = stock_data_context.get('trend', '분석중')
         pbr = stock_data_context.get('pbr', 0)
         per = stock_data_context.get('per', 0)
@@ -678,45 +671,31 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         }}
         """
         
-        # [안전장치] 3가지 모델 순차 시도 (Flash -> Pro -> 1.0)
-        # 하나라도 걸리면 성공입니다.
-        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+        # [변경] 직접 호출 함수 사용
+        res_data, error_msg = call_gemini_v1_direct(prompt)
         
-        model_success = False
-        final_response_text = ""
-        last_error_msg = ""
-
-        for m_name in models_to_try:
+        if res_data:
             try:
-                model = genai.GenerativeModel(m_name)
-                response = model.generate_content(prompt)
-                final_response_text = response.text
-                model_success = True
-                break # 성공하면 반복문 탈출
-            except Exception as e:
-                last_error_msg = str(e)
-                continue # 실패하면 다음 모델로
-
-        if not model_success:
-            raise Exception(f"모든 모델 시도 실패: {last_error_msg}")
-        
-        # JSON 파싱
-        raw = final_response_text
-        raw = raw.replace("```json", "").replace("```", "").strip()
-        js = json.loads(raw)
-        
-        return {
-            "score": js.get('score', 0),
-            "headline": js.get('summary', "분석 결과 없음"),
-            "raw_news": news_data,
-            "method": "ai",
-            "catalyst": js.get('catalyst', ""),
-            "opinion": js.get('opinion', "중립"),
-            "risk": js.get('risk', "특이사항 없음")
-        }
+                # 응답 구조 파싱 (v1/models/gemini-pro 구조에 맞춤)
+                raw = res_data['candidates'][0]['content']['parts'][0]['text']
+                raw = raw.replace("```json", "").replace("```", "").strip()
+                js = json.loads(raw)
+                
+                return {
+                    "score": js.get('score', 0),
+                    "headline": js.get('summary', "분석 결과 없음"),
+                    "raw_news": news_data,
+                    "method": "ai",
+                    "catalyst": js.get('catalyst', ""),
+                    "opinion": js.get('opinion', "중립"),
+                    "risk": js.get('risk', "특이사항 없음")
+                }
+            except:
+                raise Exception("응답 형식 파싱 실패")
+        else:
+             raise Exception(error_msg)
 
     except Exception as e:
-        # 에러 발생 시 UI에 직접 표시 (디버깅용)
         score, summary, _, _ = analyze_news_by_keywords(news_titles)
         return {
             "score": score,
@@ -728,7 +707,6 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             "risk": "API 키 권한 또는 할당량을 확인하세요."
         }
 
-    # Fallback
     score, summary, _, _ = analyze_news_by_keywords(news_titles)
     return {"score": score, "headline": summary, "raw_news": news_data, "method": "keyword", "catalyst": "", "opinion": "", "risk": ""}
 
@@ -889,7 +867,7 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V33.0 (Official API)")
+    st.title("💎 Quant Sniper V33.0 (Direct API Fix)")
 
 with col_guide:
     st.write("") 
