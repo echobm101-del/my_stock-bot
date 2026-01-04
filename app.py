@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Pro)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Final)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -589,44 +589,48 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [핵심] API 호출 (1.5 Flash 강제 + Temperature 0 설정으로 헛소리 차단)
+# [최종 핵심] 1.5 Flash 우선 -> 실패시 Pro로 자동 전환 (404 방지 + 헛소리 차단)
 # -------------------------------------------------------------------------
 def call_gemini_dynamic(prompt):
     api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "NO_KEY"
     
-    # [변경] 최신 모델 강제 지정 (1.5 Flash) - 한국어 성능 대폭 향상
-    model_name = "gemini-1.5-flash"
+    # 1. 사용할 모델 목록 (우선순위: Flash -> 1.5 Pro -> 1.0 Pro)
+    # 이렇게 하면 하나가 404가 떠도 다음 모델로 자동으로 넘어갑니다.
+    candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
-    
-    # [핵심 변경] generationConfig 추가: temperature=0 (창의력 제거, 팩트 위주)
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.1, 
-            "responseMimeType": "application/json"
+    for model_name in candidate_models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        
+        # [중요] temperature 0.0 설정 (창의력 제거, 팩트 위주)
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "temperature": 0.0, 
+                "responseMimeType": "application/json"
+            }
         }
-    }
-    
-    max_retries = 3
-    for attempt in range(max_retries):
+        
         try:
             res = requests.post(url, headers=headers, json=payload, timeout=30)
+            
             if res.status_code == 200:
-                return res.json(), None
-            elif res.status_code == 429:
-                time.sleep(1) 
+                return res.json(), None # 성공하면 즉시 반환
+            
+            # 404(모델 없음)나 503(일시적 오류)이면 다음 모델 시도
+            elif res.status_code in [404, 503, 500]:
                 continue 
-            else:
-                return None, f"HTTP {res.status_code}: {res.text}"
-        except Exception as e:
-            time.sleep(1)
-            if attempt == max_retries - 1:
-                return None, f"Connection Error: {str(e)}"
-    
-    return None, "API Error"
+            
+            # 429(속도 제한)는 1초 쉬고 다시 시도 (유료 계정이면 거의 안 뜸)
+            elif res.status_code == 429:
+                time.sleep(1)
+                continue
+                
+        except:
+            continue # 연결 에러 시 다음 모델 시도
+            
+    return None, "All models failed"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
@@ -678,7 +682,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         [3. 추론 가이드]
         - 뉴스가 단순 테마인지, 실적 호재인지 구분하시오.
         - 기술적 위치와 수급을 고려하여 신뢰도를 평가하시오.
-        - "기쁨을 추구", "영화된 성장" 같은 추상적인 표현을 절대 쓰지 마십시오.
+        - 절대 비유적 표현(예: "기쁨을 추구", "영화된")을 쓰지 마십시오.
         - 매우 건조하고 전문적인 금융 용어만 사용하십시오.
 
         [4. 출력 형식 (JSON Only)]
@@ -876,7 +880,7 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V33.0 (Pro)")
+    st.title("💎 Quant Sniper V33.0 (Final)")
 
 with col_guide:
     st.write("") 
