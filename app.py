@@ -33,7 +33,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Ultimate Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Auto-Discovery)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -588,41 +588,59 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [필살기] 모든 모델을 순차적으로 찔러보는 무한 시도 함수
+# [핵심] API v1b (꼼수) -> v1 (정품) 교체 + 자동 모델 찾기 (Dynamic Discovery)
 # -------------------------------------------------------------------------
-def call_gemini_final_hope(prompt):
+def get_valid_gemini_model(api_key):
+    """
+    내 API 키로 사용 가능한 모델 명단을 조회해서
+    가장 적절한 모델 이름을 찾아내는 함수 (탐정 역할)
+    """
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            models = response.json().get('models', [])
+            # 1. 텍스트 생성 기능이 있는 모델만 필터링
+            chat_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
+            
+            # 2. 선호하는 모델 순서대로 찾기
+            preferences = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
+            for pref in preferences:
+                if pref in chat_models:
+                    return pref
+            
+            # 3. 선호 모델이 없으면 아무거나 가능한 놈 첫번째 거 잡기
+            if chat_models:
+                return chat_models[0]
+                
+    except:
+        pass
+    
+    # 4. 조회 실패 시 최후의 보루 (기본값)
+    return "models/gemini-pro"
+
+def call_gemini_dynamic(prompt):
     api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "NO_KEY"
     
-    # [전략] 최신 모델부터 구형 모델까지 순서대로 시도
-    # v1beta (최신) -> v1 (구형) 순서로 조합
-    strategies = [
-        ("gemini-1.5-flash", "v1beta"), # 1순위: 최신 Flash
-        ("gemini-1.5-pro", "v1beta"),   # 2순위: 최신 Pro
-        ("gemini-1.0-pro", "v1beta"),   # 3순위: 1.0 Pro
-        ("gemini-pro", "v1beta"),       # 4순위: Legacy Pro
-        ("gemini-pro", "v1")            # 5순위: 완전 구형 (마지막 보루)
-    ]
+    # 1. 사용 가능한 모델 찾기
+    model_name = get_valid_gemini_model(api_key)
+    # 모델 이름 앞에 'models/'가 있으면 제거 (URL에 넣을 때 중복 방지)
+    clean_model_name = model_name.replace("models/", "")
     
-    last_error = ""
+    # 2. 찾은 모델로 요청 보내기
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model_name}:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
     
-    for model, version in strategies:
-        url = f"https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
-        
-        try:
-            res = requests.post(url, headers=headers, json=payload, timeout=10)
-            if res.status_code == 200:
-                return res.json(), None # 성공하면 즉시 반환
-            else:
-                last_error = f"{model}({version}): {res.status_code} {res.text}"
-                continue # 실패하면 다음 타자
-        except Exception as e:
-            last_error = f"Conn Err: {str(e)}"
-            continue
-
-    return None, f"All failed. Last: {last_error}"
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=20)
+        if res.status_code == 200:
+            return res.json(), None
+        else:
+            return None, f"HTTP {res.status_code} ({clean_model_name}): {res.text}"
+    except Exception as e:
+        return None, f"Connection Error: {str(e)}"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
@@ -686,27 +704,30 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         }}
         """
         
-        # [변경] 필살기 함수 호출
-        res_data, error_msg = call_gemini_final_hope(prompt)
+        # [변경] 직접 호출 함수 사용
+        res_data, error_msg = call_gemini_dynamic(prompt)
         
         if res_data:
             try:
-                # 응답 구조 파싱 (어떤 모델이든 공통 구조)
-                raw = res_data['candidates'][0]['content']['parts'][0]['text']
-                raw = raw.replace("```json", "").replace("```", "").strip()
-                js = json.loads(raw)
-                
-                return {
-                    "score": js.get('score', 0),
-                    "headline": js.get('summary', "분석 결과 없음"),
-                    "raw_news": news_data,
-                    "method": "ai",
-                    "catalyst": js.get('catalyst', ""),
-                    "opinion": js.get('opinion', "중립"),
-                    "risk": js.get('risk', "특이사항 없음")
-                }
+                # 응답 구조 파싱 (v1/models/gemini-pro 구조에 맞춤)
+                if 'candidates' in res_data and res_data['candidates']:
+                    raw = res_data['candidates'][0]['content']['parts'][0]['text']
+                    raw = raw.replace("```json", "").replace("```", "").strip()
+                    js = json.loads(raw)
+                    
+                    return {
+                        "score": js.get('score', 0),
+                        "headline": js.get('summary', "분석 결과 없음"),
+                        "raw_news": news_data,
+                        "method": "ai",
+                        "catalyst": js.get('catalyst', ""),
+                        "opinion": js.get('opinion', "중립"),
+                        "risk": js.get('risk', "특이사항 없음")
+                    }
+                else:
+                    raise Exception(f"No candidates returned: {res_data}")
             except:
-                raise Exception("응답 파싱 실패")
+                raise Exception("응답 형식 파싱 실패")
         else:
              raise Exception(error_msg)
 
@@ -882,7 +903,7 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V33.0 (Ultimate Fix)")
+    st.title("💎 Quant Sniper V33.0 (Auto-Discovery)")
 
 with col_guide:
     st.write("") 
