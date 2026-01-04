@@ -589,37 +589,27 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [핵심] API 호출 (유료 버전 최적화: 재시도 유지하되 속도 제한 해제)
+# [핵심] API 호출 (1.5 Flash 강제 + Temperature 0 설정으로 헛소리 차단)
 # -------------------------------------------------------------------------
-def get_valid_gemini_model(api_key):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            models = response.json().get('models', [])
-            chat_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
-            
-            # 성능 좋은 순서 (Pro 우선)
-            preferences = ['models/gemini-1.5-pro', 'models/gemini-pro', 'models/gemini-1.5-flash']
-            for pref in preferences:
-                if pref in chat_models:
-                    return pref
-            if chat_models: return chat_models[0]
-    except: pass
-    return "models/gemini-pro"
-
 def call_gemini_dynamic(prompt):
     api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "NO_KEY"
     
-    model_name = get_valid_gemini_model(api_key)
-    clean_model_name = model_name.replace("models/", "")
+    # [변경] 최신 모델 강제 지정 (1.5 Flash) - 한국어 성능 대폭 향상
+    model_name = "gemini-1.5-flash"
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model_name}:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
     
-    # [설정] 유료 버전이므로 재시도 간격을 짧게 설정
+    # [핵심 변경] generationConfig 추가: temperature=0 (창의력 제거, 팩트 위주)
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.1, 
+            "responseMimeType": "application/json"
+        }
+    }
+    
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -627,7 +617,7 @@ def call_gemini_dynamic(prompt):
             if res.status_code == 200:
                 return res.json(), None
             elif res.status_code == 429:
-                time.sleep(1) # 유료면 429가 거의 안 뜨지만, 혹시 뜨면 1초만 대기
+                time.sleep(1) 
                 continue 
             else:
                 return None, f"HTTP {res.status_code}: {res.text}"
@@ -688,14 +678,16 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         [3. 추론 가이드]
         - 뉴스가 단순 테마인지, 실적 호재인지 구분하시오.
         - 기술적 위치와 수급을 고려하여 신뢰도를 평가하시오.
+        - "기쁨을 추구", "영화된 성장" 같은 추상적인 표현을 절대 쓰지 마십시오.
+        - 매우 건조하고 전문적인 금융 용어만 사용하십시오.
 
         [4. 출력 형식 (JSON Only)]
-        반드시 아래 JSON 포맷으로만 응답하시오. (Markdown code block 사용 금지)
+        반드시 아래 JSON 포맷으로만 응답하시오.
         {{
             "score": -10 ~ 10 (정수),
             "opinion": "강력매수 / 매수 / 관망 / 매도 / 비중축소 중 택1",
             "catalyst": "주가 상승/하락의 핵심 트리거 (단답형)",
-            "summary": "데이터와 뉴스를 엮은 종합 한줄평",
+            "summary": "데이터와 뉴스를 엮은 종합 한줄평 (명확하게)",
             "risk": "투자자가 주의해야 할 잠재적 리스크 (1문장)"
         }}
         """
@@ -706,6 +698,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             try:
                 if 'candidates' in res_data and res_data['candidates']:
                     raw = res_data['candidates'][0]['content']['parts'][0]['text']
+                    # JSON 클린업
                     raw = raw.replace("```json", "").replace("```", "").strip()
                     js = json.loads(raw)
                     
@@ -723,7 +716,6 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         else: raise Exception(error_msg)
 
     except Exception as e:
-        # 실패 시 키워드 분석으로 대체 (Fallback)
         score, summary, _, _ = analyze_news_by_keywords(news_titles)
         return {
             "score": score,
@@ -824,7 +816,7 @@ def analyze_pro(code, name_override=None):
     try: result_dict['supply'] = get_supply_demand(code)
     except: pass
 
-    # 4. AI 뉴스 분석 (딜레이 삭제됨)
+    # 4. AI 뉴스 분석
     try:
         supply_txt = "특이사항 없음"
         f_net = result_dict['supply'].get('f', 0)
@@ -840,7 +832,6 @@ def analyze_pro(code, name_override=None):
             "per": fund_data.get('per', {}).get('val', 0) if fund_data else 0,
             "supply": supply_txt
         }
-        # [삭제됨] time.sleep(1) -> 속도 봉인 해제
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
 
@@ -932,7 +923,6 @@ with tab1:
         
         with st.spinner("🚀 고속 AI 분석 엔진 가동 중..."):
             preview_results = []
-            # [수정] max_workers=10 (고속 병렬 처리)
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [executor.submit(analyze_pro, item['code'], item['name']) for item in st.session_state['preview_list']]
                 for f in concurrent.futures.as_completed(futures):
@@ -999,7 +989,6 @@ with tab2:
     else:
         with st.spinner("🚀 관심 종목 일괄 분석 중... (고속 모드)"):
             wl_results = []
-            # [수정] max_workers=10
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
                 futures = [executor.submit(analyze_pro, info['code'], name) for name, info in combined_watchlist]
                 for f in concurrent.futures.as_completed(futures):
