@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Final)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Final Stable)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -97,22 +97,15 @@ st.markdown("""
 
 def create_card_html(res):
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
-    
     buy_price = res['strategy'].get('buy', 0)
     target_price = res['strategy'].get('target', 0)
     stop_price = res['strategy'].get('stop', 0)
     buy_basis = res['strategy'].get('buy_basis', '20일선')
     
     chg = res.get('change_rate', 0.0)
-    if chg > 0:
-        chg_color = "#F04452"
-        chg_txt = f"(+{chg:.2f}% ▲)"
-    elif chg < 0:
-        chg_color = "#3182F6"
-        chg_txt = f"({chg:.2f}% ▼)"
-    else:
-        chg_color = "#333333"
-        chg_txt = f"({chg:.2f}% -)"
+    if chg > 0: chg_color = "#F04452"; chg_txt = f"(+{chg:.2f}% ▲)"
+    elif chg < 0: chg_color = "#3182F6"; chg_txt = f"({chg:.2f}% ▼)"
+    else: chg_color = "#333333"; chg_txt = f"({chg:.2f}% -)"
 
     html = f"""
     <div class='toss-card'>
@@ -184,7 +177,6 @@ def render_tech_metrics(stoch, vol_ratio):
         </div>
     </div>""", unsafe_allow_html=True)
 
-# 이동평균선 상태 시각화
 def render_ma_status(ma_list):
     if not ma_list: return
     html = "<div class='ma-status-container'>"
@@ -248,7 +240,6 @@ def render_financial_table(df):
     st.markdown(html, unsafe_allow_html=True)
     st.caption("※ 단위: 억 원 / (괄호): 전분기/전년 대비 증감률")
 
-# [HTS 국룰 색상 + 범례 노출 유지]
 def render_investor_chart(df):
     if df.empty:
         st.caption("수급 데이터가 없습니다. (장중/집계 지연 가능성)")
@@ -270,12 +261,10 @@ def render_investor_chart(df):
     type_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
     df_line['Type'] = df_line['Key'].map(type_map)
 
-    # [색상] HTS 국룰
     domain = ['개인', '외국인', '기관합계', '연기금']
     range_ = ['#228B22', '#F04452', '#3182F6', '#8B4513']
     color_scale = alt.Scale(domain=domain, range=range_)
     
-    # [범례] 상단 배치
     color_encoding = alt.Color('Type:N', scale=color_scale, legend=alt.Legend(title="투자자", orient="top"))
 
     base = alt.Chart(df_line).encode(x=alt.X('날짜:T', axis=alt.Axis(format='%m-%d', title=None)))
@@ -301,7 +290,6 @@ FILE_PATH = "my_watchlist_v7.json"
 
 @st.cache_data
 def get_krx_list_safe():
-    """안전하게 주식 리스트를 가져오는 함수 (에러 방지용)"""
     try:
         df = fdr.StockListing('KRX')
         if not df.empty: return df
@@ -589,53 +577,42 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [최종 수정] 404 및 헛소리 방지를 위한 '안전 모드' API 호출
+# [최종 긴급 수정] 404/할루시네이션 방지: gemini-pro (표준 모델) + v1 (안정 API) 강제 사용
 # -------------------------------------------------------------------------
 def call_gemini_dynamic(prompt):
     api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "NO_KEY"
     
-    # 1. 사용할 모델 목록 (우선순위: 1.5 Pro -> 1.0 Pro -> 1.5 Flash)
-    # [수정] 가장 안정적인 'gemini-pro'를 최후의 보루로 포함
-    # 'gemini-1.5-flash'는 v1beta에서만 될 때가 있어 v1에서는 'gemini-1.5-pro'나 'gemini-pro'가 안전
-    candidate_models = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"]
+    # [수정] 404 에러 원천 차단을 위해 가장 안정적인 'gemini-pro'로 고정
+    # Flash 모델 등이 지역/계정별로 불안정할 수 있으므로 표준 모델 사용
+    model_name = "gemini-pro"
     
-    # [수정] API 버전을 v1beta에서 v1으로 변경 (안정성 확보)
-    # 만약 v1에서 모델이 없으면 v1beta로 자동 폴백하는 로직은 복잡하므로, 
-    # 여기서는 'v1beta'를 유지하되 모델명을 확실한 것만 씁니다.
-    api_version = "v1beta" 
+    # [수정] API 버전을 v1으로 고정 (v1beta의 불안정성 제거)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
     
-    for model_name in candidate_models:
-        url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model_name}:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
-        
-        # [중요] temperature 0.0 설정 (창의력 제거, 팩트 위주, 헛소리 방지)
-        payload = {
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "temperature": 0.0
-            }
+    # [수정] temperature 0.0 설정 (창의력 제거, 팩트 위주)
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.0,
+            "responseMimeType": "application/json"
         }
+    }
+    
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=30)
         
-        try:
-            res = requests.post(url, headers=headers, json=payload, timeout=20)
+        if res.status_code == 200:
+            return res.json(), None
+        elif res.status_code == 429:
+            time.sleep(2) # 혹시 모를 속도 제한 시 대기
+            return None, "Rate Limit" # 재시도 로직은 외부에서 처리하지 않으므로 에러 반환
+        else:
+            return None, f"HTTP {res.status_code}: {res.text}"
             
-            if res.status_code == 200:
-                return res.json(), None # 성공하면 즉시 반환
-            
-            # 404(모델 없음)나 503(일시적 오류)이면 다음 모델 시도
-            elif res.status_code in [404, 503, 500]:
-                continue 
-            
-            # 429(속도 제한)는 1초 쉬고 다시 시도
-            elif res.status_code == 429:
-                time.sleep(1)
-                continue
-                
-        except:
-            continue # 연결 에러 시 다음 모델 시도
-            
-    return None, "All models failed"
+    except Exception as e:
+        return None, f"Connection Error: {str(e)}"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
@@ -885,7 +862,7 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V33.0 (Final)")
+    st.title("💎 Quant Sniper V33.0 (Final Stable)")
 
 with col_guide:
     st.write("") 
@@ -1120,7 +1097,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V33.0 (Pro)\n\n"
+            msg = f"💎 Quant Sniper V33.0 (Final)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   요약: {r['news']['headline'][:50]}...\n\n"
             send_telegram_msg(token, chat_id, msg)
