@@ -34,7 +34,7 @@ except Exception as e:
 # ==============================================================================
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Diagnosis Mode)", page_icon="🩺", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Final Diagnosis)", page_icon="🕵️", layout="wide")
 
 st.markdown("""
 <style>
@@ -594,9 +594,6 @@ def call_gemini_auto(prompt):
     api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "Error: Secrets에서 GOOGLE_API_KEY를 찾을 수 없습니다."
     
-    # [진단용] 키 앞부분 출력 (보안을 위해 5자리만)
-    st.warning(f"🔑 진단: API 키 확인됨 ({api_key[:5]}...)")
-    
     models = ["gemini-1.5-flash", "gemini-pro"]
     for m in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
@@ -699,16 +696,24 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 "risk": js.get('risk', "특이사항 없음") # 리스크 필드 추가
             }
         else:
-             # [진단용] 에러 발생 시 화면에 출력
-             st.error(f"🚨 AI 연결 실패: {error_msg}")
-             pass
+             # [진단용 수정] 에러 발생 시 UI에 직접 표시하기 위해 예외 발생시킴
+             raise Exception(error_msg)
 
     except Exception as e:
-        # [진단용] 예외 발생 시 화면에 출력
-        st.error(f"🚨 시스템 오류: {str(e)}")
-        pass 
+        # [진단용 수정] 에러 메시지를 'headline'에 담아서 화면에 강제 출력
+        # st.error 대신 텍스트로 보여줍니다.
+        score, summary, _, _ = analyze_news_by_keywords(news_titles)
+        return {
+            "score": score,
+            "headline": f"⛔ 에러 발생: {str(e)}", # 여기에 에러 내용이 뜹니다
+            "raw_news": news_data,
+            "method": "keyword", 
+            "catalyst": "시스템 오류",
+            "opinion": "분석불가",
+            "risk": "API 키 또는 통신 상태를 확인하세요."
+        }
 
-    # Fallback: 기존 키워드 분석
+    # Fallback (도달하지 않음)
     score, summary, _, _ = analyze_news_by_keywords(news_titles)
     return {"score": score, "headline": summary, "raw_news": news_data, "method": "keyword", "catalyst": "", "opinion": "", "risk": ""}
 
@@ -869,7 +874,7 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V33.0 (Diagnosis Mode)")
+    st.title("💎 Quant Sniper V33.0 (Final Diagnosis)")
 
 with col_guide:
     st.write("") 
@@ -1009,7 +1014,8 @@ with tab1:
                         </div>
                     </div>""", unsafe_allow_html=True)
                 else: 
-                    st.markdown(f"<div class='news-fallback'><b>⚠️ 단순 키워드 분석:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
+                    # [수정] 에러 메시지를 포함한 Fallback UI
+                    st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
                 
                 st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
                 for news in res['news']['raw_news']:
@@ -1078,7 +1084,8 @@ with tab2:
                         </div>
                     </div>""", unsafe_allow_html=True)
                 else:
-                    st.markdown(f"<div class='news-fallback'><b>⚠️ 단순 키워드 분석:</b> {res['news']['headline']}</div>", unsafe_allow_html=True)
+                    # [수정] 에러 메시지를 포함한 Fallback UI
+                    st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
                 
                 st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
                 for news in res['news']['raw_news']:
