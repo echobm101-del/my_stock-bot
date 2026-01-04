@@ -21,15 +21,21 @@ import sys
 import subprocess
 
 # ==============================================================================
-# [긴급 패치] 구글 공식 AI 라이브러리 자동 설치 및 연동
-# 설정 파일(requirements.txt)을 건드리지 않아도 작동하도록 만듭니다.
+# [긴급 패치] 구글 공식 AI 라이브러리(SDK) 강제 설치 및 연동
+# 서버의 라이브러리가 낡았을 경우, 최신 버전(1.5 Flash 지원)으로 강제 업데이트합니다.
 # ==============================================================================
 try:
     import google.generativeai as genai
+    # 버전 확인 후 너무 낮으면 업그레이드 시도 (이 부분은 로그로만 남김)
 except ImportError:
-    # 라이브러리가 없으면 즉시 설치
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "google-generativeai"])
+    pass
+
+# 무조건 최신 버전으로 재설치/업그레이드 명령 실행 (1.5 Flash 인식용)
+try:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "google-generativeai"])
     import google.generativeai as genai
+except Exception as e:
+    st.error(f"라이브러리 설치 실패: {e}")
 
 # [보안 설정] Streamlit Secrets에서 키 가져오기
 try:
@@ -43,13 +49,13 @@ except Exception as e:
     USER_CHAT_ID = ""
     USER_GOOGLE_API_KEY = ""
 
-# 구글 AI 설정 초기화
+# 구글 AI 설정 초기화 (공식 SDK 사용)
 if USER_GOOGLE_API_KEY:
     genai.configure(api_key=USER_GOOGLE_API_KEY)
 # ==============================================================================
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Official API)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Official SDK)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -672,12 +678,30 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         }}
         """
         
-        # 모델 설정 (가장 안정적인 모델 사용)
-        model = genai.GenerativeModel('gemini-1.5-flash')
-        response = model.generate_content(prompt)
+        # [안전장치] 3가지 모델 순차 시도 (Flash -> Pro -> 1.0)
+        # 하나라도 걸리면 성공입니다.
+        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
+        
+        model_success = False
+        final_response_text = ""
+        last_error_msg = ""
+
+        for m_name in models_to_try:
+            try:
+                model = genai.GenerativeModel(m_name)
+                response = model.generate_content(prompt)
+                final_response_text = response.text
+                model_success = True
+                break # 성공하면 반복문 탈출
+            except Exception as e:
+                last_error_msg = str(e)
+                continue # 실패하면 다음 모델로
+
+        if not model_success:
+            raise Exception(f"모든 모델 시도 실패: {last_error_msg}")
         
         # JSON 파싱
-        raw = response.text
+        raw = final_response_text
         raw = raw.replace("```json", "").replace("```", "").strip()
         js = json.loads(raw)
         
