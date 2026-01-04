@@ -18,6 +18,22 @@ import urllib.parse
 import numpy as np
 from io import StringIO
 
+# ==============================================================================
+# [보안 설정] Streamlit Secrets에서 키를 안전하게 가져옵니다.
+# ==============================================================================
+try:
+    USER_GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
+    USER_TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
+    USER_CHAT_ID = st.secrets["CHAT_ID"]
+    USER_GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+except Exception as e:
+    # 로컬 개발 환경이나 키가 없을 경우를 대비한 예외처리
+    USER_GITHUB_TOKEN = ""
+    USER_TELEGRAM_TOKEN = ""
+    USER_CHAT_ID = ""
+    USER_GOOGLE_API_KEY = ""
+# ==============================================================================
+
 # --- [1. UI 스타일링] ---
 st.set_page_config(page_title="Quant Sniper V33.0 (AI Enhanced)", page_icon="💎", layout="wide")
 
@@ -319,8 +335,9 @@ krx_df = get_krx_list_safe()
 
 def load_from_github():
     try:
-        if "GITHUB_TOKEN" not in st.secrets: return {}
-        token = st.secrets["GITHUB_TOKEN"]
+        # [수정] secrets에서 가져온 토큰 사용
+        token = USER_GITHUB_TOKEN
+        if not token: return {}
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
         r = requests.get(url, headers=headers)
@@ -574,7 +591,8 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 def call_gemini_auto(prompt):
-    api_key = st.secrets.get("GOOGLE_API_KEY", "")
+    # [수정] secrets에서 가져온 API KEY 사용
+    api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "NO_KEY"
     models = ["gemini-1.5-flash", "gemini-pro"]
     for m in models:
@@ -673,7 +691,9 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 "risk": js.get('risk', "특이사항 없음") # 리스크 필드 추가
             }
     except Exception as e:
-        pass # 에러 시 아래 키워드 분석으로 대체
+        # [디버깅] 만약 여기서도 에러가 나면 화면에 띄워줍니다.
+        # st.error(f"AI 호출 에러: {str(e)}") 
+        pass 
 
     # Fallback: 기존 키워드 분석
     score, summary, _, _ = analyze_news_by_keywords(news_titles)
@@ -1138,8 +1158,8 @@ with st.sidebar:
                     except Exception as e: st.error(f"🚫 시스템 오류 발생: {str(e)}")
 
     if st.button("🚀 텔레그램으로 리포트 전송"):
-        token = st.secrets.get("TELEGRAM_TOKEN", "")
-        chat_id = st.secrets.get("CHAT_ID", "")
+        token = USER_TELEGRAM_TOKEN
+        chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
             msg = f"💎 Quant Sniper V33.0 리포트 ({datetime.date.today()})\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
