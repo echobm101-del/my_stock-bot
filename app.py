@@ -17,6 +17,7 @@ import feedparser
 import urllib.parse
 import numpy as np
 from io import StringIO
+import random
 
 # ==============================================================================
 # [보안 설정] Streamlit Secrets에서 키 가져오기
@@ -588,7 +589,7 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [핵심] API v1b (꼼수) -> v1 (정품) 교체 + 자동 모델 찾기 (Dynamic Discovery)
+# [핵심 수정] API v1 (정품) + 재시도(Retry) + 동적 모델 찾기
 # -------------------------------------------------------------------------
 def get_valid_gemini_model(api_key):
     """
@@ -597,7 +598,7 @@ def get_valid_gemini_model(api_key):
     """
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         if response.status_code == 200:
             models = response.json().get('models', [])
             # 1. 텍스트 생성 기능이 있는 모델만 필터링
@@ -620,6 +621,9 @@ def get_valid_gemini_model(api_key):
     return "models/gemini-pro"
 
 def call_gemini_dynamic(prompt):
+    """
+    [수정] 재시도 로직(Backoff)이 추가된 API 호출 함수
+    """
     api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "NO_KEY"
     
@@ -628,19 +632,34 @@ def call_gemini_dynamic(prompt):
     # 모델 이름 앞에 'models/'가 있으면 제거 (URL에 넣을 때 중복 방지)
     clean_model_name = model_name.replace("models/", "")
     
-    # 2. 찾은 모델로 요청 보내기
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model_name}:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
     
-    try:
-        res = requests.post(url, headers=headers, json=payload, timeout=20)
-        if res.status_code == 200:
-            return res.json(), None
-        else:
-            return None, f"HTTP {res.status_code} ({clean_model_name}): {res.text}"
-    except Exception as e:
-        return None, f"Connection Error: {str(e)}"
+    # [핵심 변경] 최대 3번까지 재시도 (Exponential Backoff)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            res = requests.post(url, headers=headers, json=payload, timeout=30)
+            
+            if res.status_code == 200:
+                return res.json(), None
+            
+            # 429: Too Many Requests (Quota Exceeded)
+            elif res.status_code == 429:
+                wait_time = (attempt + 1) * 7  # 7초, 14초, 21초 대기 (여유있게 설정)
+                time.sleep(wait_time)
+                continue # 다시 루프의 처음으로 돌아가 재시도
+                
+            else:
+                return None, f"HTTP {res.status_code} ({clean_model_name}): {res.text}"
+                
+        except Exception as e:
+            time.sleep(2) # 연결 에러 시 2초 대기
+            if attempt == max_retries - 1:
+                return None, f"Connection Error: {str(e)}"
+    
+    return None, "Max retries exceeded (API Quota Limit)"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
@@ -704,7 +723,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         }}
         """
         
-        # [변경] 직접 호출 함수 사용
+        # [변경] 직접 호출 함수 사용 (재시도 로직 포함됨)
         res_data, error_msg = call_gemini_dynamic(prompt)
         
         if res_data:
@@ -823,11 +842,11 @@ def analyze_pro(code, name_override=None):
         if curr['%K'] < 20: tech_score += 5 
     except: tech_score = 0
 
-    # 2. 펀더멘탈 분석 (순서 변경됨: 뉴스보다 먼저 실행)
+    # 2. 펀더멘탈 분석
     try: fund_score, _, fund_data = get_company_guide_score(code); result_dict['fund_data'] = fund_data
     except: fund_score = 0; fund_data = {}
 
-    # 3. 수급 및 재무 히스토리 (순서 변경됨: 뉴스보다 먼저 실행)
+    # 3. 수급 및 재무 히스토리
     try: result_dict['investor_trend'] = get_investor_trend(code)
     except: pass
     
@@ -837,7 +856,7 @@ def analyze_pro(code, name_override=None):
     try: result_dict['supply'] = get_supply_demand(code)
     except: pass
 
-    # 4. [핵심 변경] AI 뉴스 분석 (위에서 구한 데이터를 컨텍스트로 주입)
+    # 4. [핵심 변경] AI 뉴스 분석
     try:
         # 수급 상황 텍스트 요약
         supply_txt = "특이사항 없음"
@@ -990,7 +1009,8 @@ with tab1:
         
         with st.spinner("주도주 심층 분석 데이터 생성 중..."):
             preview_results = []
-            with concurrent.futures.ThreadPoolExecutor() as executor:
+            # [수정] 동시 실행 개수를 3개로 제한 (API 보호)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 futures = [executor.submit(analyze_pro, item['code'], item['name']) for item in st.session_state['preview_list']]
                 for f in concurrent.futures.as_completed(futures):
                     if f.result(): preview_results.append(f.result())
@@ -1060,7 +1080,8 @@ with tab2:
     else:
         with st.spinner("관심 종목 데이터 갱신 중..."):
             wl_results = []
-            with concurrent.futures.ThreadPoolExecutor() as executor:
+            # [수정] 동시 실행 개수를 3개로 제한 (API 보호)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 futures = [executor.submit(analyze_pro, info['code'], name) for name, info in combined_watchlist]
                 for f in concurrent.futures.as_completed(futures):
                     if f.result(): wl_results.append(f.result())
