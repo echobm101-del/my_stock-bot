@@ -19,7 +19,7 @@ import numpy as np
 from io import StringIO
 
 # ==============================================================================
-# [보안 설정] Streamlit Secrets에서 키를 안전하게 가져옵니다.
+# [보안 설정] Streamlit Secrets 사용
 # ==============================================================================
 try:
     USER_GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
@@ -34,7 +34,7 @@ except Exception as e:
 # ==============================================================================
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Robust Mode)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Stable)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -590,41 +590,29 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [핵심 수정] AI 모델 자동 우회 기능 추가
-# 1.5 Flash가 안되면 자동으로 Pro로 넘어가는 똑똑한 함수입니다.
+# [핵심 수정] gemini-pro (표준 모델) 고정
 # -------------------------------------------------------------------------
 def call_gemini_auto(prompt):
     api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "Error: Secrets에서 GOOGLE_API_KEY를 찾을 수 없습니다."
     
-    # 모델 목록 (1.5 Flash -> Pro -> 1.5 Pro 순서로 시도)
-    models = ["gemini-1.5-flash", "gemini-pro", "gemini-1.5-pro"]
+    # [수정] 모델을 'gemini-pro'로 고정하여 호환성 문제 해결
+    model = "gemini-pro"
     
-    last_error = ""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
     
-    for m in models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
-        headers = {"Content-Type": "application/json"}
-        payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
+    try:
+        # 타임아웃 15초로 넉넉하게
+        res = requests.post(url, headers=headers, json=payload, timeout=15)
         
-        try:
-            # 타임아웃을 10초로 넉넉하게 설정
-            res = requests.post(url, headers=headers, json=payload, timeout=10)
-            
-            if res.status_code == 200: 
-                # 성공하면 즉시 결과 반환 (멈춤)
-                return res.json(), None
-            else:
-                # 실패하면 에러 기록하고 다음 모델로 넘어감 (Continue)
-                last_error = f"Model {m} Error: {res.status_code} {res.text}"
-                continue 
-        except Exception as e:
-            # 통신 에러가 나도 다음 모델로 넘어감
-            last_error = f"Connection Error: {str(e)}"
-            continue
-            
-    # 모든 모델이 실패했을 때만 에러 반환
-    return None, f"All models failed. Last error: {last_error}"
+        if res.status_code == 200: 
+            return res.json(), None
+        else:
+            return None, f"HTTP Error {res.status_code}: {res.text}"
+    except Exception as e:
+        return None, f"Connection Error: {str(e)}"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
@@ -704,14 +692,21 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 "risk": js.get('risk', "특이사항 없음")
             }
         else:
-             # 모든 모델이 실패한 경우에만 에러 출력
-             st.error(f"🚨 AI 분석 실패: {error_msg}")
-             pass
+             # 에러 발생 시 UI에 직접 표시
+             raise Exception(error_msg)
 
     except Exception as e:
-        # 시스템 에러 발생 시
-        st.error(f"🚨 시스템 오류: {str(e)}")
-        pass 
+        # 에러 메시지를 화면에 강제 출력 (디버깅용)
+        score, summary, _, _ = analyze_news_by_keywords(news_titles)
+        return {
+            "score": score,
+            "headline": f"⛔ 시스템 오류: {str(e)}", 
+            "raw_news": news_data,
+            "method": "keyword", 
+            "catalyst": "오류",
+            "opinion": "분석불가",
+            "risk": "API 키 또는 통신 상태를 확인하세요."
+        }
 
     # Fallback
     score, summary, _, _ = analyze_news_by_keywords(news_titles)
@@ -874,7 +869,7 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V33.0 (Robust Mode)")
+    st.title("💎 Quant Sniper V33.0 (Stable)")
 
 with col_guide:
     st.write("") 
@@ -1084,6 +1079,7 @@ with tab2:
                         </div>
                     </div>""", unsafe_allow_html=True)
                 else:
+                    # [수정] 에러 메시지를 포함한 Fallback UI
                     st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
                 
                 st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
