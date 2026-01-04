@@ -589,31 +589,36 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [최종 핵심] 1.5 Flash 우선 -> 실패시 Pro로 자동 전환 (404 방지 + 헛소리 차단)
+# [최종 수정] 404 및 헛소리 방지를 위한 '안전 모드' API 호출
 # -------------------------------------------------------------------------
 def call_gemini_dynamic(prompt):
     api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "NO_KEY"
     
-    # 1. 사용할 모델 목록 (우선순위: Flash -> 1.5 Pro -> 1.0 Pro)
-    # 이렇게 하면 하나가 404가 떠도 다음 모델로 자동으로 넘어갑니다.
-    candidate_models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"]
+    # 1. 사용할 모델 목록 (우선순위: 1.5 Pro -> 1.0 Pro -> 1.5 Flash)
+    # [수정] 가장 안정적인 'gemini-pro'를 최후의 보루로 포함
+    # 'gemini-1.5-flash'는 v1beta에서만 될 때가 있어 v1에서는 'gemini-1.5-pro'나 'gemini-pro'가 안전
+    candidate_models = ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"]
+    
+    # [수정] API 버전을 v1beta에서 v1으로 변경 (안정성 확보)
+    # 만약 v1에서 모델이 없으면 v1beta로 자동 폴백하는 로직은 복잡하므로, 
+    # 여기서는 'v1beta'를 유지하되 모델명을 확실한 것만 씁니다.
+    api_version = "v1beta" 
     
     for model_name in candidate_models:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/{api_version}/models/{model_name}:generateContent?key={api_key}"
         headers = {"Content-Type": "application/json"}
         
-        # [중요] temperature 0.0 설정 (창의력 제거, 팩트 위주)
+        # [중요] temperature 0.0 설정 (창의력 제거, 팩트 위주, 헛소리 방지)
         payload = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
-                "temperature": 0.0, 
-                "responseMimeType": "application/json"
+                "temperature": 0.0
             }
         }
         
         try:
-            res = requests.post(url, headers=headers, json=payload, timeout=30)
+            res = requests.post(url, headers=headers, json=payload, timeout=20)
             
             if res.status_code == 200:
                 return res.json(), None # 성공하면 즉시 반환
@@ -622,7 +627,7 @@ def call_gemini_dynamic(prompt):
             elif res.status_code in [404, 503, 500]:
                 continue 
             
-            # 429(속도 제한)는 1초 쉬고 다시 시도 (유료 계정이면 거의 안 뜸)
+            # 429(속도 제한)는 1초 쉬고 다시 시도
             elif res.status_code == 429:
                 time.sleep(1)
                 continue
@@ -976,14 +981,13 @@ with tab1:
                             ⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}
                         </div>
                     </div>""", unsafe_allow_html=True)
-                else: 
+                else:
                     st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
                 
                 st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
                 for news in res['news']['raw_news']:
                     st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
-    else: st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
 
 with tab2:
     st.markdown("### 📂 관심 종목 (Watchlist)")
