@@ -33,7 +33,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Direct API Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Ultimate Fix)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -588,26 +588,41 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [핵심] API v1b (꼼수) -> v1 (정품) 교체
+# [필살기] 모든 모델을 순차적으로 찔러보는 무한 시도 함수
 # -------------------------------------------------------------------------
-def call_gemini_v1_direct(prompt):
+def call_gemini_final_hope(prompt):
     api_key = USER_GOOGLE_API_KEY
     if not api_key: return None, "NO_KEY"
     
-    # [변경] v1beta -> v1 (정식 버전) / gemini-pro (표준 모델)
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key={api_key}"
+    # [전략] 최신 모델부터 구형 모델까지 순서대로 시도
+    # v1beta (최신) -> v1 (구형) 순서로 조합
+    strategies = [
+        ("gemini-1.5-flash", "v1beta"), # 1순위: 최신 Flash
+        ("gemini-1.5-pro", "v1beta"),   # 2순위: 최신 Pro
+        ("gemini-1.0-pro", "v1beta"),   # 3순위: 1.0 Pro
+        ("gemini-pro", "v1beta"),       # 4순위: Legacy Pro
+        ("gemini-pro", "v1")            # 5순위: 완전 구형 (마지막 보루)
+    ]
     
-    headers = {"Content-Type": "application/json"}
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    last_error = ""
     
-    try:
-        res = requests.post(url, headers=headers, json=payload, timeout=15)
-        if res.status_code == 200:
-            return res.json(), None
-        else:
-            return None, f"HTTP Error {res.status_code}: {res.text}"
-    except Exception as e:
-        return None, f"Connection Error: {str(e)}"
+    for model, version in strategies:
+        url = f"https://generativelanguage.googleapis.com/{version}/models/{model}:generateContent?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        payload = {"contents": [{"parts": [{"text": prompt}]}]}
+        
+        try:
+            res = requests.post(url, headers=headers, json=payload, timeout=10)
+            if res.status_code == 200:
+                return res.json(), None # 성공하면 즉시 반환
+            else:
+                last_error = f"{model}({version}): {res.status_code} {res.text}"
+                continue # 실패하면 다음 타자
+        except Exception as e:
+            last_error = f"Conn Err: {str(e)}"
+            continue
+
+    return None, f"All failed. Last: {last_error}"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
@@ -671,12 +686,12 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         }}
         """
         
-        # [변경] 직접 호출 함수 사용
-        res_data, error_msg = call_gemini_v1_direct(prompt)
+        # [변경] 필살기 함수 호출
+        res_data, error_msg = call_gemini_final_hope(prompt)
         
         if res_data:
             try:
-                # 응답 구조 파싱 (v1/models/gemini-pro 구조에 맞춤)
+                # 응답 구조 파싱 (어떤 모델이든 공통 구조)
                 raw = res_data['candidates'][0]['content']['parts'][0]['text']
                 raw = raw.replace("```json", "").replace("```", "").strip()
                 js = json.loads(raw)
@@ -691,7 +706,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                     "risk": js.get('risk', "특이사항 없음")
                 }
             except:
-                raise Exception("응답 형식 파싱 실패")
+                raise Exception("응답 파싱 실패")
         else:
              raise Exception(error_msg)
 
@@ -867,7 +882,7 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V33.0 (Direct API Fix)")
+    st.title("💎 Quant Sniper V33.0 (Ultimate Fix)")
 
 with col_guide:
     st.write("") 
