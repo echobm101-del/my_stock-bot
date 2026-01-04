@@ -27,7 +27,6 @@ try:
     USER_CHAT_ID = st.secrets["CHAT_ID"]
     USER_GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 except Exception as e:
-    # 로컬 개발 환경이나 키가 없을 경우를 대비한 예외처리
     USER_GITHUB_TOKEN = ""
     USER_TELEGRAM_TOKEN = ""
     USER_CHAT_ID = ""
@@ -35,7 +34,7 @@ except Exception as e:
 # ==============================================================================
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (AI Enhanced)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Diagnosis Mode)", page_icon="🩺", layout="wide")
 
 st.markdown("""
 <style>
@@ -593,17 +592,26 @@ def analyze_news_by_keywords(news_titles):
 def call_gemini_auto(prompt):
     # [수정] secrets에서 가져온 API KEY 사용
     api_key = USER_GOOGLE_API_KEY
-    if not api_key: return None, "NO_KEY"
+    if not api_key: return None, "Error: Secrets에서 GOOGLE_API_KEY를 찾을 수 없습니다."
+    
+    # [진단용] 키 앞부분 출력 (보안을 위해 5자리만)
+    st.warning(f"🔑 진단: API 키 확인됨 ({api_key[:5]}...)")
+    
     models = ["gemini-1.5-flash", "gemini-pro"]
     for m in models:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
         headers = {"Content-Type": "application/json"}
         payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
         try:
-            res = requests.post(url, headers=headers, json=payload, timeout=6)
-            if res.status_code == 200: return res.json(), None
-        except: continue
-    return None, "ALL_FAILED"
+            res = requests.post(url, headers=headers, json=payload, timeout=10) # 타임아웃 10초로 연장
+            if res.status_code == 200: 
+                return res.json(), None
+            else:
+                # [진단용] 실패 시 상태 코드 반환
+                return None, f"HTTP {res.status_code}: {res.text}"
+        except Exception as e:
+            return None, f"통신 오류: {str(e)}"
+    return None, "ALL_FAILED (모든 모델 시도 실패)"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
@@ -673,7 +681,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         }}
         """
         
-        res_data, error_code = call_gemini_auto(prompt)
+        res_data, error_msg = call_gemini_auto(prompt)
         
         if res_data:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
@@ -690,9 +698,14 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 "opinion": js.get('opinion', "중립"),
                 "risk": js.get('risk', "특이사항 없음") # 리스크 필드 추가
             }
+        else:
+             # [진단용] 에러 발생 시 화면에 출력
+             st.error(f"🚨 AI 연결 실패: {error_msg}")
+             pass
+
     except Exception as e:
-        # [디버깅] 만약 여기서도 에러가 나면 화면에 띄워줍니다.
-        # st.error(f"AI 호출 에러: {str(e)}") 
+        # [진단용] 예외 발생 시 화면에 출력
+        st.error(f"🚨 시스템 오류: {str(e)}")
         pass 
 
     # Fallback: 기존 키워드 분석
@@ -856,7 +869,7 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V33.0")
+    st.title("💎 Quant Sniper V33.0 (Diagnosis Mode)")
 
 with col_guide:
     st.write("") 
