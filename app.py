@@ -13,14 +13,22 @@ import concurrent.futures
 from bs4 import BeautifulSoup
 import textwrap
 import re
-import feedparser
 import urllib.parse
 import numpy as np
 from io import StringIO
+import sys
+import subprocess
 
 # ==============================================================================
-# [보안 설정] Streamlit Secrets에서 키 가져오기
+# [설정] 구글 공식 AI 라이브러리(SDK) 및 기본 설정
 # ==============================================================================
+try:
+    import google.generativeai as genai
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "google-generativeai"])
+    import google.generativeai as genai
+
+# [보안 설정] Streamlit Secrets에서 키 가져오기
 try:
     USER_GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
     USER_TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
@@ -32,8 +40,11 @@ except Exception as e:
     USER_CHAT_ID = ""
     USER_GOOGLE_API_KEY = ""
 
+if USER_GOOGLE_API_KEY:
+    genai.configure(api_key=USER_GOOGLE_API_KEY)
+
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Auto-Discovery)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Time Traveler)", page_icon="⏳", layout="wide")
 
 st.markdown("""
 <style>
@@ -54,10 +65,9 @@ st.markdown("""
 
     .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
     
-    /* 이동평균선 상태 배지 스타일 */
     .ma-status-container { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
     .ma-status-badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #555; background-color: #F2F4F6; border: 1px solid #E5E8EB; }
-    .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; } /* 활성화(지지) */
+    .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; }
     
     .news-ai { background: #F3F9FE; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #D0EBFF; color: #333; }
     .ai-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; margin-bottom: 6px; }
@@ -96,7 +106,6 @@ st.markdown("""
 
 def create_card_html(res):
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
-    
     buy_price = res['strategy'].get('buy', 0)
     target_price = res['strategy'].get('target', 0)
     stop_price = res['strategy'].get('stop', 0)
@@ -183,7 +192,6 @@ def render_tech_metrics(stoch, vol_ratio):
         </div>
     </div>""", unsafe_allow_html=True)
 
-# 이동평균선 상태 시각화
 def render_ma_status(ma_list):
     if not ma_list: return
     html = "<div class='ma-status-container'>"
@@ -247,7 +255,6 @@ def render_financial_table(df):
     st.markdown(html, unsafe_allow_html=True)
     st.caption("※ 단위: 억 원 / (괄호): 전분기/전년 대비 증감률")
 
-# [HTS 국룰 색상 + 범례 노출 유지]
 def render_investor_chart(df):
     if df.empty:
         st.caption("수급 데이터가 없습니다. (장중/집계 지연 가능성)")
@@ -269,12 +276,10 @@ def render_investor_chart(df):
     type_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
     df_line['Type'] = df_line['Key'].map(type_map)
 
-    # [색상] HTS 국룰
     domain = ['개인', '외국인', '기관합계', '연기금']
     range_ = ['#228B22', '#F04452', '#3182F6', '#8B4513']
     color_scale = alt.Scale(domain=domain, range=range_)
     
-    # [범례] 상단 배치
     color_encoding = alt.Color('Type:N', scale=color_scale, legend=alt.Legend(title="투자자", orient="top"))
 
     base = alt.Chart(df_line).encode(x=alt.X('날짜:T', axis=alt.Axis(format='%m-%d', title=None)))
@@ -300,7 +305,6 @@ FILE_PATH = "my_watchlist_v7.json"
 
 @st.cache_data
 def get_krx_list_safe():
-    """안전하게 주식 리스트를 가져오는 함수 (에러 방지용)"""
     try:
         df = fdr.StockListing('KRX')
         if not df.empty: return df
@@ -588,85 +592,84 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [핵심] API v1b (꼼수) -> v1 (정품) 교체 + 자동 모델 찾기 (Dynamic Discovery)
+# [핵심] Naver 금융 뉴스 크롤링 (연혁/타임라인 분석용)
 # -------------------------------------------------------------------------
-def get_valid_gemini_model(api_key):
+def get_naver_news_timeline(code, pages=3):
     """
-    내 API 키로 사용 가능한 모델 명단을 조회해서
-    가장 적절한 모델 이름을 찾아내는 함수 (탐정 역할)
+    네이버 금융 뉴스 게시판에서 과거 페이지까지 긁어와서
+    (날짜, 제목, 링크, 요약) 리스트를 반환합니다.
     """
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    news_items = []
     try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            models = response.json().get('models', [])
-            # 1. 텍스트 생성 기능이 있는 모델만 필터링
-            chat_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        for page in range(1, pages + 1):
+            url = f"https://finance.naver.com/item/news_news.naver?code={code}&page={page}"
+            res = requests.get(url, headers=headers)
+            soup = BeautifulSoup(res.content.decode('euc-kr', 'replace'), 'html.parser')
             
-            # 2. 선호하는 모델 순서대로 찾기
-            preferences = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
-            for pref in preferences:
-                if pref in chat_models:
-                    return pref
+            # 뉴스 목록 테이블 추출
+            titles = soup.select('.title')
+            dates = soup.select('.date')
             
-            # 3. 선호 모델이 없으면 아무거나 가능한 놈 첫번째 거 잡기
-            if chat_models:
-                return chat_models[0]
+            for t, d in zip(titles, dates):
+                a_tag = t.select_one('a')
+                if not a_tag: continue
                 
+                title = a_tag.text.strip()
+                link = "https://finance.naver.com" + a_tag['href']
+                date = d.text.strip()
+                
+                # 중복 제거 (혹시나 해서)
+                if not any(n['link'] == link for n in news_items):
+                    news_items.append({'title': title, 'link': link, 'date': date})
+                    
+            time.sleep(0.1) # 서버 부하 방지
+            
+        return news_items
     except:
-        pass
-    
-    # 4. 조회 실패 시 최후의 보루 (기본값)
-    return "models/gemini-pro"
+        return []
 
-def call_gemini_dynamic(prompt):
-    api_key = USER_GOOGLE_API_KEY
-    if not api_key: return None, "NO_KEY"
-    
-    # 1. 사용 가능한 모델 찾기
-    model_name = get_valid_gemini_model(api_key)
-    # 모델 이름 앞에 'models/'가 있으면 제거 (URL에 넣을 때 중복 방지)
-    clean_model_name = model_name.replace("models/", "")
-    
-    # 2. 찾은 모델로 요청 보내기
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model_name}:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    
-    try:
-        res = requests.post(url, headers=headers, json=payload, timeout=20)
-        if res.status_code == 200:
-            return res.json(), None
-        else:
-            return None, f"HTTP {res.status_code} ({clean_model_name}): {res.text}"
-    except Exception as e:
-        return None, f"Connection Error: {str(e)}"
-
+# -------------------------------------------------------------------------
+# [핵심] AI 분석 함수 (Naver 뉴스 연혁 분석 적용)
+# -------------------------------------------------------------------------
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
+    code = stock_data_context.get('code', '') # 코드 정보 필요
 
-    news_titles = []; news_data = []
-    try:
-        query = f"{company_name} 주가"
-        encoded_query = urllib.parse.quote(query)
-        base_url = "https://news.google.com/rss/search"
-        rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
-        feed = feedparser.parse(rss_url)
-        for entry in feed.entries[:10]:
-            date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else ""
-            news_data.append({"title": entry.title, "link": entry.link, "date": date_str})
-            news_titles.append(entry.title)
-    except: 
+    # 1. 뉴스 데이터 수집 (네이버 금융 타임라인)
+    # 코드가 있으면 네이버 금융, 없으면 구글 RSS(기존 방식) 사용
+    news_data = []
+    source_type = "google"
+    
+    if code and code.isdigit():
+        try:
+            news_data = get_naver_news_timeline(code, pages=3) # 3페이지(약 30~40개)
+            source_type = "naver"
+        except: pass
+    
+    # 네이버 실패 시 구글 RSS 백업
+    if not news_data:
+        try:
+            query = f"{company_name} 주가"
+            encoded_query = urllib.parse.quote(query)
+            base_url = "https://news.google.com/rss/search"
+            rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
+            feed = feedparser.parse(rss_url)
+            for entry in feed.entries[:15]:
+                date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else ""
+                news_data.append({"title": entry.title, "link": entry.link, "date": date_str})
+        except: pass
+
+    if not news_data: 
         return {"score": 0, "headline": "뉴스 데이터 로딩 실패", "raw_news": [], "method": "error", "catalyst": "", "opinion": "중립", "risk": ""}
 
-    if not news_titles: 
-        return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": ""}
-
+    # 2. AI 분석 (공식 SDK 사용 + 3중 안전장치)
     try:
         if not USER_GOOGLE_API_KEY:
             raise Exception("API Key가 설정되지 않았습니다.")
 
+        # 컨텍스트 데이터 정리
         trend = stock_data_context.get('trend', '분석중')
         pbr = stock_data_context.get('pbr', 0)
         per = stock_data_context.get('per', 0)
@@ -676,8 +679,15 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         if pbr > 0 and pbr < 1.0: fund_comment += "PBR 1배 미만 저평가 상태,"
         elif pbr > 2.5: fund_comment += "PBR 다소 고평가 상태,"
         
+        # 뉴스 리스트를 텍스트로 변환 (최신순)
+        # 네이버 뉴스는 이미 최신순 정렬됨
+        news_context_str = ""
+        for i, n in enumerate(news_data[:25]): # 최대 25개까지만 전달 (토큰 제한 고려)
+            news_context_str += f"- [{n['date']}] {n['title']}\n"
+
         prompt = f"""
-        당신은 20년 경력의 베테랑 펀드매니저입니다. 아래 [시장 데이터]와 [뉴스 헤드라인]을 결합하여 심층 분석 리포트를 작성하세요.
+        당신은 20년 경력의 베테랑 펀드매니저이자 '팩트 체크' 감사관입니다. 
+        아래 [시장 데이터]와 [뉴스 타임라인(과거~현재)]을 분석하여 심층 리포트를 작성하세요.
 
         [분석 대상]: {company_name}
         
@@ -686,55 +696,66 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         - 펀더멘탈: PBR {pbr}배, PER {per}배 ({fund_comment})
         - 메이저 수급: {supply}
         
-        [2. 최신 뉴스 헤드라인]
-        {str(news_titles)}
+        [2. 뉴스 타임라인 (최신순)]
+        {news_context_str}
 
-        [3. 추론 가이드]
-        - 뉴스가 단순 테마인지, 실적 호재인지 구분하시오.
-        - 기술적 위치와 수급을 고려하여 신뢰도를 평가하시오.
+        [3. 추론 가이드 (Time-Travel Analysis)]
+        - **과거와 현재 비교:** 과거(아래쪽 뉴스)에 언급된 호재나 약속(수주, 개발 등)이 최근(위쪽 뉴스)에 실제로 실행되었는지, 아니면 조용히 사라졌는지 확인하세요.
+        - **말뿐인 기업 감점:** 기대감만 부풀리고 실체가 없는 경우 냉정하게 평가 절하하세요.
+        - **추세 변화:** 뉴스의 톤이 긍정에서 부정으로, 혹은 그 반대로 바뀌는 변곡점을 찾으세요.
 
         [4. 출력 형식 (JSON Only)]
         반드시 아래 JSON 포맷으로만 응답하시오. (Markdown code block 사용 금지)
         {{
             "score": -10 ~ 10 (정수),
             "opinion": "강력매수 / 매수 / 관망 / 매도 / 비중축소 중 택1",
-            "catalyst": "주가 상승/하락의 핵심 트리거 (단답형)",
-            "summary": "데이터와 뉴스를 엮은 종합 한줄평",
+            "catalyst": "주가 상승/하락의 핵심 트리거 (5단어 이내)",
+            "summary": "연혁적 분석을 포함한 종합 평가 (예: '작년 00월 수주설이 사실로 확인되며 실적 기대감 고조')",
             "risk": "투자자가 주의해야 할 잠재적 리스크 (1문장)"
         }}
         """
         
-        # [변경] 직접 호출 함수 사용
-        res_data, error_msg = call_gemini_dynamic(prompt)
+        # [안전장치] 모델 3개를 순서대로 시도
+        models_to_try = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-pro']
         
-        if res_data:
+        model_success = False
+        final_response_text = ""
+        last_error_msg = ""
+
+        for m_name in models_to_try:
             try:
-                # 응답 구조 파싱 (v1/models/gemini-pro 구조에 맞춤)
-                if 'candidates' in res_data and res_data['candidates']:
-                    raw = res_data['candidates'][0]['content']['parts'][0]['text']
-                    raw = raw.replace("```json", "").replace("```", "").strip()
-                    js = json.loads(raw)
-                    
-                    return {
-                        "score": js.get('score', 0),
-                        "headline": js.get('summary', "분석 결과 없음"),
-                        "raw_news": news_data,
-                        "method": "ai",
-                        "catalyst": js.get('catalyst', ""),
-                        "opinion": js.get('opinion', "중립"),
-                        "risk": js.get('risk', "특이사항 없음")
-                    }
-                else:
-                    raise Exception(f"No candidates returned: {res_data}")
-            except:
-                raise Exception("응답 형식 파싱 실패")
-        else:
-             raise Exception(error_msg)
+                model = genai.GenerativeModel(m_name)
+                response = model.generate_content(prompt)
+                final_response_text = response.text
+                model_success = True
+                break 
+            except Exception as e:
+                last_error_msg = str(e)
+                continue 
+
+        if not model_success:
+            raise Exception(f"모든 모델 시도 실패: {last_error_msg}")
+        
+        # JSON 파싱
+        raw = final_response_text
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        js = json.loads(raw)
+        
+        return {
+            "score": js.get('score', 0),
+            "headline": js.get('summary', "분석 결과 없음"),
+            "raw_news": news_data, # 전체 뉴스 리스트 반환
+            "method": "ai",
+            "catalyst": js.get('catalyst', ""),
+            "opinion": js.get('opinion', "중립"),
+            "risk": js.get('risk', "특이사항 없음")
+        }
 
     except Exception as e:
-        score, summary, _, _ = analyze_news_by_keywords(news_titles)
+        # 에러 발생 시
+        dummy_score, _, _, _ = analyze_news_by_keywords([n['title'] for n in news_data])
         return {
-            "score": score,
+            "score": dummy_score,
             "headline": f"⛔ 분석 실패: {str(e)}", 
             "raw_news": news_data,
             "method": "keyword", 
@@ -743,8 +764,8 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             "risk": "API 키 권한 또는 할당량을 확인하세요."
         }
 
-    score, summary, _, _ = analyze_news_by_keywords(news_titles)
-    return {"score": score, "headline": summary, "raw_news": news_data, "method": "keyword", "catalyst": "", "opinion": "", "risk": ""}
+    dummy_score, summary, _, _ = analyze_news_by_keywords([n['title'] for n in news_data])
+    return {"score": dummy_score, "headline": summary, "raw_news": news_data, "method": "keyword", "catalyst": "", "opinion": "", "risk": ""}
 
 def get_supply_demand(code):
     try:
@@ -850,6 +871,7 @@ def analyze_pro(code, name_override=None):
 
         # 데이터 컨텍스트 생성
         context = {
+            "code": code, # 코드 정보 전달 (네이버 크롤링용)
             "trend": result_dict['trend_txt'],
             "pbr": fund_data.get('pbr', {}).get('val', 0) if fund_data else 0,
             "per": fund_data.get('per', {}).get('val', 0) if fund_data else 0,
@@ -897,229 +919,6 @@ def analyze_pro(code, name_override=None):
 def send_telegram_msg(token, chat_id, msg):
     try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
     except: pass
-
-# --- [4. 메인 화면] ---
-
-col_title, col_guide = st.columns([0.7, 0.3])
-
-with col_title:
-    st.title("💎 Quant Sniper V33.0 (Auto-Discovery)")
-
-with col_guide:
-    st.write("") 
-    st.write("") 
-    with st.expander("📘 개발 리포트 & 가이드 (Click)", expanded=False):
-        st.markdown("""
-        ### 1. 개발 기조 (Code Manifesto)
-        > **"차후 업그레이드를 위한 초심(初心) 유지"**
-        
-        이 코드는 단발성으로 끝나지 않고 지속적으로 발전하기 위해, **초기 개발 단계의 코딩 기조**를 엄격히 준수합니다. 확장성과 유지보수를 최우선으로 고려하여 설계되었습니다.
-        
-        ---
-        ### 2. 개발 배경 (Vision)
-        > **"주린이에게 20년 경력 애널리스트의 안목을"**
-        
-        투자의 경험이 부족한 '주린이'라도, 이 프로그램을 통해 **20년 경력의 베테랑 애널리스트와 동일한 안목**을 갖출 수 있어야 합니다. 우리의 궁극적인 목표는 사용자가 **연 20% 이상의 안정적인 투자 성적**을 거두도록 기술적으로 돕는 것입니다.
-        
-        ---
-        ### 3. 기능 및 구현 원리 (Mechanism)
-        **데이터와 조언은 어떻게 도출되는가?**
-        * **객관적 데이터:** 시장의 감정을 배제하고, 수치화된 알고리즘을 통해 냉철한 데이터를 도출합니다.
-        * **직관적 조언:** 복잡한 분석 과정을 거쳐, 사용자에겐 "지금 사야 하는가?"에 대한 명확한 해답을 제시합니다.
-        * **기능 요약:** 기술적/재무적 분석, 수급 파악, AI 리포트를 통합하여 최적의 의사결정을 지원합니다.
-        
-        <div style="text-align: right; color: grey; font-size: 0.8em; margin-top: 10px;">
-            Defined by Project Owner
-        </div>
-        """, unsafe_allow_html=True)
-
-with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
-    macro = get_macro_data()
-    if macro:
-        # [NEW] 지표 해석 로직 및 UI 적용
-        cols = st.columns(7)
-        keys = ["KOSPI", "KOSDAQ", "S&P500", "USD/KRW", "US_10Y", "WTI", "구리"]
-        
-        for i, key in enumerate(keys):
-            d = macro.get(key, {"val": 0.0, "change": 0.0})
-            
-            # 1. 색상 결정 (수치 등락 기준)
-            val_color = "#F04452" if d['change'] > 0 else "#3182F6"
-            
-            # 2. 해석(Insight) 배지 결정
-            badge_text = ""
-            badge_style = ""
-            
-            # A. 시장 지표 (지수) -> 상승이 호재
-            if key in ["KOSPI", "KOSDAQ", "S&P500"]:
-                if d['change'] > 0: 
-                    badge_text = "📈 양호/상승"; badge_style = "color:#F04452; background:#FFF1F1;"
-                else: 
-                    badge_text = "📉 조정/관망"; badge_style = "color:#3182F6; background:#E8F3FF;"
-            
-            # B. 부담 지표 (환율, 금리, 유가) -> 상승이 악재/부담
-            elif key in ["USD/KRW", "US_10Y", "WTI"]:
-                if d['change'] > 0:
-                    badge_text = "⚠️ 부담(상승)"; badge_style = "color:#D9480F; background:#FFF8E1;" # 오렌지 경고
-                else:
-                    badge_text = "🟢 안정/호재"; badge_style = "color:#087F5B; background:#E6FCF5;" # 초록 안정
-            
-            # C. 경기 지표 (구리) -> 상승이 경기회복 신호
-            elif key == "구리":
-                if d['change'] > 0:
-                    badge_text = "🏭 경기회복"; badge_style = "color:#F04452; background:#FFF1F1;"
-                else:
-                    badge_text = "☁️ 경기둔화"; badge_style = "color:#555; background:#F2F4F6;"
-            
-            with cols[i]:
-                st.markdown(f"""
-                <div class='metric-box'>
-                    <div class='metric-title'>{key}</div>
-                    <div class='metric-value' style='color:{val_color}'>{d['val']:,.2f}</div>
-                    <div style='font-size:12px; color:{val_color}'>{d['change']:+.2f}%</div>
-                    <div class='metric-badge' style='{badge_style}'>{badge_text}</div>
-                </div>""", unsafe_allow_html=True)
-    else: st.warning("거시 경제 데이터를 불러오지 못했습니다.")
-
-tab1, tab2 = st.tabs(["🔍 테마/종목 발굴", "📂 관심 종목"])
-
-with tab1:
-    if st.session_state.get('preview_list'):
-        st.markdown(f"### 🔍 '{st.session_state['current_theme_name']}' 주도주 심층 분석 (미리보기)")
-        st.info("💡 마음에 드는 종목의 **'📌 관심종목 등록'** 버튼을 누르면 '관심 종목' 탭에 저장됩니다.")
-        
-        with st.spinner("주도주 심층 분석 데이터 생성 중..."):
-            preview_results = []
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = [executor.submit(analyze_pro, item['code'], item['name']) for item in st.session_state['preview_list']]
-                for f in concurrent.futures.as_completed(futures):
-                    if f.result(): preview_results.append(f.result())
-            preview_results.sort(key=lambda x: x['score'], reverse=True)
-
-        for res in preview_results:
-            st.markdown(create_card_html(res), unsafe_allow_html=True)
-            with st.expander(f"📊 {res['name']} 상세 분석 및 추가"):
-                col_add, col_info = st.columns([1, 5])
-                with col_add:
-                    if st.button(f"📌 {res['name']} 관심종목 등록", key=f"add_{res['code']}"):
-                        st.session_state['watchlist'][res['name']] = {'code': res['code']}
-                        st.success(f"✅ {res['name']} 추가 완료!")
-                        time.sleep(0.5)
-                        st.rerun()
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("###### 📈 기술적 분석 & 차트")
-                    st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
-                    # 이동평균선 배지 호출
-                    render_ma_status(res['ma_status'])
-                    render_tech_metrics(res['stoch'], res['vol_ratio'])
-                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
-                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
-                with col2:
-                    st.write("###### 🏢 재무 펀더멘탈 & 실적")
-                    render_fund_scorecard(res['fund_data'])
-                    render_financial_table(res['fin_history'])
-                st.write("###### 🧠 큰손 투자 동향 (최근 20일 누적)")
-                render_investor_chart(res['investor_trend'])
-                
-                # --- [AI 분석 UI 적용] ---
-                st.write("###### 📰 AI 헤지펀드 매니저 분석")
-                if res['news']['method'] == "ai": 
-                    op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
-                    if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
-                    elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
-                    
-                    st.markdown(f"""
-                    <div class='news-ai'>
-                        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
-                            <span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span>
-                            <span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span>
-                        </div>
-                        <div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>
-                            🤖 <b>Deep Analysis:</b> {res['news']['headline']}
-                        </div>
-                        <div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>
-                            ⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}
-                        </div>
-                    </div>""", unsafe_allow_html=True)
-                else: 
-                    # [수정] 에러 메시지를 포함한 Fallback UI
-                    st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
-                
-                st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
-                for news in res['news']['raw_news']:
-                    st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
-    else: st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
-
-with tab2:
-    st.markdown("### 📂 관심 종목 (Watchlist)")
-    combined_watchlist = list(st.session_state['watchlist'].items())
-    if not combined_watchlist: 
-        st.info("아직 관심 종목이 없습니다. '테마/종목 발굴' 탭에서 종목을 추가해보세요.")
-    else:
-        with st.spinner("관심 종목 데이터 갱신 중..."):
-            wl_results = []
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                futures = [executor.submit(analyze_pro, info['code'], name) for name, info in combined_watchlist]
-                for f in concurrent.futures.as_completed(futures):
-                    if f.result(): wl_results.append(f.result())
-            wl_results.sort(key=lambda x: x['score'], reverse=True)
-        for res in wl_results:
-            st.markdown(create_card_html(res), unsafe_allow_html=True)
-            with st.expander(f"📊 {res['name']} 상세 분석 및 삭제"):
-                # [삭제 버튼 유지]
-                if st.button(f"🗑️ {res['name']} 관심종목에서 삭제하기", key=f"delete_{res['code']}"):
-                    if res['name'] in st.session_state['watchlist']:
-                        del st.session_state['watchlist'][res['name']]
-                        st.success(f"{res['name']} 삭제되었습니다.")
-                        time.sleep(0.5)
-                        st.rerun()
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("###### 📈 기술적 분석")
-                    st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
-                    # 이동평균선 배지 호출
-                    render_ma_status(res['ma_status'])
-                    render_tech_metrics(res['stoch'], res['vol_ratio'])
-                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
-                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
-                with col2:
-                    st.write("###### 🏢 재무 펀더멘탈")
-                    render_fund_scorecard(res['fund_data'])
-                    render_financial_table(res['fin_history'])
-                st.write("###### 🧠 큰손 투자 동향")
-                render_investor_chart(res['investor_trend'])
-                
-                # --- [AI 분석 UI 적용] ---
-                st.write("###### 📰 AI 헤지펀드 매니저 분석")
-                if res['news']['method'] == "ai": 
-                    op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
-                    if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
-                    elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
-                    
-                    st.markdown(f"""
-                    <div class='news-ai'>
-                        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
-                            <span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span>
-                            <span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span>
-                        </div>
-                        <div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>
-                            🤖 <b>Deep Analysis:</b> {res['news']['headline']}
-                        </div>
-                        <div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>
-                            ⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}
-                        </div>
-                    </div>""", unsafe_allow_html=True)
-                else:
-                    # [수정] 에러 메시지를 포함한 Fallback UI
-                    st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
-                
-                st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
-                for news in res['news']['raw_news']:
-                    st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
@@ -1223,3 +1022,207 @@ with st.sidebar:
             st.session_state['watchlist'][name] = {"code": code}
             st.rerun()
     if st.button("초기화"): st.session_state['watchlist'] = {}; st.session_state['preview_list'] = []; st.rerun()
+
+col_title, col_guide = st.columns([0.7, 0.3])
+
+with col_title:
+    st.title("💎 Quant Sniper V33.0 (Time Traveler)")
+
+with col_guide:
+    st.write("") 
+    st.write("") 
+    with st.expander("📘 개발 리포트 & 가이드 (Click)", expanded=False):
+        st.markdown("""
+        ### 1. 개발 기조 (Code Manifesto)
+        > **"차후 업그레이드를 위한 초심(初心) 유지"**
+        
+        이 코드는 단발성으로 끝나지 않고 지속적으로 발전하기 위해, **초기 개발 단계의 코딩 기조**를 엄격히 준수합니다. 확장성과 유지보수를 최우선으로 고려하여 설계되었습니다.
+        
+        ---
+        ### 2. 개발 배경 (Vision)
+        > **"주린이에게 20년 경력 애널리스트의 안목을"**
+        
+        투자의 경험이 부족한 '주린이'라도, 이 프로그램을 통해 **20년 경력의 베테랑 애널리스트와 동일한 안목**을 갖출 수 있어야 합니다. 우리의 궁극적인 목표는 사용자가 **연 20% 이상의 안정적인 투자 성적**을 거두도록 기술적으로 돕는 것입니다.
+        
+        ---
+        ### 3. 기능 및 구현 원리 (Mechanism)
+        **데이터와 조언은 어떻게 도출되는가?**
+        * **객관적 데이터:** 시장의 감정을 배제하고, 수치화된 알고리즘을 통해 냉철한 데이터를 도출합니다.
+        * **직관적 조언:** 복잡한 분석 과정을 거쳐, 사용자에겐 "지금 사야 하는가?"에 대한 명확한 해답을 제시합니다.
+        * **기능 요약:** 기술적/재무적 분석, 수급 파악, AI 리포트를 통합하여 최적의 의사결정을 지원합니다.
+        
+        <div style="text-align: right; color: grey; font-size: 0.8em; margin-top: 10px;">
+            Defined by Project Owner
+        </div>
+        """, unsafe_allow_html=True)
+
+with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
+    macro = get_macro_data()
+    if macro:
+        cols = st.columns(7)
+        keys = ["KOSPI", "KOSDAQ", "S&P500", "USD/KRW", "US_10Y", "WTI", "구리"]
+        
+        for i, key in enumerate(keys):
+            d = macro.get(key, {"val": 0.0, "change": 0.0})
+            val_color = "#F04452" if d['change'] > 0 else "#3182F6"
+            badge_text = ""
+            badge_style = ""
+            
+            if key in ["KOSPI", "KOSDAQ", "S&P500"]:
+                if d['change'] > 0: 
+                    badge_text = "📈 양호/상승"; badge_style = "color:#F04452; background:#FFF1F1;"
+                else: 
+                    badge_text = "📉 조정/관망"; badge_style = "color:#3182F6; background:#E8F3FF;"
+            elif key in ["USD/KRW", "US_10Y", "WTI"]:
+                if d['change'] > 0:
+                    badge_text = "⚠️ 부담(상승)"; badge_style = "color:#D9480F; background:#FFF8E1;"
+                else:
+                    badge_text = "🟢 안정/호재"; badge_style = "color:#087F5B; background:#E6FCF5;"
+            elif key == "구리":
+                if d['change'] > 0:
+                    badge_text = "🏭 경기회복"; badge_style = "color:#F04452; background:#FFF1F1;"
+                else:
+                    badge_text = "☁️ 경기둔화"; badge_style = "color:#555; background:#F2F4F6;"
+            
+            with cols[i]:
+                st.markdown(f"""
+                <div class='metric-box'>
+                    <div class='metric-title'>{key}</div>
+                    <div class='metric-value' style='color:{val_color}'>{d['val']:,.2f}</div>
+                    <div style='font-size:12px; color:{val_color}'>{d['change']:+.2f}%</div>
+                    <div class='metric-badge' style='{badge_style}'>{badge_text}</div>
+                </div>""", unsafe_allow_html=True)
+    else: st.warning("거시 경제 데이터를 불러오지 못했습니다.")
+
+tab1, tab2 = st.tabs(["🔍 테마/종목 발굴", "📂 관심 종목"])
+
+with tab1:
+    if st.session_state.get('preview_list'):
+        st.markdown(f"### 🔍 '{st.session_state['current_theme_name']}' 주도주 심층 분석 (미리보기)")
+        st.info("💡 마음에 드는 종목의 **'📌 관심종목 등록'** 버튼을 누르면 '관심 종목' 탭에 저장됩니다.")
+        
+        with st.spinner("주도주 심층 분석 데이터 생성 중..."):
+            preview_results = []
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [executor.submit(analyze_pro, item['code'], item['name']) for item in st.session_state['preview_list']]
+                for f in concurrent.futures.as_completed(futures):
+                    if f.result(): preview_results.append(f.result())
+            preview_results.sort(key=lambda x: x['score'], reverse=True)
+
+        for res in preview_results:
+            st.markdown(create_card_html(res), unsafe_allow_html=True)
+            with st.expander(f"📊 {res['name']} 상세 분석 및 추가"):
+                col_add, col_info = st.columns([1, 5])
+                with col_add:
+                    if st.button(f"📌 {res['name']} 관심종목 등록", key=f"add_{res['code']}"):
+                        st.session_state['watchlist'][res['name']] = {'code': res['code']}
+                        st.success(f"✅ {res['name']} 추가 완료!")
+                        time.sleep(0.5)
+                        st.rerun()
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("###### 📈 기술적 분석 & 차트")
+                    st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
+                    render_ma_status(res['ma_status'])
+                    render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                with col2:
+                    st.write("###### 🏢 재무 펀더멘탈 & 실적")
+                    render_fund_scorecard(res['fund_data'])
+                    render_financial_table(res['fin_history'])
+                st.write("###### 🧠 큰손 투자 동향 (최근 20일 누적)")
+                render_investor_chart(res['investor_trend'])
+                
+                st.write("###### 📰 AI 헤지펀드 매니저 분석")
+                if res['news']['method'] == "ai": 
+                    op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
+                    if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
+                    elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
+                    
+                    st.markdown(f"""
+                    <div class='news-ai'>
+                        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
+                            <span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span>
+                            <span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span>
+                        </div>
+                        <div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>
+                            🤖 <b>Deep Analysis:</b> {res['news']['headline']}
+                        </div>
+                        <div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>
+                            ⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}
+                        </div>
+                    </div>""", unsafe_allow_html=True)
+                else: 
+                    st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
+                
+                st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
+                for news in res['news']['raw_news']:
+                    st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+    else: st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
+
+with tab2:
+    st.markdown("### 📂 관심 종목 (Watchlist)")
+    combined_watchlist = list(st.session_state['watchlist'].items())
+    if not combined_watchlist: 
+        st.info("아직 관심 종목이 없습니다. '테마/종목 발굴' 탭에서 종목을 추가해보세요.")
+    else:
+        with st.spinner("관심 종목 데이터 갱신 중..."):
+            wl_results = []
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                futures = [executor.submit(analyze_pro, info['code'], name) for name, info in combined_watchlist]
+                for f in concurrent.futures.as_completed(futures):
+                    if f.result(): wl_results.append(f.result())
+            wl_results.sort(key=lambda x: x['score'], reverse=True)
+        for res in wl_results:
+            st.markdown(create_card_html(res), unsafe_allow_html=True)
+            with st.expander(f"📊 {res['name']} 상세 분석 및 삭제"):
+                if st.button(f"🗑️ {res['name']} 관심종목에서 삭제하기", key=f"delete_{res['code']}"):
+                    if res['name'] in st.session_state['watchlist']:
+                        del st.session_state['watchlist'][res['name']]
+                        st.success(f"{res['name']} 삭제되었습니다.")
+                        time.sleep(0.5)
+                        st.rerun()
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("###### 📈 기술적 분석")
+                    st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
+                    render_ma_status(res['ma_status'])
+                    render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                with col2:
+                    st.write("###### 🏢 재무 펀더멘탈")
+                    render_fund_scorecard(res['fund_data'])
+                    render_financial_table(res['fin_history'])
+                st.write("###### 🧠 큰손 투자 동향")
+                render_investor_chart(res['investor_trend'])
+                
+                st.write("###### 📰 AI 헤지펀드 매니저 분석")
+                if res['news']['method'] == "ai": 
+                    op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
+                    if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
+                    elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
+                    
+                    st.markdown(f"""
+                    <div class='news-ai'>
+                        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
+                            <span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span>
+                            <span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span>
+                        </div>
+                        <div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>
+                            🤖 <b>Deep Analysis:</b> {res['news']['headline']}
+                        </div>
+                        <div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>
+                            ⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}
+                        </div>
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
+                
+                st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
+                for news in res['news']['raw_news']:
+                    st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
