@@ -17,10 +17,21 @@ import feedparser
 import urllib.parse
 import numpy as np
 from io import StringIO
+import sys
+import subprocess
 
 # ==============================================================================
-# [보안 설정] Streamlit Secrets 사용
+# [긴급 패치] 구글 공식 AI 라이브러리 자동 설치 및 연동
+# 설정 파일(requirements.txt)을 건드리지 않아도 작동하도록 만듭니다.
 # ==============================================================================
+try:
+    import google.generativeai as genai
+except ImportError:
+    # 라이브러리가 없으면 즉시 설치
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "google-generativeai"])
+    import google.generativeai as genai
+
+# [보안 설정] Streamlit Secrets에서 키 가져오기
 try:
     USER_GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
     USER_TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
@@ -31,10 +42,14 @@ except Exception as e:
     USER_TELEGRAM_TOKEN = ""
     USER_CHAT_ID = ""
     USER_GOOGLE_API_KEY = ""
+
+# 구글 AI 설정 초기화
+if USER_GOOGLE_API_KEY:
+    genai.configure(api_key=USER_GOOGLE_API_KEY)
 # ==============================================================================
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V33.0 (Stable)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V33.0 (Official API)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -334,7 +349,6 @@ krx_df = get_krx_list_safe()
 
 def load_from_github():
     try:
-        # [수정] secrets에서 가져온 토큰 사용
         token = USER_GITHUB_TOKEN
         if not token: return {}
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
@@ -590,30 +604,8 @@ def analyze_news_by_keywords(news_titles):
     return final_score, summary, "키워드 분석", ""
 
 # -------------------------------------------------------------------------
-# [핵심 수정] gemini-pro (표준 모델) 고정
+# [핵심 수정] 공식 SDK(genai)를 사용한 완벽한 AI 분석 함수
 # -------------------------------------------------------------------------
-def call_gemini_auto(prompt):
-    api_key = USER_GOOGLE_API_KEY
-    if not api_key: return None, "Error: Secrets에서 GOOGLE_API_KEY를 찾을 수 없습니다."
-    
-    # [수정] 모델을 'gemini-pro'로 고정하여 호환성 문제 해결
-    model = "gemini-pro"
-    
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
-    payload = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"response_mime_type": "application/json"}}
-    
-    try:
-        # 타임아웃 15초로 넉넉하게
-        res = requests.post(url, headers=headers, json=payload, timeout=15)
-        
-        if res.status_code == 200: 
-            return res.json(), None
-        else:
-            return None, f"HTTP Error {res.status_code}: {res.text}"
-    except Exception as e:
-        return None, f"Connection Error: {str(e)}"
-
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
@@ -635,7 +627,14 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
     if not news_titles: 
         return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": ""}
 
+    # ------------------------------------------------------------------
+    # 공식 SDK를 이용한 AI 분석 호출 (404 에러 원천 차단)
+    # ------------------------------------------------------------------
     try:
+        if not USER_GOOGLE_API_KEY:
+            raise Exception("API Key가 설정되지 않았습니다.")
+
+        # 데이터 융합: 차트/재무/수급 데이터를 텍스트로 변환
         trend = stock_data_context.get('trend', '분석중')
         pbr = stock_data_context.get('pbr', 0)
         per = stock_data_context.get('per', 0)
@@ -658,54 +657,51 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         [2. 최신 뉴스 헤드라인]
         {str(news_titles)}
 
-        [3. 추론 가이드 (Chain of Thought)]
-        - 뉴스가 단순 테마인지, 실적에 기반한 펀더멘탈 호재인지 구분하시오.
-        - '기술적 위치'가 고점인데 뉴스가 호재라면 '재료 소멸' 가능성을 의심하시오.
-        - '수급'이 들어오면서 뉴스가 있다면 신뢰도를 높게 평가하시오.
-        - 위 데이터를 종합하여 매수/매도 의견을 도출하시오.
+        [3. 추론 가이드]
+        - 뉴스가 단순 테마인지, 실적 호재인지 구분하시오.
+        - 기술적 위치와 수급을 고려하여 신뢰도를 평가하시오.
 
         [4. 출력 형식 (JSON Only)]
         반드시 아래 JSON 포맷으로만 응답하시오. (Markdown code block 사용 금지)
         {{
-            "score": -10 ~ 10 (정수, -10:부도위기, 0:중립, 10:초대박호재),
+            "score": -10 ~ 10 (정수),
             "opinion": "강력매수 / 매수 / 관망 / 매도 / 비중축소 중 택1",
             "catalyst": "주가 상승/하락의 핵심 트리거 (단답형)",
-            "summary": "데이터와 뉴스를 엮은 종합 한줄평 (예: 실적은 좋으나 수급이 꼬여 관망 필요)",
+            "summary": "데이터와 뉴스를 엮은 종합 한줄평",
             "risk": "투자자가 주의해야 할 잠재적 리스크 (1문장)"
         }}
         """
         
-        res_data, error_msg = call_gemini_auto(prompt)
+        # 모델 설정 (가장 안정적인 모델 사용)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        response = model.generate_content(prompt)
         
-        if res_data:
-            raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = raw.replace("```json", "").replace("```", "").strip()
-            js = json.loads(raw)
-            
-            return {
-                "score": js.get('score', 0),
-                "headline": js.get('summary', "분석 결과 없음"),
-                "raw_news": news_data,
-                "method": "ai",
-                "catalyst": js.get('catalyst', ""),
-                "opinion": js.get('opinion', "중립"),
-                "risk": js.get('risk', "특이사항 없음")
-            }
-        else:
-             # 에러 발생 시 UI에 직접 표시
-             raise Exception(error_msg)
+        # JSON 파싱
+        raw = response.text
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        js = json.loads(raw)
+        
+        return {
+            "score": js.get('score', 0),
+            "headline": js.get('summary', "분석 결과 없음"),
+            "raw_news": news_data,
+            "method": "ai",
+            "catalyst": js.get('catalyst', ""),
+            "opinion": js.get('opinion', "중립"),
+            "risk": js.get('risk', "특이사항 없음")
+        }
 
     except Exception as e:
-        # 에러 메시지를 화면에 강제 출력 (디버깅용)
+        # 에러 발생 시 UI에 직접 표시 (디버깅용)
         score, summary, _, _ = analyze_news_by_keywords(news_titles)
         return {
             "score": score,
-            "headline": f"⛔ 시스템 오류: {str(e)}", 
+            "headline": f"⛔ 분석 실패: {str(e)}", 
             "raw_news": news_data,
             "method": "keyword", 
             "catalyst": "오류",
             "opinion": "분석불가",
-            "risk": "API 키 또는 통신 상태를 확인하세요."
+            "risk": "API 키 권한 또는 할당량을 확인하세요."
         }
 
     # Fallback
@@ -869,7 +865,7 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V33.0 (Stable)")
+    st.title("💎 Quant Sniper V33.0 (Official API)")
 
 with col_guide:
     st.write("") 
