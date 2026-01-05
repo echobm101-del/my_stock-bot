@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V36.1 (Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V36.2 (Final Fix)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -120,33 +120,35 @@ def create_card_html(res):
     if res.get('relation_tag'):
         relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
-    # [중요] f-string 들여쓰기 제거 (HTML 렌더링 오류 방지)
-    html = f"""<div class='toss-card'>
-    <div style='display:flex; justify-content:space-between; align-items:center;'>
-        <div>
-            <span class='stock-name'>{res['name']}</span>
-            <span class='stock-code'>{res['code']}</span>
-            {relation_html}
-            <div class='cycle-badge {cycle_cls}'>{res['cycle_txt']}</div>
-            <div class='big-price'>
-                {res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span>
+    # [긴급 수정] textwrap.dedent를 사용하여 공백 문제를 원천 차단
+    html = textwrap.dedent(f"""
+    <div class='toss-card'>
+        <div style='display:flex; justify-content:space-between; align-items:center;'>
+            <div>
+                <span class='stock-name'>{res['name']}</span>
+                <span class='stock-code'>{res['code']}</span>
+                {relation_html}
+                <div class='cycle-badge {cycle_cls}'>{res['cycle_txt']}</div>
+                <div class='big-price'>
+                    {res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span>
+                </div>
+            </div>
+            <div style='text-align:right;'>
+                <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>
+                <div class='badge-clean' style='background-color:{score_col}20; color:{score_col};'>{res['strategy']['action']}</div>
             </div>
         </div>
-        <div style='text-align:right;'>
-            <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>
-            <div class='badge-clean' style='background-color:{score_col}20; color:{score_col};'>{res['strategy']['action']}</div>
+        <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>
+            <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🔵 매수 {buy_price:,}<br><span style='font-size:10px; opacity:0.7;'>({buy_basis})</span></div>
+            <div style='color:#F04452; background-color:#FFF1F1; padding:6px; border-radius:6px;'>🎯 목표 {target_price:,}<br><span style='font-size:10px; opacity:0.7;'>(익절가)</span></div>
+            <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 손절 {stop_price:,}<br><span style='font-size:10px; opacity:0.7;'>(방어선)</span></div>
+        </div>
+        <div style='margin-top:8px; display:flex; justify-content:space-between; align-items:center;'>
+             <span style='font-size:11px; font-weight:700; color:#555;'>{backtest_txt}</span>
+             <span style='font-size:12px; color:#888;'>{res['trend_txt']}</span>
         </div>
     </div>
-    <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>
-        <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🔵 매수 {buy_price:,}<br><span style='font-size:10px; opacity:0.7;'>({buy_basis})</span></div>
-        <div style='color:#F04452; background-color:#FFF1F1; padding:6px; border-radius:6px;'>🎯 목표 {target_price:,}<br><span style='font-size:10px; opacity:0.7;'>(익절가)</span></div>
-        <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 손절 {stop_price:,}<br><span style='font-size:10px; opacity:0.7;'>(방어선)</span></div>
-    </div>
-    <div style='margin-top:8px; display:flex; justify-content:space-between; align-items:center;'>
-            <span style='font-size:11px; font-weight:700; color:#555;'>{backtest_txt}</span>
-            <span style='font-size:12px; color:#888;'>{res['trend_txt']}</span>
-    </div>
-</div>"""
+    """)
     return html
 
 # [New] RSI, MACD가 포함된 고급 차트
@@ -939,12 +941,12 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V36.1 (Fix)")
+    st.title("💎 Quant Sniper V36.2 (Final Fix)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V36.1 업데이트 노트", expanded=False):
+    with st.expander("📘 V36.2 업데이트 노트", expanded=False):
         st.markdown("""
         * **긴급 수정:** Watchlist 화면 깨짐 현상(HTML 노출) 해결
         * **관계형 검색(KG):** 종목과 테마의 핵심 관계(예: 대장주, 협력사)를 태그로 표시
@@ -1016,6 +1018,71 @@ with tab1:
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write("###### 📈 기술적 분석 (RSI/MACD)")
+                    st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
+                    render_ma_status(res['ma_status'])
+                    render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                with col2:
+                    st.write("###### 🏢 재무 펀더멘탈")
+                    render_fund_scorecard(res['fund_data'])
+                    render_financial_table(res['fin_history'])
+                st.write("###### 🧠 큰손 투자 동향")
+                render_investor_chart(res['investor_trend'])
+                
+                st.write("###### 📰 AI 헤지펀드 매니저 분석")
+                if res['news']['method'] == "ai": 
+                    op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
+                    if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
+                    elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
+                    
+                    st.markdown(f"""
+                    <div class='news-ai'>
+                        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
+                            <span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span>
+                            <span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span>
+                        </div>
+                        <div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>
+                            🤖 <b>Deep Analysis:</b> {res['news']['headline']}
+                        </div>
+                        <div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>
+                            ⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}
+                        </div>
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
+                
+                st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
+                for news in res['news']['raw_news']:
+                    st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+
+with tab2:
+    st.markdown("### 📂 관심 종목 (Watchlist)")
+    if st.button("🔄 화면 정리 (상세창 닫기)", key="clear_wl"):
+        st.rerun()
+        
+    combined_watchlist = list(st.session_state['watchlist'].items())
+    if not combined_watchlist: 
+        st.info("아직 관심 종목이 없습니다.")
+    else:
+        with st.spinner("🚀 관심 종목 일괄 분석 중... (고속 모드)"):
+            wl_results = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(analyze_pro, info['code'], name) for name, info in combined_watchlist]
+                for f in concurrent.futures.as_completed(futures):
+                    if f.result(): wl_results.append(f.result())
+            wl_results.sort(key=lambda x: x['score'], reverse=True)
+        for res in wl_results:
+            st.markdown(create_card_html(res), unsafe_allow_html=True)
+            with st.expander(f"📊 {res['name']} 상세 분석 및 삭제"):
+                if st.button(f"🗑️ {res['name']} 삭제", key=f"delete_{res['code']}"):
+                    del st.session_state['watchlist'][res['name']]
+                    st.rerun()
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("###### 📈 기술적 분석")
                     st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
                     render_ma_status(res['ma_status'])
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
