@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V38.0 (AI Expanded)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V38.1 (Price Fix)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -817,6 +817,16 @@ def get_supply_demand(code):
         return {"f": int(df['외국인'].sum()), "i": int(df['기관합계'].sum())}
     except: return {"f":0, "i":0}
 
+# --- [4. 호가 단위 보정 함수] ---
+def round_to_tick(price):
+    if price < 2000: return int(round(price, -1))
+    elif price < 5000: return int(round(price / 5) * 5)
+    elif price < 20000: return int(round(price, -1))
+    elif price < 50000: return int(round(price / 50) * 50)
+    elif price < 200000: return int(round(price, -2))
+    elif price < 500000: return int(round(price / 500) * 500)
+    else: return int(round(price, -3))
+
 def analyze_pro(code, name_override=None, relation_tag=None):
     try:
         # [New] RSI 계산을 위해 1년치 데이터 로딩
@@ -906,7 +916,7 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
 
-    # 5. 점수 산출
+    # 5. 점수 산출 및 전략 수립 (★ 핵심 수정)
     try:
         bonus = 0
         if not result_dict['investor_trend'].empty: bonus += 5
@@ -916,20 +926,31 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         result_dict['score'] = final_score
 
         if final_score >= 80:
-            buy_basis_col = 'MA5'; target_ratio = 1.15; stop_ratio = 0.97; action_txt = "🔥 강력매수"
+            buy_price_raw = curr['Close']
+            buy_basis_txt = "현재가 돌파"
+            target_ratio = 1.15; stop_ratio = 0.97
+            action_txt = "🔥 강력매수"
         elif final_score >= 60:
-            buy_basis_col = 'MA20'; target_ratio = 1.10; stop_ratio = 0.95; action_txt = "매수"
+            buy_price_raw = curr['Close']
+            buy_basis_txt = "추세 추종"
+            target_ratio = 1.10; stop_ratio = 0.95
+            action_txt = "매수"
         else:
-            buy_basis_col = 'MA20'; target_ratio = 1.05; stop_ratio = 0.92; action_txt = "관망"
+            buy_price_raw = curr.get('MA20', curr['Close'])
+            buy_basis_txt = "20일선 지지"
+            target_ratio = 1.05; stop_ratio = 0.92
+            action_txt = "관망"
 
-        buy_price = int(curr.get(buy_basis_col, 0))
-        if buy_price == 0: buy_price = int(curr['Close'])
+        # 호가 단위 보정
+        buy_price = round_to_tick(buy_price_raw)
+        target_price = round_to_tick(buy_price * target_ratio)
+        stop_price = round_to_tick(buy_price * stop_ratio)
 
         result_dict['strategy'] = {
             "buy": buy_price,
-            "buy_basis": buy_basis_col.replace('MA', '') + "일선",
-            "target": int(curr['Close'] * target_ratio),
-            "stop": int(buy_price * stop_ratio),
+            "buy_basis": buy_basis_txt,
+            "target": target_price,
+            "stop": stop_price,
             "action": action_txt
         }
     except: pass
@@ -940,22 +961,22 @@ def send_telegram_msg(token, chat_id, msg):
     try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
     except: pass
 
-# --- [4. 메인 화면] ---
+# --- [5. 메인 화면] ---
 
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V38.0 (AI Expanded)")
+    st.title("💎 Quant Sniper V38.1 (Price Fix)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V38.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V38.1 업데이트 노트", expanded=False):
         st.markdown("""
+        * **가격 로직 수정:** 매수 의견 시 '현재가' 진입을 추천하도록 변경 (괴리 해결).
+        * **호가 단위 보정:** 10원, 100원 단위 등 주식 시장 규칙에 맞게 가격 반올림.
         * **AI 요약 배지:** 상세 분석을 펼치기 전, 핵심 요약(헤드라인)을 즉시 확인 가능하도록 Expander 제목에 통합.
         * **UX 최적화:** 버튼 새로고침 문제를 해결하기 위해 네이티브 Expander 활용.
-        * **관계형 검색(KG):** 종목과 테마의 핵심 관계(예: 대장주, 협력사)를 태그로 표시
-        * **산업 사이클 연동:** KOSPI/KOSDAQ 지수 추세 반영
         * **백테스팅 엔진:** 최근 1년 승률 자동 검증
         * **AI 연상 검색:** 키워드만으로 관련주 자동 발굴
         """)
@@ -1226,7 +1247,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V38.0 (AI Expanded)\n\n"
+            msg = f"💎 Quant Sniper V38.1 (Price Fix)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
