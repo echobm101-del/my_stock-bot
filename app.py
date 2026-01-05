@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V35.0 (AI Search)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V36.0 (Knowledge Graph)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -93,6 +93,8 @@ st.markdown("""
     
     .cycle-badge { background-color:#E6FCF5; color:#087F5B; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; border:1px solid #B2F2BB; display:inline-block; margin-top:4px; }
     .cycle-badge.bear { background-color:#FFF5F5; color:#F04452; border-color:#FFD8A8; }
+    
+    .relation-badge { background-color:#F3F0FF; color:#7950F2; padding:3px 6px; border-radius:4px; font-size:10px; font-weight:700; border:1px solid #E5DBFF; margin-left:6px; vertical-align: middle; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -110,9 +112,14 @@ def create_card_html(res):
     elif chg < 0: chg_color = "#3182F6"; chg_txt = f"({chg:.2f}% ▼)"
     else: chg_color = "#333333"; chg_txt = f"({chg:.2f}% -)"
 
-    # [New] 사이클 및 백테스팅 배지
+    # [New] 사이클, 백테스팅, 그리고 관계(Relation) 배지
     cycle_cls = "bear" if "하락" in res['cycle_txt'] else ""
     backtest_txt = f"⚡ 검증 승률: {res['win_rate']}%" if res['win_rate'] > 0 else "⚡ 백테스팅 데이터 부족"
+    
+    # 관계 태그가 있으면 표시
+    relation_html = ""
+    if res.get('relation_tag'):
+        relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
     html = f"""
     <div class='toss-card'>
@@ -120,6 +127,7 @@ def create_card_html(res):
             <div>
                 <span class='stock-name'>{res['name']}</span>
                 <span class='stock-code'>{res['code']}</span>
+                {relation_html}
                 <div class='cycle-badge {cycle_cls}'>{res['cycle_txt']}</div>
                 <div class='big-price'>
                     {res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span>
@@ -685,19 +693,21 @@ def call_gemini_dynamic(prompt):
         else: return None, f"HTTP {res.status_code}: {res.text}"
     except Exception as e: return None, f"Connection Error: {str(e)}"
 
-# [New] AI 연상 검색 엔진 (Gemini)
+# [New] AI 연상 검색 엔진 (Gemini) + 관계 태그 추가
 def get_ai_recommended_stocks(keyword):
     prompt = f"""
     당신은 한국 주식 전문가입니다.
     사용자가 입력한 검색어 '{keyword}'와 가장 관련성이 높은 한국(KOSPI/KOSDAQ) 상장 주식 5개를 추천해주세요.
     
-    [규칙]
-    1. 반드시 '종목명'과 '종목코드(6자리)'를 정확하게 JSON 형식으로 반환하세요.
-    2. 설명이나 잡담은 제외하고 오직 JSON 리스트만 출력하세요.
-    3. 대표적인 대장주 위주로 선정하세요.
+    [핵심 규칙]
+    1. 각 종목이 검색어와 어떤 관계인지 5글자 이내의 '핵심 태그(relation)'를 반드시 포함하세요. (예: 대장주, 지분보유, 경쟁사, 납품사)
+    2. JSON 형식으로만 출력하세요.
     
     [출력 예시]
-    [{{"name": "삼성전자", "code": "005930"}}, {{"name": "SK하이닉스", "code": "000660"}}]
+    [
+        {{"name": "삼성전자", "code": "005930", "relation": "HBM 대장주"}}, 
+        {{"name": "한미반도체", "code": "042700", "relation": "장비 납품"}}
+    ]
     """
     
     res_data, error = call_gemini_dynamic(prompt)
@@ -706,13 +716,14 @@ def get_ai_recommended_stocks(keyword):
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
             raw = raw.replace("```json", "").replace("```", "").strip()
             stock_list = json.loads(raw)
-            # 데이터 검증 (code가 있는지 확인)
+            
             valid_list = []
             for item in stock_list:
                 if 'name' in item and 'code' in item:
-                    # price는 0으로 초기화 (나중에 분석 시 채워짐)
-                    valid_list.append({"name": item['name'], "code": item['code'], "price": 0})
-            return valid_list, f"🤖 AI가 '{keyword}' 관련주를 찾아냈습니다!"
+                    # price는 0, relation_tag는 AI가 준 값 사용
+                    tag = item.get('relation', '관련주')
+                    valid_list.append({"name": item['name'], "code": item['code'], "price": 0, "relation_tag": tag})
+            return valid_list, f"🤖 AI가 '{keyword}' 관련주와 핵심 관계를 파악했습니다!"
         except:
             return [], "AI 응답 해석 실패"
     return [], "AI 연결 실패"
@@ -802,7 +813,7 @@ def get_supply_demand(code):
         return {"f": int(df['외국인'].sum()), "i": int(df['기관합계'].sum())}
     except: return {"f":0, "i":0}
 
-def analyze_pro(code, name_override=None):
+def analyze_pro(code, name_override=None, relation_tag=None):
     try:
         # [New] RSI 계산을 위해 1년치 데이터 로딩
         score, tags, vol_ratio, chg_rate, win_rate, df = calculate_sniper_score(code)
@@ -828,7 +839,8 @@ def analyze_pro(code, name_override=None):
         "investor_trend": pd.DataFrame(),
         "fin_history": pd.DataFrame(),
         "win_rate": win_rate, # [New]
-        "cycle_txt": "확인 중" # [New]
+        "cycle_txt": "확인 중", # [New]
+        "relation_tag": relation_tag # [New]
     }
 
     # 1. 기술적 분석
@@ -929,17 +941,18 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V35.0 (AI Search)")
+    st.title("💎 Quant Sniper V36.0 (Knowledge Graph)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V35.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V36.0 업데이트 노트", expanded=False):
         st.markdown("""
-        * **AI 연상 검색:** "비만", "초전도체" 등 입력 시 관련주 자동 추천
+        * **관계형 검색(KG):** 종목과 테마의 핵심 관계(예: 대장주, 협력사)를 태그로 표시
         * **산업 사이클 연동:** KOSPI/KOSDAQ 지수 추세 반영
         * **백테스팅 엔진:** 최근 1년 승률 자동 검증
         * **차트 업그레이드:** RSI, MACD 보조지표 추가
+        * **AI 연상 검색:** 키워드만으로 관련주 자동 발굴
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -971,7 +984,8 @@ with tab1:
         with st.spinner("🚀 고속 AI 분석 엔진 & 백테스팅 가동 중..."):
             preview_results = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [executor.submit(analyze_pro, item['code'], item['name']) for item in st.session_state['preview_list']]
+                # [수정] 관계 태그도 같이 전달
+                futures = [executor.submit(analyze_pro, item['code'], item['name'], item.get('relation_tag')) for item in st.session_state['preview_list']]
                 for f in concurrent.futures.as_completed(futures):
                     if f.result(): 
                         res = f.result()
@@ -980,6 +994,7 @@ with tab1:
                             "종목명": res['name'], "코드": res['code'], "점수": res['score'], 
                             "현재가": res['price'], "목표가": res['strategy']['target'], 
                             "손절가": res['strategy']['stop'], "승률": f"{res['win_rate']}%",
+                            "관계": res.get('relation_tag', ''), # 엑셀에도 관계 저장
                             "AI의견": res['news']['opinion'], "핵심재료": res['news']['catalyst']
                         })
             preview_results.sort(key=lambda x: x['score'], reverse=True)
@@ -1131,18 +1146,15 @@ with st.sidebar:
 
                 is_stock_found = False; target_code = None
                 
-                # 1. 코드로 검색 (123456)
                 if target_keyword.isdigit() and not krx_df.empty:
                     if target_keyword in krx_df['Code'].values:
                         target_code = target_keyword
                         try: target_keyword = krx_df[krx_df['Code'] == target_code].iloc[0]['Name']
                         except: pass
-                # 2. 정확한 종목명 검색 (삼성전자)
                 elif not krx_df.empty and target_keyword in krx_df['Name'].values:
                     try: target_code = krx_df[krx_df['Name'] == target_keyword].iloc[0]['Code']
                     except: pass
 
-                # 개별 종목 찾은 경우 -> 바로 분석
                 if target_code:
                     try:
                         st.info(f"🔎 '{target_keyword}' 분석 중...")
@@ -1153,20 +1165,18 @@ with st.sidebar:
                             is_stock_found = True; st.rerun()
                     except Exception as e: st.error(f"오류: {str(e)}")
 
-                # 3. 못 찾음 -> AI 연상 검색 시도 (New!)
                 if not is_stock_found:
                     try:
                         with st.spinner(f"🤖 AI가 '{target_keyword}' 관련주를 생각 중입니다..."):
+                            # [New] 관계 태그도 같이 가져옴
                             ai_stocks, msg = get_ai_recommended_stocks(target_keyword)
                         
                         if ai_stocks:
                             st.success(msg)
-                            # AI가 찾은 종목들로 프리뷰 리스트 생성
                             st.session_state['preview_list'] = ai_stocks
                             st.session_state['current_theme_name'] = f"AI 추천: {target_keyword}"
                             st.rerun()
                         else:
-                            # AI도 실패하면 -> 최후의 보루 (네이버 테마)
                             with st.spinner("네이버 금융 테마 스캔 (Fallback)..."):
                                 raw_stocks, msg = get_naver_theme_stocks(target_keyword)
                             if raw_stocks:
@@ -1181,9 +1191,11 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V35.0 (AI Search)\n\n"
+            msg = f"💎 Quant Sniper V36.0 (KG)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
-            for i, r in enumerate(wl_results[:3]): msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   목표: {r['strategy']['target']:,}\n   손절: {r['strategy']['stop']:,}\n   요약: {r['news']['headline'][:50]}...\n\n"
+            for i, r in enumerate(wl_results[:3]): 
+                rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
+                msg += f"{i+1}. {r['name']} {rel_txt}({r['score']}점)\n   가격: {r['price']:,}원\n   목표: {r['strategy']['target']:,}\n   손절: {r['strategy']['stop']:,}\n   요약: {r['news']['headline'][:50]}...\n\n"
             send_telegram_msg(token, chat_id, msg)
             st.success("전송 완료!")
         else: st.warning("설정 확인 필요")
