@@ -1054,72 +1054,6 @@ with tab1:
                 for news in res['news']['raw_news']:
                     st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
-    else: st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
-
-with tab2:
-    st.markdown("### 📂 관심 종목 (Watchlist)")
-    if st.button("🔄 화면 정리 (상세창 닫기)", key="clear_wl"):
-        st.rerun()
-        
-    combined_watchlist = list(st.session_state['watchlist'].items())
-    if not combined_watchlist: 
-        st.info("아직 관심 종목이 없습니다.")
-    else:
-        with st.spinner("🚀 관심 종목 일괄 분석 중... (고속 모드)"):
-            wl_results = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [executor.submit(analyze_pro, info['code'], name) for name, info in combined_watchlist]
-                for f in concurrent.futures.as_completed(futures):
-                    if f.result(): wl_results.append(f.result())
-            wl_results.sort(key=lambda x: x['score'], reverse=True)
-        for res in wl_results:
-            st.markdown(create_card_html(res), unsafe_allow_html=True)
-            with st.expander(f"📊 {res['name']} 상세 분석 및 삭제"):
-                if st.button(f"🗑️ {res['name']} 삭제", key=f"delete_{res['code']}"):
-                    del st.session_state['watchlist'][res['name']]
-                    st.rerun()
-
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("###### 📈 기술적 분석")
-                    st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
-                    render_ma_status(res['ma_status'])
-                    render_tech_metrics(res['stoch'], res['vol_ratio'])
-                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
-                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
-                with col2:
-                    st.write("###### 🏢 재무 펀더멘탈")
-                    render_fund_scorecard(res['fund_data'])
-                    render_financial_table(res['fin_history'])
-                st.write("###### 🧠 큰손 투자 동향")
-                render_investor_chart(res['investor_trend'])
-                
-                st.write("###### 📰 AI 헤지펀드 매니저 분석")
-                if res['news']['method'] == "ai": 
-                    op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
-                    if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
-                    elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
-                    
-                    st.markdown(f"""
-                    <div class='news-ai'>
-                        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
-                            <span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span>
-                            <span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span>
-                        </div>
-                        <div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>
-                            🤖 <b>Deep Analysis:</b> {res['news']['headline']}
-                        </div>
-                        <div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>
-                            ⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}
-                        </div>
-                    </div>""", unsafe_allow_html=True)
-                else:
-                    st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
-                
-                st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
-                for news in res['news']['raw_news']:
-                    st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
-                st.markdown("</div>", unsafe_allow_html=True)
 
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
@@ -1191,7 +1125,9 @@ with st.sidebar:
         if token and chat_id and 'wl_results' in locals() and wl_results:
             msg = f"💎 Quant Sniper V36.1 (Fix)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
-            for i, r in enumerate(wl_results[:3]): msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   목표: {r['strategy']['target']:,}\n   손절: {r['strategy']['stop']:,}\n   요약: {r['news']['headline'][:50]}...\n\n"
+            for i, r in enumerate(wl_results[:3]): 
+                rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
+                msg += f"{i+1}. {r['name']} {rel_txt}({r['score']}점)\n   가격: {r['price']:,}원\n   목표: {r['strategy']['target']:,}\n   손절: {r['strategy']['stop']:,}\n   요약: {r['news']['headline'][:50]}...\n\n"
             send_telegram_msg(token, chat_id, msg)
             st.success("전송 완료!")
         else: st.warning("설정 확인 필요")
