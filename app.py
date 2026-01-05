@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V38.1 (Price Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V39.1 (Tight Stop)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -542,6 +542,7 @@ def calculate_sniper_score(code):
         # 보조지표 계산
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA60'] = df['Close'].rolling(60).mean()
+        df['MA5'] = df['Close'].rolling(5).mean() # MA5 추가
         df['RSI'] = calculate_rsi(df['Close'])
         df['MACD'], df['MACD_Signal'] = calculate_macd(df['Close'])
         
@@ -916,7 +917,7 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
 
-    # 5. 점수 산출 및 전략 수립 (★ 핵심 수정)
+    # 5. 점수 산출 및 전략 수립 (★ 핵심 수정 - 불기둥 스마트 로직)
     try:
         bonus = 0
         if not result_dict['investor_trend'].empty: bonus += 5
@@ -928,24 +929,37 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         if final_score >= 80:
             buy_price_raw = curr['Close']
             buy_basis_txt = "현재가 돌파"
-            target_ratio = 1.15; stop_ratio = 0.97
+            
+            # [Smart Stop] 5일선 지지 or 최대 -5% (요청사항 반영)
+            ma5 = curr.get('MA5', buy_price_raw * 0.95)
+            stop_limit = buy_price_raw * 0.95 # 최대 -5%
+            stop_raw = max(ma5, stop_limit) # 5일선과 -5% 중 더 높은(안전한) 가격 선택
+
+            target_ratio = 1.15 # 목표 +15%
             action_txt = "🔥 강력매수"
+            
+            stop_price = round_to_tick(stop_raw)
+
         elif final_score >= 60:
             buy_price_raw = curr['Close']
             buy_basis_txt = "추세 추종"
-            target_ratio = 1.10; stop_ratio = 0.95
+            target_ratio = 1.10
+            stop_ratio = 0.95 # -5%
             action_txt = "매수"
+            stop_price = round_to_tick(buy_price_raw * stop_ratio)
+
         else:
             buy_price_raw = curr.get('MA20', curr['Close'])
             buy_basis_txt = "20일선 지지"
-            target_ratio = 1.05; stop_ratio = 0.92
+            target_ratio = 1.05
+            stop_ratio = 0.92 # -8%
             action_txt = "관망"
+            stop_price = round_to_tick(buy_price_raw * stop_ratio)
 
         # 호가 단위 보정
         buy_price = round_to_tick(buy_price_raw)
         target_price = round_to_tick(buy_price * target_ratio)
-        stop_price = round_to_tick(buy_price * stop_ratio)
-
+        
         result_dict['strategy'] = {
             "buy": buy_price,
             "buy_basis": buy_basis_txt,
@@ -966,19 +980,18 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V38.1 (Price Fix)")
+    st.title("💎 Quant Sniper V39.1 (Tight Stop)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V38.1 업데이트 노트", expanded=False):
+    with st.expander("📘 V39.1 업데이트 노트", expanded=False):
         st.markdown("""
+        * **스마트 손절 로직:** 불기둥(강력매수) 종목은 **5일 이동평균선** 이탈 시 또는 최대 -5% 손실 시 매도하도록 안전장치 강화.
         * **가격 로직 수정:** 매수 의견 시 '현재가' 진입을 추천하도록 변경 (괴리 해결).
         * **호가 단위 보정:** 10원, 100원 단위 등 주식 시장 규칙에 맞게 가격 반올림.
         * **AI 요약 배지:** 상세 분석을 펼치기 전, 핵심 요약(헤드라인)을 즉시 확인 가능하도록 Expander 제목에 통합.
-        * **UX 최적화:** 버튼 새로고침 문제를 해결하기 위해 네이티브 Expander 활용.
         * **백테스팅 엔진:** 최근 1년 승률 자동 검증
-        * **AI 연상 검색:** 키워드만으로 관련주 자동 발굴
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1247,7 +1260,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V38.1 (Price Fix)\n\n"
+            msg = f"💎 Quant Sniper V39.1 (Tight Stop)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
