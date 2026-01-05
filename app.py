@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V34.0 (Ultimate)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V35.0 (AI Search)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -513,15 +513,6 @@ def backtest_strategy(df):
 # [New] 산업/시장 사이클 확인 (KOSPI/KOSDAQ 지수 기반)
 @st.cache_data(ttl=1800)
 def get_market_cycle_status(code):
-    # 코스피(0)인지 코스닥(1)인지 확인 (간이 로직)
-    market = "KS11" # 기본 코스피
-    try:
-        if code.isdigit(): 
-            # 대략적 구분 (정확하지 않을 수 있음, 안전하게 전체 시장 흐름으로 대체)
-            pass
-    except: pass
-    
-    # KOSPI 지수 240일선 조회
     try:
         kospi = fdr.DataReader('KS11', datetime.datetime.now()-datetime.timedelta(days=400))
         ma120 = kospi['Close'].rolling(120).mean().iloc[-1]
@@ -693,6 +684,38 @@ def call_gemini_dynamic(prompt):
         elif res.status_code == 429: time.sleep(1); return None, "Rate Limit"
         else: return None, f"HTTP {res.status_code}: {res.text}"
     except Exception as e: return None, f"Connection Error: {str(e)}"
+
+# [New] AI 연상 검색 엔진 (Gemini)
+def get_ai_recommended_stocks(keyword):
+    prompt = f"""
+    당신은 한국 주식 전문가입니다.
+    사용자가 입력한 검색어 '{keyword}'와 가장 관련성이 높은 한국(KOSPI/KOSDAQ) 상장 주식 5개를 추천해주세요.
+    
+    [규칙]
+    1. 반드시 '종목명'과 '종목코드(6자리)'를 정확하게 JSON 형식으로 반환하세요.
+    2. 설명이나 잡담은 제외하고 오직 JSON 리스트만 출력하세요.
+    3. 대표적인 대장주 위주로 선정하세요.
+    
+    [출력 예시]
+    [{{"name": "삼성전자", "code": "005930"}}, {{"name": "SK하이닉스", "code": "000660"}}]
+    """
+    
+    res_data, error = call_gemini_dynamic(prompt)
+    if res_data and 'candidates' in res_data:
+        try:
+            raw = res_data['candidates'][0]['content']['parts'][0]['text']
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            stock_list = json.loads(raw)
+            # 데이터 검증 (code가 있는지 확인)
+            valid_list = []
+            for item in stock_list:
+                if 'name' in item and 'code' in item:
+                    # price는 0으로 초기화 (나중에 분석 시 채워짐)
+                    valid_list.append({"name": item['name'], "code": item['code'], "price": 0})
+            return valid_list, f"🤖 AI가 '{keyword}' 관련주를 찾아냈습니다!"
+        except:
+            return [], "AI 응답 해석 실패"
+    return [], "AI 연결 실패"
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
@@ -906,17 +929,17 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V34.0 (Ultimate)")
+    st.title("💎 Quant Sniper V35.0 (AI Search)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V34.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V35.0 업데이트 노트", expanded=False):
         st.markdown("""
+        * **AI 연상 검색:** "비만", "초전도체" 등 입력 시 관련주 자동 추천
         * **산업 사이클 연동:** KOSPI/KOSDAQ 지수 추세 반영
         * **백테스팅 엔진:** 최근 1년 승률 자동 검증
         * **차트 업그레이드:** RSI, MACD 보조지표 추가
-        * **UX 개선:** 화면 정리 버튼 추가
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1093,7 +1116,7 @@ with st.sidebar:
         with st.form(key="search_form"):
             user_input = ""
             if selected_preset == "직접 입력": 
-                user_input = st.text_input("검색할 테마/종목명", placeholder="예: 리튬, 삼성전자")
+                user_input = st.text_input("검색할 테마/종목명/키워드", placeholder="예: 비만치료제, 저출산, 초전도체")
             else: st.info(f"✅ 선택된 테마: **{THEME_KEYWORDS[selected_preset]}**")
             submit_btn = st.form_submit_button("지능형 분석 시작")
         
@@ -1108,43 +1131,57 @@ with st.sidebar:
 
                 is_stock_found = False; target_code = None
                 
+                # 1. 코드로 검색 (123456)
                 if target_keyword.isdigit() and not krx_df.empty:
                     if target_keyword in krx_df['Code'].values:
                         target_code = target_keyword
                         try: target_keyword = krx_df[krx_df['Code'] == target_code].iloc[0]['Name']
                         except: pass
+                # 2. 정확한 종목명 검색 (삼성전자)
                 elif not krx_df.empty and target_keyword in krx_df['Name'].values:
                     try: target_code = krx_df[krx_df['Name'] == target_keyword].iloc[0]['Code']
                     except: pass
 
+                # 개별 종목 찾은 경우 -> 바로 분석
                 if target_code:
                     try:
                         st.info(f"🔎 '{target_keyword}' 분석 중...")
-                        # 1개 분석이라도 analyze_pro를 통해 풀 데이터 확보
                         res = analyze_pro(target_code, target_keyword)
                         if res:
-                            st.session_state['preview_list'] = [res] # 통째로 저장
+                            st.session_state['preview_list'] = [res]
                             st.session_state['current_theme_name'] = f"개별 종목: {target_keyword}"
                             is_stock_found = True; st.rerun()
                     except Exception as e: st.error(f"오류: {str(e)}")
 
+                # 3. 못 찾음 -> AI 연상 검색 시도 (New!)
                 if not is_stock_found:
                     try:
-                        with st.spinner(f"네이버 금융 테마 스캔..."):
-                            raw_stocks, msg = get_naver_theme_stocks(target_keyword)
-                        if raw_stocks:
+                        with st.spinner(f"🤖 AI가 '{target_keyword}' 관련주를 생각 중입니다..."):
+                            ai_stocks, msg = get_ai_recommended_stocks(target_keyword)
+                        
+                        if ai_stocks:
                             st.success(msg)
-                            st.session_state['preview_list'] = raw_stocks # 리스트만 저장 (나중에 상세분석)
-                            st.session_state['current_theme_name'] = target_keyword
+                            # AI가 찾은 종목들로 프리뷰 리스트 생성
+                            st.session_state['preview_list'] = ai_stocks
+                            st.session_state['current_theme_name'] = f"AI 추천: {target_keyword}"
                             st.rerun()
-                        else: st.error(f"❌ 결과 없음")
+                        else:
+                            # AI도 실패하면 -> 최후의 보루 (네이버 테마)
+                            with st.spinner("네이버 금융 테마 스캔 (Fallback)..."):
+                                raw_stocks, msg = get_naver_theme_stocks(target_keyword)
+                            if raw_stocks:
+                                st.success(msg)
+                                st.session_state['preview_list'] = raw_stocks
+                                st.session_state['current_theme_name'] = target_keyword
+                                st.rerun()
+                            else: st.error(f"❌ '{target_keyword}'에 대한 결과를 찾을 수 없습니다.")
                     except Exception as e: st.error(f"오류: {str(e)}")
 
     if st.button("🚀 텔레그램 리포트 전송"):
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V34.0 (Ultimate)\n\n"
+            msg = f"💎 Quant Sniper V35.0 (AI Search)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   목표: {r['strategy']['target']:,}\n   손절: {r['strategy']['stop']:,}\n   요약: {r['news']['headline'][:50]}...\n\n"
             send_telegram_msg(token, chat_id, msg)
