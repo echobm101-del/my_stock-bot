@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V39.1 (Tight Stop)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V40.0 (Logic Perfect)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -917,7 +917,7 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
 
-    # 5. 점수 산출 및 전략 수립 (★ 핵심 수정 - 불기둥 스마트 로직)
+    # 5. 점수 산출 및 전략 수립 (★ 핵심 수정 - 불기둥/관망 로직 통합)
     try:
         bonus = 0
         if not result_dict['investor_trend'].empty: bonus += 5
@@ -927,32 +927,44 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         result_dict['score'] = final_score
 
         if final_score >= 80:
+            # [Strong Buy] 불기둥 전략
             buy_price_raw = curr['Close']
             buy_basis_txt = "현재가 돌파"
             
-            # [Smart Stop] 5일선 지지 or 최대 -5% (요청사항 반영)
+            # 5일선 지지 or 최대 -5% 손절 (Tight Stop)
             ma5 = curr.get('MA5', buy_price_raw * 0.95)
             stop_limit = buy_price_raw * 0.95 # 최대 -5%
-            stop_raw = max(ma5, stop_limit) # 5일선과 -5% 중 더 높은(안전한) 가격 선택
+            stop_raw = max(ma5, stop_limit) 
 
             target_ratio = 1.15 # 목표 +15%
             action_txt = "🔥 강력매수"
-            
             stop_price = round_to_tick(stop_raw)
 
         elif final_score >= 60:
+            # [Buy] 일반 매수
             buy_price_raw = curr['Close']
             buy_basis_txt = "추세 추종"
             target_ratio = 1.10
-            stop_ratio = 0.95 # -5%
+            stop_ratio = 0.95 
             action_txt = "매수"
             stop_price = round_to_tick(buy_price_raw * stop_ratio)
 
         else:
-            buy_price_raw = curr.get('MA20', curr['Close'])
-            buy_basis_txt = "20일선 지지"
+            # [Hold/Watch] 관망 - "매수가는 절대 현재가보다 높을 수 없다" 원칙 적용
+            ma20 = curr.get('MA20', curr['Close'])
+            current_price = curr['Close']
+            
+            if current_price < ma20:
+                # 20일선 아래라면: 현재가 매수 (낙폭과대/저점매수)
+                buy_price_raw = current_price
+                buy_basis_txt = "낙폭 과대 (저점)"
+            else:
+                # 20일선 위라면: 눌림목 대기
+                buy_price_raw = ma20
+                buy_basis_txt = "20일선 눌림목"
+
             target_ratio = 1.05
-            stop_ratio = 0.92 # -8%
+            stop_ratio = 0.92 
             action_txt = "관망"
             stop_price = round_to_tick(buy_price_raw * stop_ratio)
 
@@ -980,18 +992,18 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V39.1 (Tight Stop)")
+    st.title("💎 Quant Sniper V40.0 (Logic Perfect)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V39.1 업데이트 노트", expanded=False):
+    with st.expander("📘 V40.0 업데이트 노트", expanded=False):
         st.markdown("""
-        * **스마트 손절 로직:** 불기둥(강력매수) 종목은 **5일 이동평균선** 이탈 시 또는 최대 -5% 손실 시 매도하도록 안전장치 강화.
+        * **[New] 관망 종목 매수 보정:** '관망' 등급 종목의 매수가가 현재가보다 높게 나오는 오류 수정 (최저가 매수 원칙 적용).
+        * **[New] 스마트 손절 로직:** 불기둥(강력매수) 종목은 **최대 -5%** 손실 제한 및 5일선 지지 로직 적용.
         * **가격 로직 수정:** 매수 의견 시 '현재가' 진입을 추천하도록 변경 (괴리 해결).
         * **호가 단위 보정:** 10원, 100원 단위 등 주식 시장 규칙에 맞게 가격 반올림.
         * **AI 요약 배지:** 상세 분석을 펼치기 전, 핵심 요약(헤드라인)을 즉시 확인 가능하도록 Expander 제목에 통합.
-        * **백테스팅 엔진:** 최근 1년 승률 자동 검증
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1260,7 +1272,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V39.1 (Tight Stop)\n\n"
+            msg = f"💎 Quant Sniper V40.0 (Logic Perfect)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
