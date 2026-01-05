@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V45.0 (Auto-Save)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V43.0 (Full Trend)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -126,6 +126,7 @@ def create_card_html(res):
     if res.get('relation_tag'):
         relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
+    # [중요] HTML 렌더링
     html = ""
     html += f"<div class='toss-card'>"
     html += f"  <div style='display:flex; justify-content:space-between; align-items:center;'>"
@@ -154,18 +155,31 @@ def create_card_html(res):
     
     return html
 
+# [V42.0] RSI & MACD 신호등 렌더링 함수
 def render_signal_lights(rsi, macd, macd_sig):
+    # RSI Logic
     if rsi <= 35:
-        rsi_cls = "buy"; rsi_icon = "🟢"; rsi_msg = "저평가 (싸다!)"
+        rsi_cls = "buy"
+        rsi_icon = "🟢"
+        rsi_msg = "저평가 (싸다!)"
     elif rsi >= 70:
-        rsi_cls = "sell"; rsi_icon = "🔴"; rsi_msg = "과열권 (비싸다!)"
+        rsi_cls = "sell"
+        rsi_icon = "🔴"
+        rsi_msg = "과열권 (비싸다!)"
     else:
-        rsi_cls = "neu"; rsi_icon = "🟡"; rsi_msg = "중립 (특이사항 없음)"
+        rsi_cls = "neu"
+        rsi_icon = "🟡"
+        rsi_msg = "중립 (특이사항 없음)"
 
+    # MACD Logic
     if macd > macd_sig:
-        macd_cls = "buy"; macd_icon = "🟢"; macd_msg = "상승 추세 (골든크로스)"
+        macd_cls = "buy"
+        macd_icon = "🟢"
+        macd_msg = "상승 추세 (골든크로스)"
     else:
-        macd_cls = "sell"; macd_icon = "🔴"; macd_msg = "하락 반전 (데드크로스)"
+        macd_cls = "sell"
+        macd_icon = "🔴"
+        macd_msg = "하락 반전 (데드크로스)"
 
     html = f"""
     <div class='tech-status-box'>
@@ -181,6 +195,7 @@ def render_signal_lights(rsi, macd, macd_sig):
     """
     st.markdown(html, unsafe_allow_html=True)
 
+# [V42.0] 스토캐스틱 & 거래량 렌더링 함수
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
     if k < 20: stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"; stoch_cls = "buy"
@@ -215,15 +230,15 @@ def render_ma_status(ma_list):
     html += "</div>"
     st.markdown(html, unsafe_allow_html=True)
 
+# [V43.0] 차트 범례 업그레이드 (120/240일선 추가)
 def render_chart_legend():
     html = ""
     html += "<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center; flex-wrap:wrap;'>"
     html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가</div>"
-    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#FF4B4B; margin-right:4px;'></div>5일선(단기)</div>"
-    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(생명)</div>"
-    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(수급)</div>"
-    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#9C27B0; margin-right:4px;'></div>120일선(경기)</div>"
-    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#999; border-top:1px dashed #999; margin-right:4px;'></div>240일선(대세)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(생명선)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(수급선)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#9C27B0; margin-right:4px;'></div>120일선(경기선)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#999; border-top:1px dashed #999; margin-right:4px;'></div>240일선(대세선)</div>"
     html += "</div>"
     return html
 
@@ -365,39 +380,6 @@ def load_from_github():
             return json.loads(content)
         return {}
     except: return {}
-
-# [V45.0 New Feature] GitHub 자동 저장 함수
-def update_github_file(new_data):
-    try:
-        token = USER_GITHUB_TOKEN
-        if not token: return False
-        
-        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        
-        # 1. 현재 파일의 SHA 값 가져오기 (덮어쓰기 위해 필요)
-        r_get = requests.get(url, headers=headers)
-        if r_get.status_code == 200:
-            sha = r_get.json().get('sha')
-        else:
-            sha = None # 파일이 없으면 새로 생성
-            
-        # 2. 데이터 인코딩
-        json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
-        b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
-        
-        # 3. 데이터 전송 (PUT)
-        data = {
-            "message": "Update watchlist via Streamlit App (Auto-Save)",
-            "content": b64_content
-        }
-        if sha: data["sha"] = sha
-        
-        r_put = requests.put(url, headers=headers, json=data)
-        return r_put.status_code in [200, 201]
-    except Exception as e:
-        print(f"GitHub Save Error: {e}")
-        return False
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
@@ -600,9 +582,9 @@ def calculate_sniper_score(code):
         # 보조지표 계산
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA60'] = df['Close'].rolling(60).mean()
-        df['MA120'] = df['Close'].rolling(120).mean() # [V44.0] 120일선
-        df['MA240'] = df['Close'].rolling(240).mean() # [V44.0] 240일선
-        df['MA5'] = df['Close'].rolling(5).mean() # [V44.0] 5일선
+        df['MA120'] = df['Close'].rolling(120).mean() # [V43.0] 추가
+        df['MA240'] = df['Close'].rolling(240).mean() # [V43.0] 추가
+        df['MA5'] = df['Close'].rolling(5).mean()
         df['RSI'] = calculate_rsi(df['Close'])
         df['ATR'] = calculate_atr(df) # ATR 계산
         df['MACD'], df['MACD_Signal'] = calculate_macd(df['Close'])
@@ -1046,17 +1028,17 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V45.0 (Auto-Save)")
+    st.title("💎 Quant Sniper V43.0 (Full Trend)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V45.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V43.0 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 자동 저장(Auto-Save):** 관심 종목 추가/삭제 시 GitHub 파일에 즉시 저장되어 데이터가 절대 날아가지 않음.
-        * **5일선(생명선) 차트 반영:** 급등주 매매의 핵심인 5일선을 차트와 범례에 추가.
-        * **120/240일선 추가:** 중장기 경기선과 대세선을 추가하여 큰 흐름 파악.
-        * **RSI/MACD 신호등:** 차트 상단에 직관적인 신호등 대시보드.
+        * **[New] 120/240일선 추가:** 차트에 중장기 경기선(120일)과 대세선(240일)을 추가하여 큰 흐름 파악.
+        * **[New] 차트 범례:** 그래프 위에 선 색상과 의미(생명선, 수급선 등)를 설명하는 깔끔한 범례 추가.
+        * **RSI/MACD 신호등:** 차트 상단에 직관적인 신호등 대시보드 (싸다/비싸다, 골든크로스 등).
+        * **ATR 기반 다이내믹 손절:** 종목의 변동성(ATR)에 맞춰 2배수 이탈 시 손절하는 전문가 로직.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1127,12 +1109,99 @@ with tab1:
                 with col_add:
                     if st.button(f"📌 {res['name']} 관심종목 등록", key=f"add_{res['code']}"):
                         st.session_state['watchlist'][res['name']] = {'code': res['code']}
-                        # [Auto-Save Trigger]
-                        if update_github_file(st.session_state['watchlist']):
-                            st.success("✅ 저장 완료!")
-                        else:
-                            st.error("❌ 저장 실패 (권한/통신 오류)")
+                        st.success("추가 완료!")
                         time.sleep(0.5); st.rerun()
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("###### 📈 기술적 분석 (RSI/MACD)")
+                    st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
+                    
+                    # [V42.0 New Feature] 스토캐스틱/거래량 (1번째 줄)
+                    render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    
+                    # [V42.0 New Feature] RSI/MACD 신호등 (2번째 줄)
+                    curr_row = res['history'].iloc[-1]
+                    render_signal_lights(curr_row['RSI'], curr_row['MACD'], curr_row['MACD_Signal'])
+
+                    render_ma_status(res['ma_status'])
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                with col2:
+                    st.write("###### 🏢 재무 펀더멘탈")
+                    render_fund_scorecard(res['fund_data'])
+                    render_financial_table(res['fin_history'])
+                st.write("###### 🧠 큰손 투자 동향")
+                render_investor_chart(res['investor_trend'])
+                
+                st.write("###### 📰 AI 헤지펀드 매니저 분석")
+                if res['news']['method'] == "ai": 
+                    op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
+                    if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
+                    elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
+                    
+                    st.markdown(f"""
+                    <div class='news-ai'>
+                        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
+                            <span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span>
+                            <span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span>
+                        </div>
+                        <div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>
+                            🤖 <b>Deep Analysis:</b> {res['news']['headline']}
+                        </div>
+                        <div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>
+                            ⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}
+                        </div>
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
+                
+                st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
+                for news in res['news']['raw_news']:
+                    st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+    else: st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
+
+with tab2:
+    st.markdown("### 📂 관심 종목 (Watchlist)")
+    
+    combined_watchlist = list(st.session_state['watchlist'].items())
+    if not combined_watchlist: 
+        st.info("아직 관심 종목이 없습니다.")
+    else:
+        with st.spinner("🚀 관심 종목 일괄 분석 중... (고속 모드)"):
+            wl_results = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                futures = [executor.submit(analyze_pro, info['code'], name) for name, info in combined_watchlist]
+                for f in concurrent.futures.as_completed(futures):
+                    if f.result(): wl_results.append(f.result())
+            wl_results.sort(key=lambda x: x['score'], reverse=True)
+        
+        for res in wl_results:
+            # 1. 메인 카드 표시
+            st.markdown(create_card_html(res), unsafe_allow_html=True)
+
+            # 2. [핵심 변경] AI 요약을 담은 Expander
+            ai_summary_txt = res['news'].get('headline', '분석 대기 중...')
+            if len(ai_summary_txt) > 40: ai_summary_txt = ai_summary_txt[:40] + "..."
+            
+            opinion = res['news'].get('opinion', '')
+            icon = "🔥" if "매수" in opinion or "확대" in opinion else "🤖"
+            
+            expander_label = f"{icon} AI 요약: {ai_summary_txt} (▼ 상세 분석 및 관리)"
+            
+            with st.expander(expander_label):
+                # [UX 개선] 닫기 버튼과 삭제 버튼
+                col_btn1, col_btn2, col_empty = st.columns([0.2, 0.2, 0.6])
+                
+                with col_btn1:
+                    if st.button(f"🗑️ {res['name']} 삭제", key=f"delete_{res['code']}"):
+                        del st.session_state['watchlist'][res['name']]
+                        st.rerun()
+                
+                with col_btn2:
+                    if st.button(f"❌ 닫기", key=f"close_{res['code']}"):
+                        st.rerun()
+
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write("###### 📈 기술적 분석")
@@ -1253,7 +1322,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V45.0 (Auto-Save)\n\n"
+            msg = f"💎 Quant Sniper V43.0 (Full Trend)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
@@ -1265,11 +1334,5 @@ with st.sidebar:
     with st.expander("개별 종목 추가"):
         name = st.text_input("이름"); code = st.text_input("코드")
         if st.button("추가") and name and code:
-            st.session_state['watchlist'][name] = {"code": code}
-            # [Auto-Save Trigger]
-            if update_github_file(st.session_state['watchlist']):
-                st.success("✅ 자동 저장 완료!")
-            else:
-                st.error("❌ 저장 실패 (권한/통신 오류)")
-            time.sleep(0.5); st.rerun()
+            st.session_state['watchlist'][name] = {"code": code}; st.rerun()
     if st.button("초기화"): st.session_state['watchlist'] = {}; st.session_state['preview_list'] = []; st.rerun()
