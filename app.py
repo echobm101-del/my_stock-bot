@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V36.2 (Final Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V36.3 (Perfect Fix)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -108,11 +108,16 @@ def create_card_html(res):
     buy_basis = res['strategy'].get('buy_basis', '20일선')
     
     chg = res.get('change_rate', 0.0)
-    if chg > 0: chg_color = "#F04452"; chg_txt = f"(+{chg:.2f}% ▲)"
-    elif chg < 0: chg_color = "#3182F6"; chg_txt = f"({chg:.2f}% ▼)"
-    else: chg_color = "#333333"; chg_txt = f"({chg:.2f}% -)"
+    if chg > 0: 
+        chg_color = "#F04452"
+        chg_txt = f"(+{chg:.2f}% ▲)"
+    elif chg < 0: 
+        chg_color = "#3182F6"
+        chg_txt = f"({chg:.2f}% ▼)"
+    else: 
+        chg_color = "#333333"
+        chg_txt = f"({chg:.2f}% -)"
 
-    # [New] 사이클, 백테스팅, 그리고 관계(Relation) 배지
     cycle_cls = "bear" if "하락" in res['cycle_txt'] else ""
     backtest_txt = f"⚡ 검증 승률: {res['win_rate']}%" if res['win_rate'] > 0 else "⚡ 백테스팅 데이터 부족"
     
@@ -120,35 +125,33 @@ def create_card_html(res):
     if res.get('relation_tag'):
         relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
-    # [긴급 수정] textwrap.dedent를 사용하여 공백 문제를 원천 차단
-    html = textwrap.dedent(f"""
-    <div class='toss-card'>
-        <div style='display:flex; justify-content:space-between; align-items:center;'>
-            <div>
-                <span class='stock-name'>{res['name']}</span>
-                <span class='stock-code'>{res['code']}</span>
-                {relation_html}
-                <div class='cycle-badge {cycle_cls}'>{res['cycle_txt']}</div>
-                <div class='big-price'>
-                    {res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span>
-                </div>
-            </div>
-            <div style='text-align:right;'>
-                <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>
-                <div class='badge-clean' style='background-color:{score_col}20; color:{score_col};'>{res['strategy']['action']}</div>
-            </div>
-        </div>
-        <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>
-            <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🔵 매수 {buy_price:,}<br><span style='font-size:10px; opacity:0.7;'>({buy_basis})</span></div>
-            <div style='color:#F04452; background-color:#FFF1F1; padding:6px; border-radius:6px;'>🎯 목표 {target_price:,}<br><span style='font-size:10px; opacity:0.7;'>(익절가)</span></div>
-            <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 손절 {stop_price:,}<br><span style='font-size:10px; opacity:0.7;'>(방어선)</span></div>
-        </div>
-        <div style='margin-top:8px; display:flex; justify-content:space-between; align-items:center;'>
-             <span style='font-size:11px; font-weight:700; color:#555;'>{backtest_txt}</span>
-             <span style='font-size:12px; color:#888;'>{res['trend_txt']}</span>
-        </div>
-    </div>
-    """)
+    # [수정] 들여쓰기 문제 원천 차단을 위해 문자열 결합 방식 사용
+    html = ""
+    html += f"<div class='toss-card'>"
+    html += f"  <div style='display:flex; justify-content:space-between; align-items:center;'>"
+    html += f"      <div>"
+    html += f"          <span class='stock-name'>{res['name']}</span>"
+    html += f"          <span class='stock-code'>{res['code']}</span>"
+    html += f"          {relation_html}"
+    html += f"          <div class='cycle-badge {cycle_cls}'>{res['cycle_txt']}</div>"
+    html += f"          <div class='big-price'>{res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span></div>"
+    html += f"      </div>"
+    html += f"      <div style='text-align:right;'>"
+    html += f"          <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>"
+    html += f"          <div class='badge-clean' style='background-color:{score_col}20; color:{score_col};'>{res['strategy']['action']}</div>"
+    html += f"      </div>"
+    html += f"  </div>"
+    html += f"  <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>"
+    html += f"      <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🔵 매수 {buy_price:,}<br><span style='font-size:10px; opacity:0.7;'>({buy_basis})</span></div>"
+    html += f"      <div style='color:#F04452; background-color:#FFF1F1; padding:6px; border-radius:6px;'>🎯 목표 {target_price:,}<br><span style='font-size:10px; opacity:0.7;'>(익절가)</span></div>"
+    html += f"      <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 손절 {stop_price:,}<br><span style='font-size:10px; opacity:0.7;'>(방어선)</span></div>"
+    html += f"  </div>"
+    html += f"  <div style='margin-top:8px; display:flex; justify-content:space-between; align-items:center;'>"
+    html += f"       <span style='font-size:11px; font-weight:700; color:#555;'>{backtest_txt}</span>"
+    html += f"       <span style='font-size:12px; color:#888;'>{res['trend_txt']}</span>"
+    html += f"  </div>"
+    html += f"</div>"
+    
     return html
 
 # [New] RSI, MACD가 포함된 고급 차트
@@ -190,15 +193,16 @@ def render_tech_metrics(stoch, vol_ratio):
     elif vol_ratio >= 1.2: vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
     else: vol_txt = "☁️ 거래량 평이"; vol_cls = ""
 
-    st.markdown(f"""
-    <div class='tech-status-box'>
-        <div class='status-badge {stoch_cls}'>
-            <div>📊 스토캐스틱</div><div style='font-size:16px; margin-top:4px;'>{stoch_txt}</div><div style='font-size:11px; opacity:0.8;'>{stoch_sub}</div>
-        </div>
-        <div class='status-badge {vol_cls}'>
-            <div>📢 거래강도(전일비)</div><div style='font-size:16px; margin-top:4px;'>{vol_txt}</div><div style='font-size:11px; opacity:0.8;'>평소보다 {vol_ratio:.1f}배 활발</div>
-        </div>
-    </div>""", unsafe_allow_html=True)
+    html = ""
+    html += f"<div class='tech-status-box'>"
+    html += f"  <div class='status-badge {stoch_cls}'>"
+    html += f"      <div>📊 스토캐스틱</div><div style='font-size:16px; margin-top:4px;'>{stoch_txt}</div><div style='font-size:11px; opacity:0.8;'>{stoch_sub}</div>"
+    html += f"  </div>"
+    html += f"  <div class='status-badge {vol_cls}'>"
+    html += f"      <div>📢 거래강도(전일비)</div><div style='font-size:16px; margin-top:4px;'>{vol_txt}</div><div style='font-size:11px; opacity:0.8;'>평소보다 {vol_ratio:.1f}배 활발</div>"
+    html += f"  </div>"
+    html += f"</div>"
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_ma_status(ma_list):
     if not ma_list: return
@@ -211,11 +215,13 @@ def render_ma_status(ma_list):
     st.markdown(html, unsafe_allow_html=True)
 
 def render_chart_legend():
-    return """<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center;'>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가</div>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(생명선)</div>
-        <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(수급선)</div>
-    </div>"""
+    html = ""
+    html += "<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center;'>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(생명선)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(수급선)</div>"
+    html += "</div>"
+    return html
 
 def render_fund_scorecard(fund_data):
     if not fund_data: st.info("재무 정보 로딩 실패 (일시적 오류)"); return
@@ -225,12 +231,14 @@ def render_fund_scorecard(fund_data):
     per_col = "#F04452" if fund_data['per']['stat']=='good' else ("#3182F6" if fund_data['per']['stat']=='bad' else "#333")
     pbr_col = "#F04452" if fund_data['pbr']['stat']=='good' else ("#3182F6" if fund_data['pbr']['stat']=='bad' else "#333")
     div_col = "#F04452" if fund_data['div']['stat']=='good' else "#333"
-    st.markdown(f"""
-    <div class='fund-grid-v2'>
-        <div class='fund-item-v2'><div class='fund-title-v2'>PER</div><div class='fund-value-v2' style='color:{per_col}'>{per:.1f}배</div><div class='fund-desc-v2' style='background-color:{per_col}20; color:{per_col}'>{fund_data['per']['txt']}</div></div>
-        <div class='fund-item-v2'><div class='fund-title-v2'>PBR</div><div class='fund-value-v2' style='color:{pbr_col}'>{pbr:.1f}배</div><div class='fund-desc-v2' style='background-color:{pbr_col}20; color:{pbr_col}'>{fund_data['pbr']['txt']}</div></div>
-        <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>
-    </div>""", unsafe_allow_html=True)
+    
+    html = ""
+    html += f"<div class='fund-grid-v2'>"
+    html += f"  <div class='fund-item-v2'><div class='fund-title-v2'>PER</div><div class='fund-value-v2' style='color:{per_col}'>{per:.1f}배</div><div class='fund-desc-v2' style='background-color:{per_col}20; color:{per_col}'>{fund_data['per']['txt']}</div></div>"
+    html += f"  <div class='fund-item-v2'><div class='fund-title-v2'>PBR</div><div class='fund-value-v2' style='color:{pbr_col}'>{pbr:.1f}배</div><div class='fund-desc-v2' style='background-color:{pbr_col}20; color:{pbr_col}'>{fund_data['pbr']['txt']}</div></div>"
+    html += f"  <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>"
+    html += f"</div>"
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_financial_table(df):
     if df.empty:
@@ -941,14 +949,14 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V36.2 (Final Fix)")
+    st.title("💎 Quant Sniper V36.3 (Perfect Fix)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V36.2 업데이트 노트", expanded=False):
+    with st.expander("📘 V36.3 업데이트 노트", expanded=False):
         st.markdown("""
-        * **긴급 수정:** Watchlist 화면 깨짐 현상(HTML 노출) 해결
+        * **긴급 수정:** Watchlist 화면 깨짐 현상(HTML 노출) 완벽 해결 (No-Indentation Guarantee)
         * **관계형 검색(KG):** 종목과 테마의 핵심 관계(예: 대장주, 협력사)를 태그로 표시
         * **산업 사이클 연동:** KOSPI/KOSDAQ 지수 추세 반영
         * **백테스팅 엔진:** 최근 1년 승률 자동 검증
@@ -1056,6 +1064,7 @@ with tab1:
                 for news in res['news']['raw_news']:
                     st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
+    else: st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
 
 with tab2:
     st.markdown("### 📂 관심 종목 (Watchlist)")
@@ -1190,7 +1199,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V36.1 (Fix)\n\n"
+            msg = f"💎 Quant Sniper V36.3 (KG)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
