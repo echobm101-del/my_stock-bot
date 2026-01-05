@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V36.3 (Perfect Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V37.0 (UX Enhanced)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -125,7 +125,7 @@ def create_card_html(res):
     if res.get('relation_tag'):
         relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
-    # [수정] 들여쓰기 문제 원천 차단을 위해 문자열 결합 방식 사용
+    # [중요] HTML 렌더링 오류 방지를 위한 문자열 결합 방식 유지
     html = ""
     html += f"<div class='toss-card'>"
     html += f"  <div style='display:flex; justify-content:space-between; align-items:center;'>"
@@ -949,18 +949,18 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V36.3 (Perfect Fix)")
+    st.title("💎 Quant Sniper V37.0 (UX Enhanced)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V36.3 업데이트 노트", expanded=False):
+    with st.expander("📘 V37.0 업데이트 노트", expanded=False):
         st.markdown("""
-        * **긴급 수정:** Watchlist 화면 깨짐 현상(HTML 노출) 완벽 해결 (No-Indentation Guarantee)
+        * **UX 개선:** 상세 분석 창 내부에 '닫기' 버튼 추가
+        * **긴급 수정:** Watchlist 화면 깨짐 현상(HTML 노출) 완벽 해결
         * **관계형 검색(KG):** 종목과 테마의 핵심 관계(예: 대장주, 협력사)를 태그로 표시
         * **산업 사이클 연동:** KOSPI/KOSDAQ 지수 추세 반영
         * **백테스팅 엔진:** 최근 1년 승률 자동 검증
-        * **차트 업그레이드:** RSI, MACD 보조지표 추가
         * **AI 연상 검색:** 키워드만으로 관련주 자동 발굴
         """)
 
@@ -1068,8 +1068,9 @@ with tab1:
 
 with tab2:
     st.markdown("### 📂 관심 종목 (Watchlist)")
-    if st.button("🔄 화면 정리 (상세창 닫기)", key="clear_wl"):
-        st.rerun()
+    # [수정] 상단 닫기 버튼은 이제 선택사항이므로 유지하되, 주석 처리하거나 남겨둠
+    # if st.button("🔄 화면 정리 (상세창 닫기)", key="clear_wl"):
+    #     st.rerun()
         
     combined_watchlist = list(st.session_state['watchlist'].items())
     if not combined_watchlist: 
@@ -1085,9 +1086,17 @@ with tab2:
         for res in wl_results:
             st.markdown(create_card_html(res), unsafe_allow_html=True)
             with st.expander(f"📊 {res['name']} 상세 분석 및 삭제"):
-                if st.button(f"🗑️ {res['name']} 삭제", key=f"delete_{res['code']}"):
-                    del st.session_state['watchlist'][res['name']]
-                    st.rerun()
+                # [UX 개선] 닫기 버튼 추가 (컬럼 분할)
+                col_btn1, col_btn2, col_empty = st.columns([0.2, 0.2, 0.6])
+                
+                with col_btn1:
+                    if st.button(f"🗑️ {res['name']} 삭제", key=f"delete_{res['code']}"):
+                        del st.session_state['watchlist'][res['name']]
+                        st.rerun()
+                
+                with col_btn2:
+                    if st.button(f"❌ 닫기", key=f"close_{res['code']}"):
+                        st.rerun()
 
                 col1, col2 = st.columns(2)
                 with col1:
@@ -1199,7 +1208,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V36.3 (KG)\n\n"
+            msg = f"💎 Quant Sniper V37.0 (UX Enhanced)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
