@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V37.0 (UX Enhanced)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V38.0 (AI Expanded)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -125,7 +125,7 @@ def create_card_html(res):
     if res.get('relation_tag'):
         relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
-    # [중요] HTML 렌더링 오류 방지를 위한 문자열 결합 방식 유지
+    # [중요] HTML 렌더링
     html = ""
     html += f"<div class='toss-card'>"
     html += f"  <div style='display:flex; justify-content:space-between; align-items:center;'>"
@@ -154,12 +154,10 @@ def create_card_html(res):
     
     return html
 
-# [New] RSI, MACD가 포함된 고급 차트
 def create_chart_clean(df):
     try:
         chart_data = df.tail(120).copy().reset_index()
         
-        # 메인 차트 (가격 + 볼린저 + 이평선)
         base = alt.Chart(chart_data).encode(x=alt.X('Date:T', axis=alt.Axis(format='%m-%d', title=None)))
         band = base.mark_area(opacity=0.15, color='#868E96').encode(y='BB_Lower:Q', y2='BB_Upper:Q')
         line = base.mark_line(color='#000000').encode(y='Close:Q')
@@ -167,14 +165,12 @@ def create_chart_clean(df):
         ma60 = base.mark_line(color='#3182F6').encode(y='MA60:Q')
         price_chart = (band + line + ma20 + ma60).properties(height=200)
         
-        # 서브 차트 1: RSI
         rsi_base = alt.Chart(chart_data).encode(x=alt.X('Date:T', axis=None))
         rsi_line = rsi_base.mark_line(color='#9C27B0').encode(y=alt.Y('RSI:Q', title='RSI'))
         rsi_rule_u = rsi_base.mark_rule(color='gray', strokeDash=[2,2]).encode(y=alt.datum(70))
         rsi_rule_l = rsi_base.mark_rule(color='gray', strokeDash=[2,2]).encode(y=alt.datum(30))
         rsi_chart = (rsi_line + rsi_rule_u + rsi_rule_l).properties(height=60)
         
-        # 서브 차트 2: MACD
         macd_base = alt.Chart(chart_data).encode(x=alt.X('Date:T', axis=None))
         macd_line = macd_base.mark_line(color='#2196F3').encode(y=alt.Y('MACD:Q', title='MACD'))
         signal_line = macd_base.mark_line(color='#FF5722').encode(y='MACD_Signal:Q')
@@ -949,15 +945,15 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V37.0 (UX Enhanced)")
+    st.title("💎 Quant Sniper V38.0 (AI Expanded)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V37.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V38.0 업데이트 노트", expanded=False):
         st.markdown("""
-        * **UX 개선:** 상세 분석 창 내부에 '닫기' 버튼 추가
-        * **긴급 수정:** Watchlist 화면 깨짐 현상(HTML 노출) 완벽 해결
+        * **AI 요약 배지:** 상세 분석을 펼치기 전, 핵심 요약(헤드라인)을 즉시 확인 가능하도록 Expander 제목에 통합.
+        * **UX 최적화:** 버튼 새로고침 문제를 해결하기 위해 네이티브 Expander 활용.
         * **관계형 검색(KG):** 종목과 테마의 핵심 관계(예: 대장주, 협력사)를 태그로 표시
         * **산업 사이클 연동:** KOSPI/KOSDAQ 지수 추세 반영
         * **백테스팅 엔진:** 최근 1년 승률 자동 검증
@@ -1015,8 +1011,21 @@ with tab1:
             st.download_button("📥 분석 결과 엑셀 다운로드", csv, "quant_sniper_report.csv", "text/csv")
 
         for res in preview_results:
+            # 1. 메인 카드 표시 (HTML)
             st.markdown(create_card_html(res), unsafe_allow_html=True)
-            with st.expander(f"📊 {res['name']} 상세 분석 및 추가"):
+            
+            # 2. [핵심 변경] AI 요약을 담은 Expander (클릭 시 상세 분석 펼침)
+            # 요약 텍스트 생성 (너무 길면 자름)
+            ai_summary_txt = res['news'].get('headline', '분석 대기 중...')
+            if len(ai_summary_txt) > 40: ai_summary_txt = ai_summary_txt[:40] + "..."
+            
+            # 아이콘 결정 (매수 의견이면 불꽃, 아니면 봇)
+            opinion = res['news'].get('opinion', '')
+            icon = "🔥" if "매수" in opinion or "확대" in opinion else "🤖"
+            
+            expander_label = f"{icon} AI 요약: {ai_summary_txt} (▼ 상세 분석 펼치기)"
+            
+            with st.expander(expander_label):
                 col_add, col_info = st.columns([1, 5])
                 with col_add:
                     if st.button(f"📌 {res['name']} 관심종목 등록", key=f"add_{res['code']}"):
@@ -1068,10 +1077,7 @@ with tab1:
 
 with tab2:
     st.markdown("### 📂 관심 종목 (Watchlist)")
-    # [수정] 상단 닫기 버튼은 이제 선택사항이므로 유지하되, 주석 처리하거나 남겨둠
-    # if st.button("🔄 화면 정리 (상세창 닫기)", key="clear_wl"):
-    #     st.rerun()
-        
+    
     combined_watchlist = list(st.session_state['watchlist'].items())
     if not combined_watchlist: 
         st.info("아직 관심 종목이 없습니다.")
@@ -1083,10 +1089,22 @@ with tab2:
                 for f in concurrent.futures.as_completed(futures):
                     if f.result(): wl_results.append(f.result())
             wl_results.sort(key=lambda x: x['score'], reverse=True)
+        
         for res in wl_results:
+            # 1. 메인 카드 표시
             st.markdown(create_card_html(res), unsafe_allow_html=True)
-            with st.expander(f"📊 {res['name']} 상세 분석 및 삭제"):
-                # [UX 개선] 닫기 버튼 추가 (컬럼 분할)
+
+            # 2. [핵심 변경] AI 요약을 담은 Expander
+            ai_summary_txt = res['news'].get('headline', '분석 대기 중...')
+            if len(ai_summary_txt) > 40: ai_summary_txt = ai_summary_txt[:40] + "..."
+            
+            opinion = res['news'].get('opinion', '')
+            icon = "🔥" if "매수" in opinion or "확대" in opinion else "🤖"
+            
+            expander_label = f"{icon} AI 요약: {ai_summary_txt} (▼ 상세 분석 및 관리)"
+            
+            with st.expander(expander_label):
+                # [UX 개선] 닫기 버튼과 삭제 버튼
                 col_btn1, col_btn2, col_empty = st.columns([0.2, 0.2, 0.6])
                 
                 with col_btn1:
@@ -1208,7 +1226,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V37.0 (UX Enhanced)\n\n"
+            msg = f"💎 Quant Sniper V38.0 (AI Expanded)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
