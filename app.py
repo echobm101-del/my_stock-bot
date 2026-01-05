@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V44.0 (Full 5-Line)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V45.0 (Auto-Save)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -215,7 +215,6 @@ def render_ma_status(ma_list):
     html += "</div>"
     st.markdown(html, unsafe_allow_html=True)
 
-# [V44.0] 5일선 포함 완벽한 차트 범례
 def render_chart_legend():
     html = ""
     html += "<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center; flex-wrap:wrap;'>"
@@ -366,6 +365,39 @@ def load_from_github():
             return json.loads(content)
         return {}
     except: return {}
+
+# [V45.0 New Feature] GitHub 자동 저장 함수
+def update_github_file(new_data):
+    try:
+        token = USER_GITHUB_TOKEN
+        if not token: return False
+        
+        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
+        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
+        
+        # 1. 현재 파일의 SHA 값 가져오기 (덮어쓰기 위해 필요)
+        r_get = requests.get(url, headers=headers)
+        if r_get.status_code == 200:
+            sha = r_get.json().get('sha')
+        else:
+            sha = None # 파일이 없으면 새로 생성
+            
+        # 2. 데이터 인코딩
+        json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
+        b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
+        
+        # 3. 데이터 전송 (PUT)
+        data = {
+            "message": "Update watchlist via Streamlit App (Auto-Save)",
+            "content": b64_content
+        }
+        if sha: data["sha"] = sha
+        
+        r_put = requests.put(url, headers=headers, json=data)
+        return r_put.status_code in [200, 201]
+    except Exception as e:
+        print(f"GitHub Save Error: {e}")
+        return False
 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = load_from_github()
 if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
@@ -1014,18 +1046,17 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V44.0 (Full 5-Line)")
+    st.title("💎 Quant Sniper V45.0 (Auto-Save)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V44.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V45.0 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 5일선(생명선) 차트 반영:** 급등주 매매의 핵심인 5일선을 차트와 범례에 추가하여 시각화 강화.
-        * **[Optimization] 닫기 버튼 삭제:** 중복 기능인 상세창 내부 '닫기' 버튼을 제거하여 앱 속도 및 UX 개선.
-        * **[New] 120/240일선 추가:** 차트에 중장기 경기선(120일)과 대세선(240일)을 추가하여 큰 흐름 파악.
+        * **[New] 자동 저장(Auto-Save):** 관심 종목 추가/삭제 시 GitHub 파일에 즉시 저장되어 데이터가 절대 날아가지 않음.
+        * **5일선(생명선) 차트 반영:** 급등주 매매의 핵심인 5일선을 차트와 범례에 추가.
+        * **120/240일선 추가:** 중장기 경기선과 대세선을 추가하여 큰 흐름 파악.
         * **RSI/MACD 신호등:** 차트 상단에 직관적인 신호등 대시보드.
-        * **ATR 기반 다이내믹 손절:** 변동성 기반 스마트 손절 로직.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1096,7 +1127,11 @@ with tab1:
                 with col_add:
                     if st.button(f"📌 {res['name']} 관심종목 등록", key=f"add_{res['code']}"):
                         st.session_state['watchlist'][res['name']] = {'code': res['code']}
-                        st.success("추가 완료!")
+                        # [Auto-Save Trigger]
+                        if update_github_file(st.session_state['watchlist']):
+                            st.success("✅ 저장 완료!")
+                        else:
+                            st.error("❌ 저장 실패 (권한/통신 오류)")
                         time.sleep(0.5); st.rerun()
                 col1, col2 = st.columns(2)
                 with col1:
@@ -1218,7 +1253,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V44.0 (Full 5-Line)\n\n"
+            msg = f"💎 Quant Sniper V45.0 (Auto-Save)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
@@ -1230,5 +1265,11 @@ with st.sidebar:
     with st.expander("개별 종목 추가"):
         name = st.text_input("이름"); code = st.text_input("코드")
         if st.button("추가") and name and code:
-            st.session_state['watchlist'][name] = {"code": code}; st.rerun()
+            st.session_state['watchlist'][name] = {"code": code}
+            # [Auto-Save Trigger]
+            if update_github_file(st.session_state['watchlist']):
+                st.success("✅ 자동 저장 완료!")
+            else:
+                st.error("❌ 저장 실패 (권한/통신 오류)")
+            time.sleep(0.5); st.rerun()
     if st.button("초기화"): st.session_state['watchlist'] = {}; st.session_state['preview_list'] = []; st.rerun()
