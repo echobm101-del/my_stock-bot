@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V42.0 (Signal Lights)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V41.0 (Hedge Fund Logic)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -154,51 +154,6 @@ def create_card_html(res):
     
     return html
 
-# [New] RSI, MACD 신호등 렌더링 (직관적 UX)
-def render_signal_lights(rsi, macd, macd_sig):
-    # RSI Logic
-    if rsi <= 35:
-        rsi_color = "#E6FCF5" # Green bg
-        rsi_text_color = "#087F5B"
-        rsi_icon = "🟢"
-        rsi_msg = "저평가 (싸다!)"
-    elif rsi >= 70:
-        rsi_color = "#FFF5F5" # Red bg
-        rsi_text_color = "#F04452"
-        rsi_icon = "🔴"
-        rsi_msg = "과열권 (비싸다!)"
-    else:
-        rsi_color = "#FFF9DB" # Yellow bg
-        rsi_text_color = "#F08C00"
-        rsi_icon = "🟡"
-        rsi_msg = "중립 (특이사항 없음)"
-
-    # MACD Logic
-    if macd > macd_sig:
-        macd_color = "#E6FCF5"
-        macd_text_color = "#087F5B"
-        macd_icon = "🟢"
-        macd_msg = "상승 추세 (골든크로스)"
-    else:
-        macd_color = "#FFF5F5"
-        macd_text_color = "#F04452"
-        macd_icon = "🔴"
-        macd_msg = "하락 반전 (데드크로스)"
-
-    html = f"""
-    <div style='display:flex; gap:10px; margin-bottom:10px;'>
-        <div style='flex:1; background:{rsi_color}; padding:10px; border-radius:8px; border:1px solid {rsi_text_color}30;'>
-            <div style='font-size:12px; color:{rsi_text_color}; font-weight:bold;'>RSI ({rsi:.1f})</div>
-            <div style='font-size:14px; color:#333; font-weight:700; margin-top:4px;'>{rsi_icon} {rsi_msg}</div>
-        </div>
-        <div style='flex:1; background:{macd_color}; padding:10px; border-radius:8px; border:1px solid {macd_text_color}30;'>
-            <div style='font-size:12px; color:{macd_text_color}; font-weight:bold;'>MACD</div>
-            <div style='font-size:14px; color:#333; font-weight:700; margin-top:4px;'>{macd_icon} {macd_msg}</div>
-        </div>
-    </div>
-    """
-    st.markdown(html, unsafe_allow_html=True)
-
 def create_chart_clean(df):
     try:
         chart_data = df.tail(120).copy().reset_index()
@@ -226,13 +181,19 @@ def create_chart_clean(df):
 
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
-    # RSI 정보는 이제 신호등으로 대체되었으므로 거래량 정보만 표시하거나, 요약 텍스트로 활용
+    if k < 20: stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"; stoch_sub = "매수 기회 탐색"; stoch_cls = "buy"
+    elif k > 80: stoch_txt = f"🔴 과열 구간 ({k:.1f}%)"; stoch_sub = "매도/조정 주의"; stoch_cls = "sell"
+    else: stoch_txt = f"⚪ 중립 구간 ({k:.1f}%)"; stoch_sub = "추세 지속"; stoch_cls = ""
+
     if vol_ratio >= 2.0: vol_txt = f"🔥 거래량 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
     elif vol_ratio >= 1.2: vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
     else: vol_txt = "☁️ 거래량 평이"; vol_cls = ""
 
     html = ""
     html += f"<div class='tech-status-box'>"
+    html += f"  <div class='status-badge {stoch_cls}'>"
+    html += f"      <div>📊 스토캐스틱</div><div style='font-size:16px; margin-top:4px;'>{stoch_txt}</div><div style='font-size:11px; opacity:0.8;'>{stoch_sub}</div>"
+    html += f"  </div>"
     html += f"  <div class='status-badge {vol_cls}'>"
     html += f"      <div>📢 거래강도(전일비)</div><div style='font-size:16px; margin-top:4px;'>{vol_txt}</div><div style='font-size:11px; opacity:0.8;'>평소보다 {vol_ratio:.1f}배 활발</div>"
     html += f"  </div>"
@@ -987,34 +948,49 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         current_price = curr['Close']
 
         if final_score >= 80:
-            # [Strong Buy] 돌파 매매
+            # [Strong Buy] 돌파 매매 (Breakout Strategy)
+            # 진입: 현재가 (시장가 진입)
+            # 손절: ATR 기반 (변동성 2배 이탈 시)
+            # 목표: ATR 기반 (변동성 4배 수익 실현 - 1:2 비율)
             buy_price_raw = current_price
             buy_basis_txt = "현재가 돌파"
+            
             stop_raw = current_price - (atr * 2) 
             target_raw = current_price + (atr * 4) 
             action_txt = "🔥 강력매수"
 
         elif final_score >= 60:
-            # [Buy] 추세 추종
+            # [Buy] 추세 추종 (Trend Following)
+            # 진입: 현재가
+            # 손절: 전저점(20일선) 또는 ATR 2배 중 낮은 값 (안전마진)
+            # 목표: 전고점 돌파 기대
             buy_price_raw = current_price
             buy_basis_txt = "추세 추종"
+            
             ma20 = curr.get('MA20', current_price * 0.95)
             stop_raw = min(ma20, current_price - (atr * 1.5))
             target_raw = current_price + (atr * 3)
             action_txt = "매수"
 
         else:
-            # [Hold/Watch] 저점 매수 대기
+            # [Hold/Watch] 저점 매수 대기 (Limit Order Strategy)
+            # 진입: 현재가가 아니라 "기다리는 가격" (볼린저 밴드 하단 or 지지선)
+            # 현재가가 20일선 아래라면 -> "낙폭 과대"로 보고 보수적 접근
+            
             bb_lower = curr.get('BB_Lower', current_price * 0.9)
+            
             if current_price < curr.get('MA20', current_price):
+                # 이미 많이 빠짐 -> 밴드 하단까지 기다림
                 buy_price_raw = bb_lower
                 buy_basis_txt = "밴드 하단 대기"
             else:
+                # 아직 높음 -> 20일선까지 눌림 기다림
                 buy_price_raw = curr.get('MA20', current_price * 0.95)
                 buy_basis_txt = "눌림목 대기"
 
-            stop_raw = buy_price_raw * 0.95 
-            target_raw = buy_price_raw * 1.10 
+            # 손절/목표는 '매수 희망가' 기준
+            stop_raw = buy_price_raw * 0.95 # -5%
+            target_raw = buy_price_raw * 1.10 # +10% 반등
             action_txt = "관망"
 
         # 호가 단위 보정
@@ -1042,16 +1018,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V42.0 (Signal Lights)")
+    st.title("💎 Quant Sniper V41.0 (Hedge Fund Logic)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V42.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V41.0 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] RSI/MACD 신호등:** 차트 상단에 직관적인 신호등 대시보드 추가 (싸다/비싸다, 골든크로스 등).
         * **ATR 기반 다이내믹 손절:** 고정된 %가 아닌, 종목의 변동성(ATR)에 맞춰 2배수 이탈 시 손절하는 전문가 로직 적용.
-        * **관망 종목 매수 대기:** '관망' 종목은 현재가가 아닌 **지지선(밴드 하단)**까지 기다렸다 매수하도록 가이드.
+        * **관망 종목 매수 대기:** '관망' 종목은 현재가가 아닌 **지지선(밴드 하단)**까지 기다렸다 매수하도록 가이드 수정 (추격 매수 방지).
+        * **손익비(RRR) 최적화:** 리스크 대비 기대 수익이 2배 이상인 구간만 타겟팅.
         * **AI 요약 배지:** 상세 분석을 펼치기 전, 핵심 요약(헤드라인)을 즉시 확인 가능하도록 Expander 제목에 통합.
         """)
 
@@ -1110,9 +1086,11 @@ with tab1:
             st.markdown(create_card_html(res), unsafe_allow_html=True)
             
             # 2. [핵심 변경] AI 요약을 담은 Expander (클릭 시 상세 분석 펼침)
+            # 요약 텍스트 생성 (너무 길면 자름)
             ai_summary_txt = res['news'].get('headline', '분석 대기 중...')
             if len(ai_summary_txt) > 40: ai_summary_txt = ai_summary_txt[:40] + "..."
             
+            # 아이콘 결정 (매수 의견이면 불꽃, 아니면 봇)
             opinion = res['news'].get('opinion', '')
             icon = "🔥" if "매수" in opinion or "확대" in opinion else "🤖"
             
@@ -1129,11 +1107,6 @@ with tab1:
                 with col1:
                     st.write("###### 📈 기술적 분석 (RSI/MACD)")
                     st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
-                    
-                    # [V42.0 New Feature] 신호등 렌더링
-                    curr_row = res['history'].iloc[-1]
-                    render_signal_lights(curr_row['RSI'], curr_row['MACD'], curr_row['MACD_Signal'])
-                    
                     render_ma_status(res['ma_status'])
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     st.markdown(render_chart_legend(), unsafe_allow_html=True)
@@ -1218,11 +1191,6 @@ with tab2:
                 with col1:
                     st.write("###### 📈 기술적 분석")
                     st.markdown(f"<div class='tech-summary'>{res['trend_txt']}</div>", unsafe_allow_html=True)
-                    
-                    # [V42.0 New Feature] 신호등 렌더링
-                    curr_row = res['history'].iloc[-1]
-                    render_signal_lights(curr_row['RSI'], curr_row['MACD'], curr_row['MACD_Signal'])
-
                     render_ma_status(res['ma_status'])
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     st.markdown(render_chart_legend(), unsafe_allow_html=True)
@@ -1329,7 +1297,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V42.0 (Signal Lights)\n\n"
+            msg = f"💎 Quant Sniper V41.0 (Hedge Fund Logic)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
