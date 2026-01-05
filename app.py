@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V40.0 (Logic Perfect)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V41.0 (Hedge Fund Logic)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -492,6 +492,23 @@ def calculate_macd(data, short=12, long=26, signal=9):
     signal_line = macd.ewm(span=signal, adjust=False).mean()
     return macd, signal_line
 
+# [New] ATR (Average True Range) 계산 함수 - 변동성 지표
+def calculate_atr(data, window=14):
+    try:
+        high = data['High']
+        low = data['Low']
+        close = data['Close']
+        prev_close = close.shift(1)
+        
+        tr1 = high - low
+        tr2 = (high - prev_close).abs()
+        tr3 = (low - prev_close).abs()
+        
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = tr.rolling(window=window).mean()
+        return atr
+    except: return pd.Series(0, index=data.index)
+
 # [New] 백테스팅 함수 (최근 240일 기준 승률 검증)
 def backtest_strategy(df):
     try:
@@ -542,9 +559,14 @@ def calculate_sniper_score(code):
         # 보조지표 계산
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA60'] = df['Close'].rolling(60).mean()
-        df['MA5'] = df['Close'].rolling(5).mean() # MA5 추가
+        df['MA5'] = df['Close'].rolling(5).mean()
         df['RSI'] = calculate_rsi(df['Close'])
+        df['ATR'] = calculate_atr(df) # ATR 계산
         df['MACD'], df['MACD_Signal'] = calculate_macd(df['Close'])
+        
+        # 볼린저 밴드 (하단 지지선용)
+        df['BB_Upper'] = df['MA20'] + (df['Close'].rolling(20).std() * 2)
+        df['BB_Lower'] = df['MA20'] - (df['Close'].rolling(20).std() * 2)
         
         curr = df.iloc[-1]
         vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
@@ -830,7 +852,7 @@ def round_to_tick(price):
 
 def analyze_pro(code, name_override=None, relation_tag=None):
     try:
-        # [New] RSI 계산을 위해 1년치 데이터 로딩
+        # [New] ATR 포함 데이터 로딩
         score, tags, vol_ratio, chg_rate, win_rate, df = calculate_sniper_score(code)
         if df.empty: return None
         curr = df.iloc[-1]
@@ -849,20 +871,17 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         "news": {"score":0, "headline":"로딩 실패", "raw_news":[], "method":"none", "opinion":"", "catalyst":"", "risk":""}, 
         "history": df, 
         "supply": {"f":0, "i":0},
-        "stoch": {"k": curr['RSI'], "d": 0}, # RSI로 대체
+        "stoch": {"k": curr['RSI'], "d": 0}, 
         "vol_ratio": vol_ratio,
         "investor_trend": pd.DataFrame(),
         "fin_history": pd.DataFrame(),
-        "win_rate": win_rate, # [New]
-        "cycle_txt": "확인 중", # [New]
-        "relation_tag": relation_tag # [New]
+        "win_rate": win_rate, 
+        "cycle_txt": "확인 중", 
+        "relation_tag": relation_tag 
     }
 
     # 1. 기술적 분석
     try:
-        df['BB_Upper'] = df['MA20'] + (df['Close'].rolling(20).std() * 2)
-        df['BB_Lower'] = df['MA20'] - (df['Close'].rolling(20).std() * 2)
-        
         pass_cnt = 0
         mas = [('5일', 'MA5'), ('20일', 'MA20'), ('60일', 'MA60')]
         ma_status = []
@@ -877,17 +896,16 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         
         result_dict['ma_status'] = ma_status
         result_dict['trend_txt'] = trend_txt
-        tech_score = score # 이미 calculate_sniper_score에서 계산됨
+        tech_score = score 
     except: tech_score = 0
 
     # 2. 펀더멘탈 & 사이클
     try: fund_score, _, fund_data = get_company_guide_score(code); result_dict['fund_data'] = fund_data
     except: fund_score = 0; fund_data = {}
     
-    # [New] 시장 사이클 확인
     cycle_txt = get_market_cycle_status(code)
     result_dict['cycle_txt'] = cycle_txt
-    if "상승세" in cycle_txt: tech_score += 10 # 사이클 가산점
+    if "상승세" in cycle_txt: tech_score += 10 
 
     # 3. 데이터 로딩
     try: result_dict['investor_trend'] = get_investor_trend(code)
@@ -917,7 +935,7 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
 
-    # 5. 점수 산출 및 전략 수립 (★ 핵심 수정 - 불기둥/관망 로직 통합)
+    # 5. 점수 산출 및 전략 수립 (★ 핵심 수정 - Hedge Fund Logic)
     try:
         bonus = 0
         if not result_dict['investor_trend'].empty: bonus += 5
@@ -926,51 +944,59 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         final_score = min(max(final_score, 0), 100)
         result_dict['score'] = final_score
 
+        atr = curr.get('ATR', curr['Close'] * 0.03) # ATR 없으면 3%로 대체
+        current_price = curr['Close']
+
         if final_score >= 80:
-            # [Strong Buy] 불기둥 전략
-            buy_price_raw = curr['Close']
+            # [Strong Buy] 돌파 매매 (Breakout Strategy)
+            # 진입: 현재가 (시장가 진입)
+            # 손절: ATR 기반 (변동성 2배 이탈 시)
+            # 목표: ATR 기반 (변동성 4배 수익 실현 - 1:2 비율)
+            buy_price_raw = current_price
             buy_basis_txt = "현재가 돌파"
             
-            # 5일선 지지 or 최대 -5% 손절 (Tight Stop)
-            ma5 = curr.get('MA5', buy_price_raw * 0.95)
-            stop_limit = buy_price_raw * 0.95 # 최대 -5%
-            stop_raw = max(ma5, stop_limit) 
-
-            target_ratio = 1.15 # 목표 +15%
+            stop_raw = current_price - (atr * 2) 
+            target_raw = current_price + (atr * 4) 
             action_txt = "🔥 강력매수"
-            stop_price = round_to_tick(stop_raw)
 
         elif final_score >= 60:
-            # [Buy] 일반 매수
-            buy_price_raw = curr['Close']
+            # [Buy] 추세 추종 (Trend Following)
+            # 진입: 현재가
+            # 손절: 전저점(20일선) 또는 ATR 2배 중 낮은 값 (안전마진)
+            # 목표: 전고점 돌파 기대
+            buy_price_raw = current_price
             buy_basis_txt = "추세 추종"
-            target_ratio = 1.10
-            stop_ratio = 0.95 
+            
+            ma20 = curr.get('MA20', current_price * 0.95)
+            stop_raw = min(ma20, current_price - (atr * 1.5))
+            target_raw = current_price + (atr * 3)
             action_txt = "매수"
-            stop_price = round_to_tick(buy_price_raw * stop_ratio)
 
         else:
-            # [Hold/Watch] 관망 - "매수가는 절대 현재가보다 높을 수 없다" 원칙 적용
-            ma20 = curr.get('MA20', curr['Close'])
-            current_price = curr['Close']
+            # [Hold/Watch] 저점 매수 대기 (Limit Order Strategy)
+            # 진입: 현재가가 아니라 "기다리는 가격" (볼린저 밴드 하단 or 지지선)
+            # 현재가가 20일선 아래라면 -> "낙폭 과대"로 보고 보수적 접근
             
-            if current_price < ma20:
-                # 20일선 아래라면: 현재가 매수 (낙폭과대/저점매수)
-                buy_price_raw = current_price
-                buy_basis_txt = "낙폭 과대 (저점)"
+            bb_lower = curr.get('BB_Lower', current_price * 0.9)
+            
+            if current_price < curr.get('MA20', current_price):
+                # 이미 많이 빠짐 -> 밴드 하단까지 기다림
+                buy_price_raw = bb_lower
+                buy_basis_txt = "밴드 하단 대기"
             else:
-                # 20일선 위라면: 눌림목 대기
-                buy_price_raw = ma20
-                buy_basis_txt = "20일선 눌림목"
+                # 아직 높음 -> 20일선까지 눌림 기다림
+                buy_price_raw = curr.get('MA20', current_price * 0.95)
+                buy_basis_txt = "눌림목 대기"
 
-            target_ratio = 1.05
-            stop_ratio = 0.92 
+            # 손절/목표는 '매수 희망가' 기준
+            stop_raw = buy_price_raw * 0.95 # -5%
+            target_raw = buy_price_raw * 1.10 # +10% 반등
             action_txt = "관망"
-            stop_price = round_to_tick(buy_price_raw * stop_ratio)
 
         # 호가 단위 보정
         buy_price = round_to_tick(buy_price_raw)
-        target_price = round_to_tick(buy_price * target_ratio)
+        target_price = round_to_tick(target_raw)
+        stop_price = round_to_tick(stop_raw)
         
         result_dict['strategy'] = {
             "buy": buy_price,
@@ -992,17 +1018,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V40.0 (Logic Perfect)")
+    st.title("💎 Quant Sniper V41.0 (Hedge Fund Logic)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V40.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V41.0 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 관망 종목 매수 보정:** '관망' 등급 종목의 매수가가 현재가보다 높게 나오는 오류 수정 (최저가 매수 원칙 적용).
-        * **[New] 스마트 손절 로직:** 불기둥(강력매수) 종목은 **최대 -5%** 손실 제한 및 5일선 지지 로직 적용.
-        * **가격 로직 수정:** 매수 의견 시 '현재가' 진입을 추천하도록 변경 (괴리 해결).
-        * **호가 단위 보정:** 10원, 100원 단위 등 주식 시장 규칙에 맞게 가격 반올림.
+        * **ATR 기반 다이내믹 손절:** 고정된 %가 아닌, 종목의 변동성(ATR)에 맞춰 2배수 이탈 시 손절하는 전문가 로직 적용.
+        * **관망 종목 매수 대기:** '관망' 종목은 현재가가 아닌 **지지선(밴드 하단)**까지 기다렸다 매수하도록 가이드 수정 (추격 매수 방지).
+        * **손익비(RRR) 최적화:** 리스크 대비 기대 수익이 2배 이상인 구간만 타겟팅.
         * **AI 요약 배지:** 상세 분석을 펼치기 전, 핵심 요약(헤드라인)을 즉시 확인 가능하도록 Expander 제목에 통합.
         """)
 
@@ -1272,7 +1297,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V40.0 (Logic Perfect)\n\n"
+            msg = f"💎 Quant Sniper V41.0 (Hedge Fund Logic)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
