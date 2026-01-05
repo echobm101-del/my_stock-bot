@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V36.0 (Knowledge Graph)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V36.1 (Fix)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -116,39 +116,37 @@ def create_card_html(res):
     cycle_cls = "bear" if "하락" in res['cycle_txt'] else ""
     backtest_txt = f"⚡ 검증 승률: {res['win_rate']}%" if res['win_rate'] > 0 else "⚡ 백테스팅 데이터 부족"
     
-    # 관계 태그가 있으면 표시
     relation_html = ""
     if res.get('relation_tag'):
         relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
-    html = f"""
-    <div class='toss-card'>
-        <div style='display:flex; justify-content:space-between; align-items:center;'>
-            <div>
-                <span class='stock-name'>{res['name']}</span>
-                <span class='stock-code'>{res['code']}</span>
-                {relation_html}
-                <div class='cycle-badge {cycle_cls}'>{res['cycle_txt']}</div>
-                <div class='big-price'>
-                    {res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span>
-                </div>
-            </div>
-            <div style='text-align:right;'>
-                <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>
-                <div class='badge-clean' style='background-color:{score_col}20; color:{score_col};'>{res['strategy']['action']}</div>
+    # [중요] f-string 들여쓰기 제거 (HTML 렌더링 오류 방지)
+    html = f"""<div class='toss-card'>
+    <div style='display:flex; justify-content:space-between; align-items:center;'>
+        <div>
+            <span class='stock-name'>{res['name']}</span>
+            <span class='stock-code'>{res['code']}</span>
+            {relation_html}
+            <div class='cycle-badge {cycle_cls}'>{res['cycle_txt']}</div>
+            <div class='big-price'>
+                {res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span>
             </div>
         </div>
-        <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>
-            <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🔵 매수 {buy_price:,}<br><span style='font-size:10px; opacity:0.7;'>({buy_basis})</span></div>
-            <div style='color:#F04452; background-color:#FFF1F1; padding:6px; border-radius:6px;'>🎯 목표 {target_price:,}<br><span style='font-size:10px; opacity:0.7;'>(익절가)</span></div>
-            <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 손절 {stop_price:,}<br><span style='font-size:10px; opacity:0.7;'>(방어선)</span></div>
-        </div>
-        <div style='margin-top:8px; display:flex; justify-content:space-between; align-items:center;'>
-             <span style='font-size:11px; font-weight:700; color:#555;'>{backtest_txt}</span>
-             <span style='font-size:12px; color:#888;'>{res['trend_txt']}</span>
+        <div style='text-align:right;'>
+            <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>
+            <div class='badge-clean' style='background-color:{score_col}20; color:{score_col};'>{res['strategy']['action']}</div>
         </div>
     </div>
-    """
+    <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>
+        <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🔵 매수 {buy_price:,}<br><span style='font-size:10px; opacity:0.7;'>({buy_basis})</span></div>
+        <div style='color:#F04452; background-color:#FFF1F1; padding:6px; border-radius:6px;'>🎯 목표 {target_price:,}<br><span style='font-size:10px; opacity:0.7;'>(익절가)</span></div>
+        <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 손절 {stop_price:,}<br><span style='font-size:10px; opacity:0.7;'>(방어선)</span></div>
+    </div>
+    <div style='margin-top:8px; display:flex; justify-content:space-between; align-items:center;'>
+            <span style='font-size:11px; font-weight:700; color:#555;'>{backtest_txt}</span>
+            <span style='font-size:12px; color:#888;'>{res['trend_txt']}</span>
+    </div>
+</div>"""
     return html
 
 # [New] RSI, MACD가 포함된 고급 차트
@@ -941,13 +939,14 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V36.0 (Knowledge Graph)")
+    st.title("💎 Quant Sniper V36.1 (Fix)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V36.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V36.1 업데이트 노트", expanded=False):
         st.markdown("""
+        * **긴급 수정:** Watchlist 화면 깨짐 현상(HTML 노출) 해결
         * **관계형 검색(KG):** 종목과 테마의 핵심 관계(예: 대장주, 협력사)를 태그로 표시
         * **산업 사이클 연동:** KOSPI/KOSDAQ 지수 추세 반영
         * **백테스팅 엔진:** 최근 1년 승률 자동 검증
@@ -1168,7 +1167,6 @@ with st.sidebar:
                 if not is_stock_found:
                     try:
                         with st.spinner(f"🤖 AI가 '{target_keyword}' 관련주를 생각 중입니다..."):
-                            # [New] 관계 태그도 같이 가져옴
                             ai_stocks, msg = get_ai_recommended_stocks(target_keyword)
                         
                         if ai_stocks:
@@ -1191,11 +1189,9 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V36.0 (KG)\n\n"
+            msg = f"💎 Quant Sniper V36.1 (Fix)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
-            for i, r in enumerate(wl_results[:3]): 
-                rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
-                msg += f"{i+1}. {r['name']} {rel_txt}({r['score']}점)\n   가격: {r['price']:,}원\n   목표: {r['strategy']['target']:,}\n   손절: {r['strategy']['stop']:,}\n   요약: {r['news']['headline'][:50]}...\n\n"
+            for i, r in enumerate(wl_results[:3]): msg += f"{i+1}. {r['name']} ({r['score']}점)\n   가격: {r['price']:,}원\n   목표: {r['strategy']['target']:,}\n   손절: {r['strategy']['stop']:,}\n   요약: {r['news']['headline'][:50]}...\n\n"
             send_telegram_msg(token, chat_id, msg)
             st.success("전송 완료!")
         else: st.warning("설정 확인 필요")
