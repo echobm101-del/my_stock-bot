@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V45.1 (Bug Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V46.0 (Perfect Legend)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -215,6 +215,7 @@ def render_ma_status(ma_list):
     html += "</div>"
     st.markdown(html, unsafe_allow_html=True)
 
+# [V46.0] 볼린저밴드 포함 완벽한 차트 범례
 def render_chart_legend():
     html = ""
     html += "<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center; flex-wrap:wrap;'>"
@@ -224,10 +225,10 @@ def render_chart_legend():
     html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(수급)</div>"
     html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#9C27B0; margin-right:4px;'></div>120일선(경기)</div>"
     html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#999; border-top:1px dashed #999; margin-right:4px;'></div>240일선(대세)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:10px; background:#868E96; opacity:0.5; margin-right:4px;'></div>볼린저밴드</div>"
     html += "</div>"
     return html
 
-# [Bug Fix] 누락되었던 create_chart_clean 함수 복구 및 5/120/240일선 라인 추가
 def create_chart_clean(df):
     try:
         chart_data = df.tail(120).copy().reset_index()
@@ -238,7 +239,7 @@ def create_chart_clean(df):
         band = base.mark_area(opacity=0.15, color='#868E96').encode(y='BB_Lower:Q', y2='BB_Upper:Q')
         line = base.mark_line(color='#000000').encode(y='Close:Q')
         
-        # 2. 이동평균선 (범례와 일치하도록 모두 추가)
+        # 2. 이동평균선
         ma5 = base.mark_line(color='#FF4B4B', strokeWidth=1.5).encode(y='MA5:Q')
         ma20 = base.mark_line(color='#F2A529', strokeWidth=1.5).encode(y='MA20:Q')
         ma60 = base.mark_line(color='#3182F6', strokeWidth=1.5).encode(y='MA60:Q')
@@ -634,9 +635,9 @@ def calculate_sniper_score(code):
         # 보조지표 계산
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA60'] = df['Close'].rolling(60).mean()
-        df['MA120'] = df['Close'].rolling(120).mean() # 120일선
-        df['MA240'] = df['Close'].rolling(240).mean() # 240일선
-        df['MA5'] = df['Close'].rolling(5).mean() # 5일선
+        df['MA120'] = df['Close'].rolling(120).mean() # [V44.0] 120일선
+        df['MA240'] = df['Close'].rolling(240).mean() # [V44.0] 240일선
+        df['MA5'] = df['Close'].rolling(5).mean() # [V44.0] 5일선
         df['RSI'] = calculate_rsi(df['Close'])
         df['ATR'] = calculate_atr(df) # ATR 계산
         df['MACD'], df['MACD_Signal'] = calculate_macd(df['Close'])
@@ -1080,15 +1081,15 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V45.1 (Bug Fix)")
+    st.title("💎 Quant Sniper V46.0 (Perfect Legend)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V45.1 업데이트 노트", expanded=False):
+    with st.expander("📘 V46.0 업데이트 노트", expanded=False):
         st.markdown("""
         * **[New] 5일선/120일선/240일선 차트 반영:** 급등주 매매의 핵심인 5일선과 중장기 이평선을 차트와 범례에 추가하여 시각화 강화.
-        * **[Fix] 에러 수정:** 차트 렌더링 함수 누락으로 인한 NameError 해결.
+        * **[Optimization] 닫기 버튼 삭제:** 중복 기능인 상세창 내부 '닫기' 버튼을 제거하여 앱 속도 및 UX 개선.
         * **[New] 자동 저장(Auto-Save):** 관심 종목 추가/삭제 시 GitHub 파일에 즉시 저장.
         * **RSI/MACD 신호등:** 차트 상단에 직관적인 신호등 대시보드.
         """)
@@ -1215,7 +1216,6 @@ with tab1:
                 for news in res['news']['raw_news']:
                     st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
-    else: st.info("👈 왼쪽 사이드바에서 **테마를 검색**하거나 **종목을 입력**해주세요.")
 
 with tab2:
     st.markdown("### 📂 관심 종목 (Watchlist)")
@@ -1381,7 +1381,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V45.1 (Bug Fix)\n\n"
+            msg = f"💎 Quant Sniper V46.0 (Perfect Legend)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
