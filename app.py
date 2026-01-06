@@ -11,7 +11,6 @@ import altair as alt
 from pykrx import stock
 import concurrent.futures
 from bs4 import BeautifulSoup
-import textwrap  # [필수] HTML 들여쓰기 제거용
 import re
 import feedparser
 import urllib.parse
@@ -20,7 +19,7 @@ from io import StringIO
 import random
 
 # ==============================================================================
-# [보안 설정] Streamlit Secrets에서 키 가져오기
+# [보안 설정]
 # ==============================================================================
 try:
     USER_GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
@@ -34,16 +33,14 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.9 (Final)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.0 (Absolute Fix)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
-    
     .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
     .port-card { background: #FFFFFF; border-radius: 24px; padding: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08); margin-bottom: 20px; border: 2px solid #E5E8EB; transition: transform 0.2s; }
     .port-card:hover { transform: translateY(-3px); }
-    
     .action-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
     .action-badge { font-size: 16px; font-weight: 800; padding: 6px 12px; border-radius: 8px; display: inline-block; }
     .ai-flash-msg { background-color: #F9FAFB; padding: 15px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #333; margin-top: 15px; border-left: 5px solid #888; line-height: 1.5; }
@@ -61,8 +58,6 @@ st.markdown("""
     .status-badge.vol { background-color: #FFF8E1; color: #D9480F; border-color: #FFD8A8; }
     .status-badge.neu { background-color: #FFF9DB; color: #F08C00; border-color: #FFEC99; }
 
-    .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
-    
     .ma-status-container { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
     .ma-status-badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #555; background-color: #F2F4F6; border: 1px solid #E5E8EB; }
     .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; } 
@@ -77,7 +72,6 @@ st.markdown("""
     .news-scroll-box { max-height: 300px; overflow-y: auto; border: 1px solid #F2F4F6; border-radius: 8px; padding: 10px; }
     .news-box { padding: 8px 0; border-bottom: 1px solid #F2F4F6; font-size: 13px; }
     .news-link { color: #333; text-decoration: none; font-weight: 500; display: block; margin-bottom: 2px;}
-    .news-link:hover { color: #3182F6; text-decoration: underline; }
     .news-date { font-size: 11px; color: #999; }
     
     .metric-box { background: #F9FAFB; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #E5E8EB; height: 100%; display: flex; flex-direction: column; justify-content: center; }
@@ -94,7 +88,6 @@ st.markdown("""
     
     .cycle-badge { background-color:#E6FCF5; color:#087F5B; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; border:1px solid #B2F2BB; display:inline-block; margin-top:4px; }
     .cycle-badge.bear { background-color:#FFF5F5; color:#F04452; border-color:#FFD8A8; }
-    
     .relation-badge { background-color:#F3F0FF; color:#7950F2; padding:3px 6px; border-radius:4px; font-size:10px; font-weight:700; border:1px solid #E5DBFF; margin-left:6px; vertical-align: middle; }
     
     .investor-table-container { margin-top: 10px; border: 1px solid #F2F4F6; border-radius: 8px; overflow: hidden; }
@@ -136,34 +129,33 @@ def create_watchlist_card_html(res):
     if res.get('relation_tag'):
         relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
-    # [수정] textwrap.dedent로 들여쓰기 제거하여 코드블록 노출 방지
-    html = f"""
-    <div class='toss-card' style='border-left: 5px solid {score_col};'>
-      <div style='display:flex; justify-content:space-between; align-items:center;'>
-          <div>
-              <span class='stock-name' style='font-size:18px; font-weight:bold;'>{res['name']}</span>
-              <span class='stock-code' style='font-size:12px; color:#888; margin-left:4px;'>{res['code']}</span>
-              {relation_html}
-              <div class='cycle-badge {cycle_cls}'>{res['cycle_txt']}</div>
-              <div class='big-price' style='font-size:24px; font-weight:800; margin-top:4px;'>{res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span></div>
-          </div>
-          <div style='text-align:right;'>
-              <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>
-              <div class='badge-clean' style='background-color:{score_col}20; color:{score_col}; font-weight:700;'>{res['strategy']['action']}</div>
-          </div>
-      </div>
-      <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>
-          <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🛒 진입 구간 {buy_price:,}<br><span style='font-size:10px; opacity:0.7;'>({buy_basis})</span></div>
-          <div style='color:#F04452; background-color:#FFF1F1; padding:6px; border-radius:6px;'>💰 수익 구간 {target_price:,}<br><span style='font-size:10px; opacity:0.7;'>(기분 좋은 익절)</span></div>
-          <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 안전벨트 {stop_price:,}<br><span style='font-size:10px; opacity:0.7;'>(내 돈 지키기)</span></div>
-      </div>
-      <div style='margin-top:8px; display:flex; justify-content:space-between; align-items:center;'>
-            <span style='font-size:11px; font-weight:700; color:#555;'>{backtest_txt}</span>
-            <span style='font-size:12px; color:#888;'>{res['trend_txt']}</span>
-      </div>
-    </div>
-    """
-    return textwrap.dedent(html)
+    # [수정] 들여쓰기 없는 완전한 문자열 연결 방식으로 변경 (에러 방지)
+    html = ""
+    html += f"<div class='toss-card' style='border-left: 5px solid {score_col};'>"
+    html += f"  <div style='display:flex; justify-content:space-between; align-items:center;'>"
+    html += f"      <div>"
+    html += f"          <span class='stock-name' style='font-size:18px; font-weight:bold;'>{res['name']}</span>"
+    html += f"          <span class='stock-code' style='font-size:12px; color:#888; margin-left:4px;'>{res['code']}</span>"
+    html += f"          {relation_html}"
+    html += f"          <div class='cycle-badge {cycle_cls}'>{res['cycle_txt']}</div>"
+    html += f"          <div class='big-price' style='font-size:24px; font-weight:800; margin-top:4px;'>{res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span></div>"
+    html += f"      </div>"
+    html += f"      <div style='text-align:right;'>"
+    html += f"          <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>"
+    html += f"          <div class='badge-clean' style='background-color:{score_col}20; color:{score_col}; font-weight:700;'>{res['strategy']['action']}</div>"
+    html += f"      </div>"
+    html += f"  </div>"
+    html += f"  <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>"
+    html += f"      <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🛒 진입 구간 {buy_price:,}<br><span style='font-size:10px; opacity:0.7;'>({buy_basis})</span></div>"
+    html += f"      <div style='color:#F04452; background-color:#FFF1F1; padding:6px; border-radius:6px;'>💰 수익 구간 {target_price:,}<br><span style='font-size:10px; opacity:0.7;'>(기분 좋은 익절)</span></div>"
+    html += f"      <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 안전벨트 {stop_price:,}<br><span style='font-size:10px; opacity:0.7;'>(내 돈 지키기)</span></div>"
+    html += f"  </div>"
+    html += f"  <div style='margin-top:8px; display:flex; justify-content:space-between; align-items:center;'>"
+    html += f"        <span style='font-size:11px; font-weight:700; color:#555;'>{backtest_txt}</span>"
+    html += f"        <span style='font-size:12px; color:#888;'>{res['trend_txt']}</span>"
+    html += f"  </div>"
+    html += f"</div>"
+    return html
 
 def create_portfolio_card_html(res):
     buy_price = res.get('my_buy_price', 0)
@@ -196,34 +188,31 @@ def create_portfolio_card_html(res):
     ai_msg = res['news']['headline'].replace('"', "'").replace('<', '&lt;').replace('>', '&gt;')
     if len(ai_msg) > 80: ai_msg = ai_msg[:80] + "..."
 
-    # [수정] textwrap.dedent로 들여쓰기 제거 -> 코드 블록 렌더링 방지
-    html = f"""
-    <div class='port-card' style='border: 2px solid {border_color};'>
-        <div class='action-header'>
-            <div>
-                <span style='font-size:14px; color:#555; font-weight:700;'>{res['name']} ({res['code']})</span>
-                <div class='action-badge' style='background-color:{action_color}20; color:{action_color}; margin-top:6px;'>
-                    {action_txt}
-                </div>
-            </div>
-            <div style='text-align:right;'>
-                <div style='font-size:24px; font-weight:900; color:{profit_color};'>{profit_sign}{profit_rate:.2f}%</div>
-                <div style='font-size:12px; font-weight:600; color:{666};'>{profit_sign}{profit_val:,}원</div>
-            </div>
-        </div>
-        
-        <div style='display:flex; justify-content:space-between; align-items:center; font-size:13px; color:#555; padding-bottom:12px; border-bottom:1px dashed #eee;'>
-            <div>현재가 <b>{curr_price:,}원</b></div>
-            <div>평단가 <b>{buy_price:,}원</b></div>
-        </div>
-
-        <div class='ai-flash-msg' style='border-left-color:{action_color};'>
-            <div style='margin-bottom:4px; font-size:11px; color:#888;'>🤖 AI 포트폴리오 매니저 코멘트</div>
-            {ai_msg}
-        </div>
-    </div>
-    """
-    return textwrap.dedent(html)
+    # [수정] 들여쓰기(Indentation) 제거한 순수 문자열 연결 -> 렌더링 오류 원천 차단
+    html = ""
+    html += f"<div class='port-card' style='border: 2px solid {border_color};'>"
+    html += f"  <div class='action-header'>"
+    html += f"      <div>"
+    html += f"          <span style='font-size:14px; color:#555; font-weight:700;'>{res['name']} ({res['code']})</span>"
+    html += f"          <div class='action-badge' style='background-color:{action_color}20; color:{action_color}; margin-top:6px;'>"
+    html += f"              {action_txt}"
+    html += f"          </div>"
+    html += f"      </div>"
+    html += f"      <div style='text-align:right;'>"
+    html += f"          <div style='font-size:24px; font-weight:900; color:{profit_color};'>{profit_sign}{profit_rate:.2f}%</div>"
+    html += f"          <div style='font-size:12px; font-weight:600; color:{666};'>{profit_sign}{profit_val:,}원</div>"
+    html += f"      </div>"
+    html += f"  </div>"
+    html += f"  <div style='display:flex; justify-content:space-between; align-items:center; font-size:13px; color:#555; padding-bottom:12px; border-bottom:1px dashed #eee;'>"
+    html += f"      <div>현재가 <b>{curr_price:,}원</b></div>"
+    html += f"      <div>평단가 <b>{buy_price:,}원</b></div>"
+    html += f"  </div>"
+    html += f"  <div class='ai-flash-msg' style='border-left-color:{action_color};'>"
+    html += f"      <div style='margin-bottom:4px; font-size:11px; color:#888;'>🤖 AI 포트폴리오 매니저 코멘트</div>"
+    html += f"      {ai_msg}"
+    html += f"  </div>"
+    html += f"</div>"
+    return html
 
 def render_signal_lights(rsi, macd, macd_sig):
     if rsi <= 35:
@@ -238,19 +227,18 @@ def render_signal_lights(rsi, macd, macd_sig):
     else:
         macd_cls = "sell"; macd_icon = "🔴"; macd_msg = "하락 추세"
 
-    html = f"""
-    <div class='tech-status-box'>
-        <div class='status-badge {rsi_cls}'>
-            <div>📊 RSI ({rsi:.1f})</div>
-            <div style='font-size:15px; margin-top:4px; font-weight:800;'>{rsi_icon} {rsi_msg}</div>
-        </div>
-        <div class='status-badge {macd_cls}'>
-            <div>🌊 MACD 추세</div>
-            <div style='font-size:15px; margin-top:4px; font-weight:800;'>{macd_icon} {macd_msg}</div>
-        </div>
-    </div>
-    """
-    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+    html = ""
+    html += f"<div class='tech-status-box'>"
+    html += f"  <div class='status-badge {rsi_cls}'>"
+    html += f"      <div>📊 RSI ({rsi:.1f})</div>"
+    html += f"      <div style='font-size:15px; margin-top:4px; font-weight:800;'>{rsi_icon} {rsi_msg}</div>"
+    html += f"  </div>"
+    html += f"  <div class='status-badge {macd_cls}'>"
+    html += f"      <div>🌊 MACD 추세</div>"
+    html += f"      <div style='font-size:15px; margin-top:4px; font-weight:800;'>{macd_icon} {macd_msg}</div>"
+    html += f"  </div>"
+    html += f"</div>"
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
@@ -258,23 +246,22 @@ def render_tech_metrics(stoch, vol_ratio):
     elif k > 80: stoch_txt = f"🔴 과열 구간 ({k:.1f}%)"; stoch_cls = "sell"
     else: stoch_txt = f"⚪ 중립 구간 ({k:.1f}%)"; stoch_cls = "neu"
 
-    if vol_ratio >= 2.0: vol_txt = f"🔥 거래량 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
-    elif vol_ratio >= 1.2: vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
-    else: vol_txt = "☁️ 거래량 평이"; vol_cls = "neu"
+    if vol_ratio >= 2.0: vol_txt = f"🔥 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
+    elif vol_ratio >= 1.2: vol_txt = f"📈 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
+    else: vol_txt = "☁️ 평이"; vol_cls = "neu"
 
-    html = f"""
-    <div class='tech-status-box'>
-        <div class='status-badge {stoch_cls}'>
-            <div>📉 스토캐스틱</div>
-            <div style='font-size:15px; margin-top:4px; font-weight:800;'>{stoch_txt}</div>
-        </div>
-        <div class='status-badge {vol_cls}'>
-            <div>📢 거래강도</div>
-            <div style='font-size:15px; margin-top:4px; font-weight:800;'>{vol_txt}</div>
-        </div>
-    </div>
-    """
-    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+    html = ""
+    html += f"<div class='tech-status-box'>"
+    html += f"  <div class='status-badge {stoch_cls}'>"
+    html += f"      <div>📉 스토캐스틱</div>"
+    html += f"      <div style='font-size:15px; margin-top:4px; font-weight:800;'>{stoch_txt}</div>"
+    html += f"  </div>"
+    html += f"  <div class='status-badge {vol_cls}'>"
+    html += f"      <div>📢 거래강도</div>"
+    html += f"      <div style='font-size:15px; margin-top:4px; font-weight:800;'>{vol_txt}</div>"
+    html += f"  </div>"
+    html += f"</div>"
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_ma_status(ma_list):
     if not ma_list: return
@@ -284,7 +271,7 @@ def render_ma_status(ma_list):
         icon = "🔴" if item['ok'] else "⚪"
         html += f"<div class='ma-status-badge {cls}'>{icon} {item['label']}</div>"
     html += "</div>"
-    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_chart_legend():
     html = ""
@@ -323,21 +310,20 @@ def create_chart_clean(df):
         return alt.Chart(pd.DataFrame()).mark_text()
 
 def render_fund_scorecard(fund_data):
-    if not fund_data: st.info("재무 정보 로딩 실패 (일시적 오류)"); return
+    if not fund_data: st.info("재무 정보 로딩 실패"); return
     per = fund_data['per']['val']
     pbr = fund_data['pbr']['val']
     div = fund_data['div']['val']
     per_col = "#F04452" if fund_data['per']['stat']=='good' else ("#3182F6" if fund_data['per']['stat']=='bad' else "#333")
     pbr_col = "#F04452" if fund_data['pbr']['stat']=='good' else ("#3182F6" if fund_data['pbr']['stat']=='bad' else "#333")
     div_col = "#F04452" if fund_data['div']['stat']=='good' else "#333"
-    html = f"""
-    <div class='fund-grid-v2'>
-      <div class='fund-item-v2'><div class='fund-title-v2'>PER</div><div class='fund-value-v2' style='color:{per_col}'>{per:.1f}배</div><div class='fund-desc-v2' style='background-color:{per_col}20; color:{per_col}'>{fund_data['per']['txt']}</div></div>"
-      <div class='fund-item-v2'><div class='fund-title-v2'>PBR</div><div class='fund-value-v2' style='color:{pbr_col}'>{pbr:.1f}배</div><div class='fund-desc-v2' style='background-color:{pbr_col}20; color:{pbr_col}'>{fund_data['pbr']['txt']}</div></div>"
-      <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>"
-    </div>
-    """
-    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
+    html = ""
+    html += f"<div class='fund-grid-v2'>"
+    html += f"  <div class='fund-item-v2'><div class='fund-title-v2'>PER</div><div class='fund-value-v2' style='color:{per_col}'>{per:.1f}배</div><div class='fund-desc-v2' style='background-color:{per_col}20; color:{per_col}'>{fund_data['per']['txt']}</div></div>"
+    html += f"  <div class='fund-item-v2'><div class='fund-title-v2'>PBR</div><div class='fund-value-v2' style='color:{pbr_col}'>{pbr:.1f}배</div><div class='fund-desc-v2' style='background-color:{pbr_col}20; color:{pbr_col}'>{fund_data['pbr']['txt']}</div></div>"
+    html += f"  <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>"
+    html += f"</div>"
+    st.markdown(html, unsafe_allow_html=True)
 
 def render_financial_table(df):
     if df.empty:
@@ -499,7 +485,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.9)",
+            "message": "Update data via Streamlit App (V50.0)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -862,7 +848,7 @@ def get_valid_model_name(api_key):
     except: pass
     return "models/gemini-pro"
 
-# [NEW] JSON 문자열 정리 함수 (JSON 파싱 에러 방지)
+# [V50.0] JSON 문자열 정리 함수
 def clean_json_input(text):
     text = text.replace("```json", "").replace("```", "").strip()
     start = text.find("{")
@@ -912,7 +898,7 @@ def get_ai_recommended_stocks(keyword):
     if res_data and 'candidates' in res_data:
         try:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = clean_json_input(raw) # [수정] JSON 파싱 에러 방지
+            raw = clean_json_input(raw) 
             stock_list = json.loads(raw)
             valid_list = []
             for item in stock_list:
@@ -990,7 +976,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         
-        # [V49.9 수정] AI 페르소나 강화 (금융 전문가) & 금지어 설정
+        # [V50.0 수정] AI 환각 방지를 위한 강력한 금지어 및 가이드 설정
         if is_holding:
             role_prompt = f"""
             당신은 전문적인 '포트폴리오 매니저'입니다.
@@ -1012,10 +998,10 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         3. 뉴스 헤드라인 (출처: Google, Naver Finance, Naver Search):
         {str(news_titles)}
 
-        [중요: 번역투 금지 및 전문 용어 사용]
-        1. '군대(Army)', '거주자(Residents)', '존재(Existence)', '시위(Protest)' 같은 오역 단어를 절대 사용 금지.
+        [중요: 금지어 및 필수 용어 가이드]
+        1. '군대(Army)', '거주자(Residents)', '존재(Existence/Presence)', '시위(Protest)' 등 번역투 단어를 절대 사용하지 마십시오.
         2. 'Forces'는 '수급 주체'나 '세력'으로, 'Position'은 '보유 비중'으로 번역하십시오.
-        3. 금융 전문 용어(수급, 펀더멘털, 모멘텀, 차익실현 등)를 사용하여 자연스러운 한국어로 작성하세요.
+        3. 반드시 한국 주식 시장에서 통용되는 전문 용어(펀더멘털, 모멘텀, 차익실현, 수급 등)를 사용하세요.
 
         [출력 형식 (반드시 JSON 포맷 준수)]
         {{
@@ -1023,7 +1009,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             "supply_score": (정수 -5 ~ 5, 산업 사이클/공급망 영향 점수),
             "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
             "catalyst": "주가 핵심 재료 (5단어 이내)",
-            "summary": "전문가 분석 코멘트 (핵심 요약 1문장)",
+            "summary": "전문가 분석 코멘트 (핵심 요약 1문장, 존댓말 사용)",
             "risk": "잠재적 리스크 (1문장)"
         }}
         """
@@ -1032,7 +1018,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         if res_data and 'candidates' in res_data and res_data['candidates']:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = clean_json_input(raw) # [수정] JSON 정제 적용
+            raw = clean_json_input(raw) # [수정] JSON 정제
             js = json.loads(raw)
             
             return {
@@ -1152,8 +1138,8 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
             "per": fund_data.get('per', {}).get('val', 0) if fund_data else 0,
             "supply": supply_txt,
             "cycle": cycle_txt,
-            "is_holding": True if my_buy_price else False, 
-            "profit_rate": profit_rate 
+            "is_holding": True if my_buy_price else False, # 보유 여부
+            "profit_rate": profit_rate # 수익률
         }
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
@@ -1240,16 +1226,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.9 (Final)")
+    st.title("💎 Quant Sniper V50.0 (Absolute Fix)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.9 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.0 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[Fix] HTML 코드 노출 버그 완벽 수정.** (들여쓰기 문제 해결)
-        * **[Fix] AI 환각/오역 제거.** (군대, 거주자 -> 금융 용어)
-        * **[Stable] 도넛 차트 포함 모든 기능 정상 작동.**
+        * **[Fix] HTML 렌더링 오류 완벽 해결.** (들여쓰기 제거 및 문자열 연결 방식 변경)
+        * **[Fix] AI 환각 방지.** ('군대', '거주자' 오역 금지)
+        * **[Stable] 모든 기능 정상 작동.** (도넛 차트, 수급, 재무)
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1337,7 +1323,7 @@ with tab2:
     if not portfolio_items:
         st.info("보유 중인 종목이 없습니다. 사이드바에서 추가하거나 관심 종목에서 이동해주세요.")
     else:
-        # [V49.9] 도넛 차트 기능 복구
+        # [V50.0] 도넛 차트 기능 유지
         try:
             st.write("###### 📊 보유 비중 현황")
             df_port = pd.DataFrame([{"name": k, "value": v.get('buy_price', 0)} for k, v in st.session_state['data_store']['portfolio'].items()])
@@ -1553,7 +1539,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.9 (Final)\n\n"
+            msg = f"💎 Quant Sniper V50.0 (Absolute Fix)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
