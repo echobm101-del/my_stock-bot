@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.0 (Portfolio Manager)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.1 (Seamless Action)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -102,7 +102,6 @@ st.markdown("""
     .investor-table th { background-color: #F9FAFB; padding: 6px; color: #666; font-weight: 600; border-bottom: 1px solid #E5E8EB; }
     .investor-table td { padding: 6px; border-bottom: 1px solid #F2F4F6; color: #333; }
     
-    /* V49.0 New Style for Portfolio Card */
     .profit-positive { color: #F04452; font-weight: 800; font-size: 20px; }
     .profit-negative { color: #3182F6; font-weight: 800; font-size: 20px; }
     .port-label { font-size: 11px; color: #888; margin-top: 4px; }
@@ -111,7 +110,6 @@ st.markdown("""
 
 # --- [2. 시각화 및 렌더링 함수] ---
 
-# [V49.0] 1. 관심종목용 카드 (기존 스타일)
 def create_watchlist_card_html(res):
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
     buy_price = res['strategy'].get('buy', 0)
@@ -164,12 +162,10 @@ def create_watchlist_card_html(res):
     html += f"</div>"
     return html
 
-# [V49.0] 2. 보유종목(Portfolio)용 카드 (수익률 중심)
 def create_portfolio_card_html(res):
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
     
-    # 수익률 계산
     if buy_price > 0:
         profit_rate = (curr_price - buy_price) / buy_price * 100
         profit_val = curr_price - buy_price
@@ -455,7 +451,6 @@ def get_krx_list_safe():
 
 krx_df = get_krx_list_safe()
 
-# [V49.0] 데이터 구조 마이그레이션 (기존 dict -> new {portfolio, watchlist})
 def load_from_github():
     try:
         token = USER_GITHUB_TOKEN
@@ -467,7 +462,6 @@ def load_from_github():
             content = base64.b64decode(r.json()['content']).decode('utf-8')
             data = json.loads(content)
             
-            # [Migration Logic] 기존 형식이면 'watchlist'로 이동
             if "portfolio" not in data and "watchlist" not in data:
                 return {"portfolio": {}, "watchlist": data}
             
@@ -493,7 +487,7 @@ def update_github_file(new_data):
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         
         data = {
-            "message": "Update data via Streamlit App (V49.0)",
+            "message": "Update data via Streamlit App (V49.1)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -504,7 +498,6 @@ def update_github_file(new_data):
         print(f"GitHub Save Error: {e}")
         return False
 
-# [V49.0] Initialization (Two dictionaries)
 if 'data_store' not in st.session_state: st.session_state['data_store'] = load_from_github()
 if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
 if 'current_theme_name' not in st.session_state: st.session_state['current_theme_name'] = ""
@@ -1043,7 +1036,6 @@ def round_to_tick(price):
     elif price < 500000: return int(round(price / 500) * 500)
     else: return int(round(price, -3))
 
-# [V49.0] analyze_pro accepts optional 'my_buy_price'
 def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
     try:
         score, tags, vol_ratio, chg_rate, win_rate, df, main_reason = calculate_sniper_score(code)
@@ -1141,6 +1133,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         atr = curr.get('ATR', curr['Close'] * 0.03)
         current_price = curr['Close']
 
+        # [V48.4 Update] 친절한 멘트 및 이유 포함
         if final_score >= 80:
             buy_price_raw = current_price
             buy_basis_txt = "🚀 상승 기류 포착"
@@ -1193,16 +1186,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.0 (Portfolio Manager)")
+    st.title("💎 Quant Sniper V49.1 (Seamless Action)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.1 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 포트폴리오(잔고) 분리:** 보유 종목과 관심 종목을 별도 탭으로 관리.
-        * **[New] 수익률 관리:** 보유 종목의 평단가를 입력하여 실시간 수익률 확인.
-        * **[Existing] 모든 분석 기능 유지:** 세력 감지, AI 뉴스, 수급 분석 등.
+        * **[New] 원클릭 매수:** 관심 종목 상세 페이지에서 '매수 체결' 버튼 하나로 잔고 이동.
+        * **[New] 포트폴리오 관리:** 내 잔고(Portfolio)와 관심 종목(Watchlist) 탭 분리.
+        * **[Upgrade] 친절한 AI:** 딱딱한 용어 대신 직관적인 조언 제공.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1288,7 +1281,7 @@ with tab2:
     portfolio_items = list(st.session_state['data_store']['portfolio'].items())
     
     if not portfolio_items:
-        st.info("보유 중인 종목이 없습니다. 사이드바에서 추가해주세요.")
+        st.info("보유 중인 종목이 없습니다. 사이드바에서 추가하거나 관심 종목에서 이동해주세요.")
     else:
         with st.spinner("🚀 보유 종목 수익률 분석 중..."):
             port_results = []
@@ -1344,6 +1337,32 @@ with tab3:
             expander_label = f"{icon} AI 요약: {ai_summary_txt} (▼ 상세 분석 펼치기)"
             
             with st.expander(expander_label):
+                
+                # [V49.1] 매수 체결 및 이동 섹션
+                st.markdown("---")
+                st.write("### 🛒 매수 체결 하셨나요?")
+                c1, c2 = st.columns([0.4, 0.6])
+                with c1:
+                    input_price = st.number_input("매수 단가 (평단)", value=res['price'], step=100, key=f"bp_{res['code']}")
+                with c2:
+                    st.write("") 
+                    st.write("")
+                    if st.button("📥 내 잔고로 이동", key=f"move_{res['code']}"):
+                        # 1. Add to Portfolio
+                        st.session_state['data_store']['portfolio'][res['name']] = {
+                            "code": res['code'],
+                            "buy_price": input_price
+                        }
+                        # 2. Remove from Watchlist
+                        if res['name'] in st.session_state['data_store']['watchlist']:
+                            del st.session_state['data_store']['watchlist'][res['name']]
+
+                        # 3. Save & Rerun
+                        if update_github_file(st.session_state['data_store']):
+                            st.success(f"✅ {res['name']} 매수 등록 완료! (잔고 탭으로 이동됨)")
+                            time.sleep(1.0)
+                            st.rerun()
+
                 col_btn, col_rest = st.columns([0.2, 0.8])
                 with col_btn:
                     if st.button(f"🗑️ 삭제", key=f"del_wl_{res['code']}"):
@@ -1437,13 +1456,20 @@ with st.sidebar:
                     except Exception as e: st.error(f"오류: {str(e)}")
 
     if st.button("🚀 텔레그램 리포트 전송"):
-        # 텔레그램 전송 로직은 관심종목(wl_results) 기반으로 유지하되, 포트폴리오 정보도 추가 가능
-        pass # (생략 - 기존과 동일)
+        token = USER_TELEGRAM_TOKEN
+        chat_id = USER_CHAT_ID
+        if token and chat_id and 'wl_results' in locals() and wl_results:
+            msg = f"💎 Quant Sniper V49.1 (Seamless Action)\n\n"
+            if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
+            for i, r in enumerate(wl_results[:3]): 
+                rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
+                msg += f"{i+1}. {r['name']} {rel_txt}({r['score']}점)\n   가격: {r['price']:,}원\n   목표: {r['strategy']['target']:,}\n   손절: {r['strategy']['stop']:,}\n   요약: {r['news']['headline'][:50]}...\n\n"
+            send_telegram_msg(token, chat_id, msg)
+            st.success("전송 완료!")
+        else: st.warning("설정 확인 필요")
 
-    # [V49.0] 종목 추가 시 '보유 여부' 체크박스 추가
     with st.expander("개별 종목 추가"):
-        name = st.text_input("이름")
-        code = st.text_input("코드")
+        name = st.text_input("이름"); code = st.text_input("코드")
         is_hold = st.checkbox("💰 보유 중인 종목인가요?")
         buy_price = 0
         if is_hold:
