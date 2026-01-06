@@ -34,19 +34,31 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.4 (Pro Analyst)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.5 (Action First)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
+    
+    /* 기본 카드 스타일 */
     .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
     
+    /* [V49.5] 내 잔고 전용 액션 카드 스타일 */
+    .port-card { background: #FFFFFF; border-radius: 24px; padding: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08); margin-bottom: 20px; border: 2px solid #E5E8EB; transition: transform 0.2s; }
+    .port-card:hover { transform: translateY(-3px); }
+    
+    .action-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
+    .action-badge { font-size: 16px; font-weight: 800; padding: 6px 12px; border-radius: 8px; display: inline-block; }
+    .ai-flash-msg { background-color: #F9FAFB; padding: 12px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #333; margin-top: 15px; border-left: 4px solid #888; }
+    
+    /* 재무 그리드 */
     .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
     .fund-item-v2 { text-align: center; }
     .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
     .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
     .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
     
+    /* 기술적 지표 */
     .tech-status-box { display: flex; gap: 10px; margin-bottom: 10px; }
     .status-badge { flex: 1; padding: 12px 10px; border-radius: 12px; text-align: center; font-size: 13px; font-weight: 700; color: #4E5968; background: #F2F4F6; border: 1px solid #E5E8EB; }
     .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; }
@@ -155,6 +167,7 @@ def create_watchlist_card_html(res):
     html += f"</div>"
     return html
 
+# [V49.5] Action-Oriented Portfolio Card
 def create_portfolio_card_html(res):
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
@@ -166,38 +179,56 @@ def create_portfolio_card_html(res):
         profit_rate = 0
         profit_val = 0
         
-    profit_cls = "profit-positive" if profit_rate > 0 else ("profit-negative" if profit_rate < 0 else "")
     profit_sign = "+" if profit_rate > 0 else ""
     profit_color = "#F04452" if profit_rate > 0 else ("#3182F6" if profit_rate < 0 else "#333")
     
-    score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
-    chg = res.get('change_rate', 0.0)
-    chg_txt = f"{chg:+.2f}%" if chg != 0 else "0.00%"
-    chg_color = "#F04452" if chg > 0 else ("#3182F6" if chg < 0 else "#333")
+    # 대응 전략(Action) 색상 및 스타일 결정
+    action_txt = res['strategy']['action']
+    action_color = "#555"
+    border_color = "#E5E8EB"
+    bg_color = "#FFFFFF"
+    
+    # 단순화된 로직으로 색상 매핑
+    if "강력 홀딩" in action_txt or "수익" in action_txt:
+        action_color = "#F04452" # Red (Good)
+        border_color = "#F04452"
+        bg_color = "#FFF5F5"
+    elif "손절" in action_txt or "위험" in action_txt:
+        action_color = "#3182F6" # Blue (Bad/Warning)
+        border_color = "#3182F6"
+        bg_color = "#F5F9FF"
+    elif "관망" in action_txt:
+        action_color = "#F08C00" # Orange (Neutral)
+        border_color = "#FFD8A8"
+    
+    ai_msg = res['news']['headline']
+    if len(ai_msg) > 60: ai_msg = ai_msg[:60] + "..."
 
-    html = ""
-    html += f"<div class='toss-card' style='border: 2px solid {profit_color}40; background-color: {profit_color}05;'>"
-    html += f"  <div style='display:flex; justify-content:space-between; align-items:flex-start;'>"
-    html += f"      <div>"
-    html += f"          <span class='badge-clean' style='background-color:#333; color:#fff; font-size:10px; margin-bottom:4px;'>내 보유 종목</span>"
-    html += f"          <br><span class='stock-name'>{res['name']}</span>"
-    html += f"          <span class='stock-code'>{res['code']}</span>"
-    html += f"          <div style='font-size:14px; color:#555; margin-top:4px;'>현재 {curr_price:,}원 <span style='color:{chg_color}; font-weight:600;'>({chg_txt})</span></div>"
-    html += f"      </div>"
-    html += f"      <div style='text-align:right;'>"
-    html += f"          <div class='{profit_cls}'>{profit_sign}{profit_rate:.2f}%</div>"
-    html += f"          <div style='font-size:12px; font-weight:600; color:{profit_color};'>{profit_sign}{profit_val:,}원</div>"
-    html += f"      </div>"
-    html += f"  </div>"
-    
-    # [V49.4 수정] UI 레이블 'AI 있어요' -> 'AI 의견'으로 수정
-    html += f"  <div style='margin-top:15px; padding-top:10px; border-top:1px solid #E5E8EB; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:13px; font-weight:700; text-align:center;'>"
-    html += f"      <div><div style='color:#333;'>{buy_price:,}원</div><div class='port-label'>내 평단가</div></div>"
-    html += f"      <div><div style='color:{score_col};'>{res['score']}점</div><div class='port-label'>AI 점수</div></div>"
-    html += f"      <div><div style='color:#555;'>{res['strategy']['action']}</div><div class='port-label'>AI 전략</div></div>"
-    html += f"  </div>"
-    html += f"</div>"
-    
+    html = f"""
+    <div class='port-card' style='border: 2px solid {border_color};'>
+        <div class='action-header'>
+            <div>
+                <span style='font-size:13px; color:#888; font-weight:600;'>{res['name']} ({res['code']})</span>
+                <div class='action-badge' style='background-color:{action_color}20; color:{action_color}; margin-top:4px;'>
+                    {action_txt}
+                </div>
+            </div>
+            <div style='text-align:right;'>
+                <div style='font-size:22px; font-weight:900; color:{profit_color};'>{profit_sign}{profit_rate:.2f}%</div>
+                <div style='font-size:12px; font-weight:600; color:#666;'>{profit_sign}{profit_val:,}원</div>
+            </div>
+        </div>
+        
+        <div style='display:flex; justify-content:space-between; align-items:center; font-size:13px; color:#555; padding-bottom:10px; border-bottom:1px dashed #eee;'>
+            <div>현재 <b>{curr_price:,}원</b></div>
+            <div>평단 <b>{buy_price:,}원</b></div>
+        </div>
+
+        <div class='ai-flash-msg' style='border-left-color:{action_color};'>
+            🤖 AI 직보: "{ai_msg}"
+        </div>
+    </div>
+    """
     return html
 
 def render_signal_lights(rsi, macd, macd_sig):
@@ -473,7 +504,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.4)",
+            "message": "Update data via Streamlit App (V49.5)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -836,7 +867,7 @@ def get_valid_model_name(api_key):
     except: pass
     return "models/gemini-pro"
 
-# [V49.4] JSON Cleaning (필수)
+# [V49.5] JSON Cleaning (필수)
 def clean_json_input(text):
     text = text.replace("```json", "").replace("```", "").strip()
     start = text.find("{")
@@ -964,7 +995,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         
-        # [V49.4 수정] 환각 방지를 위한 강력한 페르소나 및 금지어 설정
+        # [V49.5 수정] 환각 방지를 위한 강력한 페르소나 및 금지어 설정
         role_desc = ""
         if is_holding:
             role_desc = f"""
@@ -1153,7 +1184,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
                 if final_score >= 60: action_txt = f"🔴 강력 홀딩"
                 else: action_txt = f"🟠 차익 실현 권장"
             else:
-                if final_score >= 60: action_txt = f"💧 버티기 (반등 기대)"
+                if final_score >= 60: action_txt = f"💧 버티기"
                 else: action_txt = f"✂️ 손절매 고려"
             
             stop_raw = my_buy_price * 0.95 
@@ -1211,16 +1242,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.4 (Pro Analyst)")
+    st.title("💎 Quant Sniper V49.5 (Action First)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.4 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.5 업데이트 노트", expanded=False):
         st.markdown("""
+        * **[UI] Action-First:** 보유 종목 카드를 '대응 전략 중심'으로 전면 개편.
+        * **[New] AI 직보:** 클릭 없이도 AI의 핵심 코멘트를 카드에서 즉시 확인.
         * **[Fix] AI 환각 제거:** '군대', '거주자' 등 오역을 제거하고 전문 금융 용어 탑재.
-        * **[UI] 레이블 개선:** 'AI 있어요' -> 'AI 전략', 'AI 의견' 등으로 직관적 변경.
-        * **[New] 포트폴리오 차트:** 내 잔고 비중 도넛 차트 추가.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1307,7 +1338,7 @@ with tab2:
     if not portfolio_items:
         st.info("보유 중인 종목이 없습니다. 사이드바에서 추가하거나 관심 종목에서 이동해주세요.")
     else:
-        # [V49.4] 도넛 차트 시각화 유지
+        # [V49.5] 도넛 차트 시각화
         try:
             st.write("###### 📊 보유 비중 현황")
             df_port = pd.DataFrame([{"name": k, "value": v.get('buy_price', 0)} for k, v in st.session_state['data_store']['portfolio'].items()])
@@ -1518,7 +1549,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.4 (Pro Analyst)\n\n"
+            msg = f"💎 Quant Sniper V49.5 (Action First)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
