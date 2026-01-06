@@ -960,11 +960,10 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         trend = stock_data_context.get('trend', '분석중')
         cycle = stock_data_context.get('cycle', '정보없음')
-        # [V49.2] 보유 상태 확인
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         
-        # [V49.2] 프롬프트 이원화 (보유자용 vs 신규매수용)
+        # [수정] 프롬프트 강화: JSON 이외의 출력 금지 및 안전성 확보
         if is_holding:
             role_prompt = f"""
             당신은 사용자의 '포트폴리오 매니저'입니다.
@@ -990,6 +989,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         1. 다양한 출처의 뉴스를 종합하여 '공급망 이슈', '반도체/AI 사이클', '사회적 관심도'를 파악하세요.
         2. 단순 등락보다는 기업의 **본질적인 가치 변화**에 주목하세요.
         3. 감정을 배제하고 매우 논리적이고 전문적인 어조를 사용하세요.
+        4. **절대 서론이나 부가 설명 없이 오직 JSON 데이터만 출력하세요.**
 
         [출력 형식 (반드시 JSON 포맷 준수)]
         {{
@@ -1006,9 +1006,20 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         if res_data and 'candidates' in res_data and res_data['candidates']:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = raw.replace("```json", "").replace("```", "").strip()
-            js = json.loads(raw)
             
+            # [핵심 수정] 정규표현식을 사용한 강력한 JSON 추출 (잡담 제거)
+            try:
+                # 1. 1차 시도: 순수 JSON 파싱
+                js = json.loads(raw)
+            except:
+                # 2. 2차 시도: Markdown 코드 블록 제거 및 정규표현식 추출
+                cleaned = raw.replace("```json", "").replace("```", "").strip()
+                match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+                if match:
+                    js = json.loads(match.group())
+                else:
+                    raise Exception("AI 응답에서 JSON 데이터를 추출할 수 없습니다.")
+
             return {
                 "score": js.get('score', 0),
                 "supply_score": js.get('supply_score', 0),
