@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.4 (Real-Price AI)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.5 (Deep Supply)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -962,10 +962,26 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         quant_signal = stock_data_context.get('quant_signal', '중립')
-        
-        # [V49.4 수정] AI에게 '현재 주가' 정보를 강제 주입
         current_price = stock_data_context.get('current_price', 0)
         
+        # [V49.5] 수급 분석 힌트 생성 (Supply Deep Dive Hint)
+        supply_analysis_hint = []
+        
+        # 1. 환율 체크
+        usd_krw_change = stock_data_context.get('usd_krw_change', 0.0)
+        if usd_krw_change > 0.5: supply_analysis_hint.append(f"원/달러 환율 급등(+{usd_krw_change:.2f}%)으로 인한 외국인 환차손 회피 매물 가능성")
+        elif usd_krw_change < -0.5: supply_analysis_hint.append("환율 하락으로 인한 외국인 수급 개선 기대")
+        
+        # 2. 단기 이격도 체크 (20일 기준)
+        price_surge = stock_data_context.get('price_surge', 0.0)
+        if price_surge > 15: supply_analysis_hint.append(f"단기 급등(+{price_surge:.1f}%)에 따른 기관/외인의 차익 실현 욕구 증가")
+        
+        # 3. 라운드 피겨 체크
+        round_fig_msg = stock_data_context.get('round_figure_msg', "")
+        if round_fig_msg: supply_analysis_hint.append(round_fig_msg)
+        
+        hint_str = "\n".join(supply_analysis_hint) if supply_analysis_hint else "특이사항 없음"
+
         if is_holding:
             role_prompt = f"""
             당신은 20년 경력의 베테랑 '헤지펀드 매니저'입니다.
@@ -974,22 +990,24 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             [중요 정보]
             - **현재 주가:** {current_price:,}원
             - 퀀트 알고리즘 신호: {quant_signal}
+            - 수급 원인 분석 힌트: {hint_str}
             
             [지시사항]
-            반드시 **현재 주가({current_price:,}원)**를 기준으로 판단하세요. 
-            만약 현재 주가가 이미 '10만전자'를 넘었다면 "10만전자 돌파" 같은 과거 목표가를 언급하지 마세요. 
-            현재 가격대에서의 지지/저항 여부와 실전 대응 전략(익절/홀딩)을 제시하세요.
+            1. 현재 주가({current_price:,}원)를 기준으로 판단하세요. 
+            2. 외국인/기관 수급의 원인을 위 '수급 원인 분석 힌트'를 참고하여 추론해 주세요. (예: 환율 상승, 차익 실현 등)
+            3. 실전 대응 전략(익절/홀딩)을 제시하세요.
             """
             
             output_guideline = """
             "opinion": "🚨 홀딩 (추가 상승 기대) / 💰 부분 익절 (리스크 관리) / 🛡️ 전량 익절 (추세 꺾임) / 💧 버티기 (물타기 금지) / ✂️ 손절매",
-            "summary": "현재 주가 위치와 뉴스를 종합한 구체적인 행동 가이드 (한 문장)",
+            "summary": "수급 원인 분석과 현재 주가 위치를 종합한 구체적인 행동 가이드 (한 문장)",
             """
         else:
             role_prompt = f"""
             당신은 30년 경력의 글로벌 헤지펀드 수석 전략가입니다.
             신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
             현재 주가는 {current_price:,}원입니다.
+            수급 특이사항: {hint_str}
             """
             output_guideline = """
             "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
@@ -1165,7 +1183,31 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         elif i_net > 0: supply_txt = "기관 매수 우위"
         elif f_net < 0 and i_net < 0: supply_txt = "외국인/기관 동반 매도"
 
-        # [V49.4 수정] AI에게 'current_price' 주입
+        # [V49.5] 수급 분석용 추가 데이터 추출
+        
+        # 1. 매크로(환율) 데이터 가져오기 (캐싱 활용)
+        macro_data = get_macro_data()
+        usd_change = 0.0
+        if macro_data and 'USD/KRW' in macro_data:
+            usd_change = macro_data['USD/KRW']['change']
+            
+        # 2. 이격도/단기 급등 체크 (20일 전 대비)
+        price_surge = 0.0
+        if len(df) >= 20:
+            past_price = df['Close'].iloc[-20]
+            if past_price > 0:
+                price_surge = (current_price - past_price) / past_price * 100
+                
+        # 3. 라운드 피겨(심리적 저항선) 체크
+        round_fig_msg = ""
+        str_price = str(int(current_price))
+        if len(str_price) >= 4: # 만원 단위 이상만 체크
+            unit = 10**(len(str_price)-1) # 예: 54000 -> 10000
+            next_big = (int(current_price / unit) + 1) * unit
+            # 현재가와 다음 큰 단위의 괴리가 3% 이내일 때
+            if (next_big - current_price) / current_price < 0.03:
+                round_fig_msg = f"심리적 저항선({next_big:,}원) 접근 중"
+
         context = {
             "code": code,
             "trend": result_dict['trend_txt'],
@@ -1176,7 +1218,10 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
             "is_holding": True if my_buy_price else False,
             "profit_rate": profit_rate,
             "quant_signal": quant_signal,
-            "current_price": result_dict['price'] # [New] 현재가 정보 추가
+            "current_price": result_dict['price'],
+            "usd_krw_change": usd_change, # [New]
+            "price_surge": price_surge, # [New]
+            "round_figure_msg": round_fig_msg # [New]
         }
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
@@ -1245,16 +1290,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.4 (Real-Price AI)")
+    st.title("💎 Quant Sniper V49.5 (Deep Supply)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.4 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.5 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 10만전자 환각 수정:** AI에게 수익률뿐만 아니라 **현재 주가**를 명확히 알려주어 현실적인 분석 유도.
-        * **[Upgrade] 헤지펀드식 전략:** 퀀트(수학)와 AI(뉴스)가 충돌할 때, 이를 종합한 '부분 익절' 등의 절충안 제시.
-        * **[Fixed]** 내 잔고 탭에서의 AI 오류 수정 및 데이터 처리 안정화.
+        * **[New] 심층 수급 분석:** AI가 외국인/기관 매도 이유(환율, 차익실현, 저항선)를 추론하여 설명합니다.
+        * **[Upgrade] 10만전자 환각 수정:** AI에게 현재 주가를 명확히 인지시켜 현실적인 목표가를 제시합니다.
+        * **[Upgrade] 헤지펀드식 전략:** 퀀트 신호와 재료를 종합한 정교한 대응 전략.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1377,7 +1422,6 @@ with tab2:
                     st.write("###### 🧠 수급 동향")
                     render_investor_chart(res['investor_trend'])
                 
-                # [V49.2] 보유자 맞춤형 AI 조언 섹션
                 st.markdown("---")
                 st.write("###### 🤖 AI 포트폴리오 매니저의 조언")
                 
@@ -1566,7 +1610,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.2 (AI Advisor)\n\n"
+            msg = f"💎 Quant Sniper V49.5 (Deep Supply)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
