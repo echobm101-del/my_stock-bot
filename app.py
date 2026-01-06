@@ -1343,6 +1343,8 @@ with tab2:
                 # [V49.2] 보유자 맞춤형 AI 조언 섹션
                 st.markdown("---")
                 st.write("###### 🤖 AI 포트폴리오 매니저의 조언")
+                
+                # [수정됨] AI 분석 결과가 'ai'가 아닐 때도 결과를 표시하도록 수정
                 if res['news']['method'] == "ai":
                     op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
                     if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
@@ -1362,7 +1364,24 @@ with tab2:
                         </div>
                     </div>""", unsafe_allow_html=True)
                 else:
-                    st.info("AI 분석을 불러오는 중입니다...")
+                    # [Fallback UI 추가] AI가 아닌 경우(키워드 분석 등)에도 결과를 표시
+                    fallback_headline = res['news'].get('headline', '분석 결과 없음')
+                    fallback_risk = res['news'].get('risk', 'API 키 확인 또는 뉴스 데이터 부족')
+                    
+                    st.markdown(f"""
+                    <div class='news-fallback'>
+                        <div style='font-size:12px; color:#D9480F; margin-bottom:4px;'>⚡ 키워드 분석 모드 (AI 미연동)</div>
+                        <div style='font-size:14px; font-weight:700; color:#333; margin-bottom:6px;'>{fallback_headline}</div>
+                        <div style='font-size:11px; color:#666;'>※ {fallback_risk}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # [뉴스 원문 링크] 항상 표시되도록 위치 조정
+                if res['news'].get('raw_news'):
+                    st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
+                    for news in res['news']['raw_news']:
+                        st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
 
 # --- Tab 3: 관심 종목 (Watchlist) ---
 with tab3:
