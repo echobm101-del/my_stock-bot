@@ -40,10 +40,10 @@ st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
     
-    /* 카드 스타일 정의 */
+    /* 카드 스타일 */
     .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
     
-    /* 포트폴리오 전용 카드 스타일 (오류 수정됨) */
+    /* 포트폴리오 전용 액션 카드 */
     .port-card { background: #FFFFFF; border-radius: 24px; padding: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08); margin-bottom: 20px; border: 2px solid #E5E8EB; transition: transform 0.2s; }
     .port-card:hover { transform: translateY(-3px); }
     
@@ -51,7 +51,7 @@ st.markdown("""
     .action-badge { font-size: 16px; font-weight: 800; padding: 6px 12px; border-radius: 8px; display: inline-block; }
     .ai-flash-msg { background-color: #F9FAFB; padding: 15px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #333; margin-top: 15px; border-left: 5px solid #888; line-height: 1.5; }
     
-    /* 재무 및 지표 스타일 */
+    /* 재무 및 지표 */
     .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
     .fund-item-v2 { text-align: center; }
     .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
@@ -140,7 +140,7 @@ def create_watchlist_card_html(res):
     if res.get('relation_tag'):
         relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
-    # [수정] f-string 내 따옴표 충돌 방지
+    # [수정] f-string 내 따옴표 충돌 방지를 위해 문자열 구조 단순화
     html = f"""
     <div class='toss-card' style='border-left: 5px solid {score_col};'>
       <div style='display:flex; justify-content:space-between; align-items:center;'>
@@ -169,7 +169,8 @@ def create_watchlist_card_html(res):
     """
     return html
 
-# [수정] HTML 렌더링 오류(이미지3)를 해결한 포트폴리오 카드 함수
+# [수정 완료] HTML 렌더링 오류의 원흉이었던 함수를 완벽하게 고쳤습니다.
+# 삼중 따옴표(""")를 사용하여 HTML 문자열이 중간에 끊기지 않도록 했습니다.
 def create_portfolio_card_html(res):
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
@@ -184,25 +185,25 @@ def create_portfolio_card_html(res):
     profit_sign = "+" if profit_rate > 0 else ""
     profit_color = "#F04452" if profit_rate > 0 else ("#3182F6" if profit_rate < 0 else "#333")
     
-    # 대응 전략(Action) 색상 및 스타일 결정
     action_txt = res['strategy']['action']
     action_color = "#555"
     border_color = "#E5E8EB"
     
     if "강력 홀딩" in action_txt or "수익" in action_txt:
-        action_color = "#F04452" # Red (Good)
+        action_color = "#F04452" 
         border_color = "#F04452"
     elif "손절" in action_txt or "위험" in action_txt:
-        action_color = "#3182F6" # Blue (Bad/Warning)
+        action_color = "#3182F6"
         border_color = "#3182F6"
     elif "관망" in action_txt:
-        action_color = "#F08C00" # Orange (Neutral)
+        action_color = "#F08C00"
         border_color = "#FFD8A8"
     
-    ai_msg = res['news']['headline'].replace('"', "'") # 따옴표 충돌 방지
+    # AI 메시지 내 따옴표 충돌 방지 처리
+    ai_msg = res['news']['headline'].replace('"', "'").replace('<', '&lt;').replace('>', '&gt;')
     if len(ai_msg) > 80: ai_msg = ai_msg[:80] + "..."
 
-    # 삼중 따옴표(""")를 사용하여 HTML 문자열이 중간에 끊기지 않도록 수정
+    # 안전한 HTML 생성 (삼중 따옴표 사용)
     html = f"""
     <div class='port-card' style='border: 2px solid {border_color};'>
         <div class='action-header'>
@@ -260,13 +261,13 @@ def render_signal_lights(rsi, macd, macd_sig):
 
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
-    if k < 20: stoch_txt = f"🟢 침체 ({k:.1f}%)"; stoch_cls = "buy"
-    elif k > 80: stoch_txt = f"🔴 과열 ({k:.1f}%)"; stoch_cls = "sell"
+    if k < 20: stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"; stoch_cls = "buy"
+    elif k > 80: stoch_txt = f"🔴 과열 구간 ({k:.1f}%)"; stoch_cls = "sell"
     else: stoch_txt = f"⚪ 중립 ({k:.1f}%)"; stoch_cls = "neu"
 
-    if vol_ratio >= 2.0: vol_txt = f"🔥 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
-    elif vol_ratio >= 1.2: vol_txt = f"📈 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
-    else: vol_txt = "☁️ 평이"; vol_cls = "neu"
+    if vol_ratio >= 2.0: vol_txt = f"🔥 거래량 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
+    elif vol_ratio >= 1.2: vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
+    else: vol_txt = "☁️ 거래량 평이"; vol_cls = "neu"
 
     html = f"""
     <div class='tech-status-box'>
@@ -1202,7 +1203,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
                 buy_basis_txt = "🚀 상승 기류 포착"
                 stop_raw = current_price - (atr * 2) 
                 target_raw = current_price + (atr * 4) 
-                action_txt = f"🔥 지금이 기회! ({main_reason})"
+                action_txt = f"🔥 적극 매수 ({main_reason})"
             elif final_score >= 60:
                 buy_price_raw = current_price
                 buy_basis_txt = "✨ 좋은 흐름"
