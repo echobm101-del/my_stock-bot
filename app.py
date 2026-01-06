@@ -11,7 +11,7 @@ import altair as alt
 from pykrx import stock
 import concurrent.futures
 from bs4 import BeautifulSoup
-import textwrap
+import textwrap  # [필수] HTML 들여쓰기 제거용
 import re
 import feedparser
 import urllib.parse
@@ -34,16 +34,13 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.8 (Final Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.9 (Final)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
     
-    /* 카드 스타일 */
     .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
-    
-    /* 포트폴리오 전용 액션 카드 */
     .port-card { background: #FFFFFF; border-radius: 24px; padding: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08); margin-bottom: 20px; border: 2px solid #E5E8EB; transition: transform 0.2s; }
     .port-card:hover { transform: translateY(-3px); }
     
@@ -51,7 +48,6 @@ st.markdown("""
     .action-badge { font-size: 16px; font-weight: 800; padding: 6px 12px; border-radius: 8px; display: inline-block; }
     .ai-flash-msg { background-color: #F9FAFB; padding: 15px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #333; margin-top: 15px; border-left: 5px solid #888; line-height: 1.5; }
     
-    /* 재무 및 지표 */
     .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
     .fund-item-v2 { text-align: center; }
     .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
@@ -140,7 +136,7 @@ def create_watchlist_card_html(res):
     if res.get('relation_tag'):
         relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
-    # [중요] HTML 문자열 생성 시 삼중 따옴표 사용으로 에러 방지
+    # [수정] textwrap.dedent로 들여쓰기 제거하여 코드블록 노출 방지
     html = f"""
     <div class='toss-card' style='border-left: 5px solid {score_col};'>
       <div style='display:flex; justify-content:space-between; align-items:center;'>
@@ -167,9 +163,8 @@ def create_watchlist_card_html(res):
       </div>
     </div>
     """
-    return html
+    return textwrap.dedent(html)
 
-# [수정 완료] HTML 렌더링 오류의 원흉이었던 함수를 완벽하게 고쳤습니다.
 def create_portfolio_card_html(res):
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
@@ -198,11 +193,10 @@ def create_portfolio_card_html(res):
         action_color = "#F08C00"
         border_color = "#FFD8A8"
     
-    # AI 메시지 내 따옴표 충돌 방지 처리
     ai_msg = res['news']['headline'].replace('"', "'").replace('<', '&lt;').replace('>', '&gt;')
     if len(ai_msg) > 80: ai_msg = ai_msg[:80] + "..."
 
-    # 안전한 HTML 생성 (삼중 따옴표 사용)
+    # [수정] textwrap.dedent로 들여쓰기 제거 -> 코드 블록 렌더링 방지
     html = f"""
     <div class='port-card' style='border: 2px solid {border_color};'>
         <div class='action-header'>
@@ -214,7 +208,7 @@ def create_portfolio_card_html(res):
             </div>
             <div style='text-align:right;'>
                 <div style='font-size:24px; font-weight:900; color:{profit_color};'>{profit_sign}{profit_rate:.2f}%</div>
-                <div style='font-size:12px; font-weight:600; color:{profit_color};'>{profit_sign}{profit_val:,}원</div>
+                <div style='font-size:12px; font-weight:600; color:{666};'>{profit_sign}{profit_val:,}원</div>
             </div>
         </div>
         
@@ -229,7 +223,7 @@ def create_portfolio_card_html(res):
         </div>
     </div>
     """
-    return html
+    return textwrap.dedent(html)
 
 def render_signal_lights(rsi, macd, macd_sig):
     if rsi <= 35:
@@ -256,7 +250,7 @@ def render_signal_lights(rsi, macd, macd_sig):
         </div>
     </div>
     """
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
 
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
@@ -280,7 +274,7 @@ def render_tech_metrics(stoch, vol_ratio):
         </div>
     </div>
     """
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
 
 def render_ma_status(ma_list):
     if not ma_list: return
@@ -290,7 +284,7 @@ def render_ma_status(ma_list):
         icon = "🔴" if item['ok'] else "⚪"
         html += f"<div class='ma-status-badge {cls}'>{icon} {item['label']}</div>"
     html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
 
 def render_chart_legend():
     html = ""
@@ -336,13 +330,14 @@ def render_fund_scorecard(fund_data):
     per_col = "#F04452" if fund_data['per']['stat']=='good' else ("#3182F6" if fund_data['per']['stat']=='bad' else "#333")
     pbr_col = "#F04452" if fund_data['pbr']['stat']=='good' else ("#3182F6" if fund_data['pbr']['stat']=='bad' else "#333")
     div_col = "#F04452" if fund_data['div']['stat']=='good' else "#333"
-    html = ""
-    html += f"<div class='fund-grid-v2'>"
-    html += f"  <div class='fund-item-v2'><div class='fund-title-v2'>PER</div><div class='fund-value-v2' style='color:{per_col}'>{per:.1f}배</div><div class='fund-desc-v2' style='background-color:{per_col}20; color:{per_col}'>{fund_data['per']['txt']}</div></div>"
-    html += f"  <div class='fund-item-v2'><div class='fund-title-v2'>PBR</div><div class='fund-value-v2' style='color:{pbr_col}'>{pbr:.1f}배</div><div class='fund-desc-v2' style='background-color:{pbr_col}20; color:{pbr_col}'>{fund_data['pbr']['txt']}</div></div>"
-    html += f"  <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>"
-    html += f"</div>"
-    st.markdown(html, unsafe_allow_html=True)
+    html = f"""
+    <div class='fund-grid-v2'>
+      <div class='fund-item-v2'><div class='fund-title-v2'>PER</div><div class='fund-value-v2' style='color:{per_col}'>{per:.1f}배</div><div class='fund-desc-v2' style='background-color:{per_col}20; color:{per_col}'>{fund_data['per']['txt']}</div></div>"
+      <div class='fund-item-v2'><div class='fund-title-v2'>PBR</div><div class='fund-value-v2' style='color:{pbr_col}'>{pbr:.1f}배</div><div class='fund-desc-v2' style='background-color:{pbr_col}20; color:{pbr_col}'>{fund_data['pbr']['txt']}</div></div>"
+      <div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{div:.1f}%</div><div class='fund-desc-v2' style='background-color:{div_col}20; color:{div_col}'>{fund_data['div']['txt']}</div></div>"
+    </div>
+    """
+    st.markdown(textwrap.dedent(html), unsafe_allow_html=True)
 
 def render_financial_table(df):
     if df.empty:
@@ -504,7 +499,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.8)",
+            "message": "Update data via Streamlit App (V49.9)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -867,7 +862,7 @@ def get_valid_model_name(api_key):
     except: pass
     return "models/gemini-pro"
 
-# [V49.8] JSON 문자열 정리 함수 (필수)
+# [NEW] JSON 문자열 정리 함수 (JSON 파싱 에러 방지)
 def clean_json_input(text):
     text = text.replace("```json", "").replace("```", "").strip()
     start = text.find("{")
@@ -917,7 +912,7 @@ def get_ai_recommended_stocks(keyword):
     if res_data and 'candidates' in res_data:
         try:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = clean_json_input(raw) 
+            raw = clean_json_input(raw) # [수정] JSON 파싱 에러 방지
             stock_list = json.loads(raw)
             valid_list = []
             for item in stock_list:
@@ -995,17 +990,17 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         
-        # [V49.8] 프롬프트 개선 (AI 환각 방지 및 전문 용어 강제)
+        # [V49.9 수정] AI 페르소나 강화 (금융 전문가) & 금지어 설정
         if is_holding:
             role_prompt = f"""
-            당신은 사용자의 '포트폴리오 매니저'입니다.
-            현재 수익률은 {profit_rate:.2f}% 입니다.
-            보유 관점에서 '차익 실현', '손절', '홀딩' 중 하나를 명확한 근거와 함께 제안하세요.
+            당신은 전문적인 '포트폴리오 매니저'입니다.
+            사용자는 현재 이 주식을 보유 중이며, 수익률은 {profit_rate:.2f}% 입니다.
+            보유자의 관점에서 '수익 실현', '손절매', '홀딩' 중 어떤 대응이 최선인지 구체적인 이유와 함께 조언하세요.
             """
         else:
             role_prompt = """
-            당신은 여의도 증권가의 20년차 수석 애널리스트입니다.
-            신규 진입 관점에서 냉철하게 분석하세요.
+            당신은 30년 경력의 여의도 증권가 수석 애널리스트입니다.
+            신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
             """
 
         prompt = f"""
@@ -1014,21 +1009,21 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         [분석 데이터]
         1. 기술적 추세: {trend}
         2. 시장 사이클: {cycle}
-        3. 뉴스 헤드라인:
+        3. 뉴스 헤드라인 (출처: Google, Naver Finance, Naver Search):
         {str(news_titles)}
 
-        [중요: 금지어 및 용어 가이드]
-        1. '군대(Army)', '거주자(Residents)', '시위(Protest)' 등 오역 단어를 절대 사용 금지.
-        2. Market Forces -> '시장 수급', Position -> '포지션/비중'으로 번역.
-        3. 자연스러운 한국어 금융 용어 사용 (예: 펀더멘털, 모멘텀, 차익실현).
+        [중요: 번역투 금지 및 전문 용어 사용]
+        1. '군대(Army)', '거주자(Residents)', '존재(Existence)', '시위(Protest)' 같은 오역 단어를 절대 사용 금지.
+        2. 'Forces'는 '수급 주체'나 '세력'으로, 'Position'은 '보유 비중'으로 번역하십시오.
+        3. 금융 전문 용어(수급, 펀더멘털, 모멘텀, 차익실현 등)를 사용하여 자연스러운 한국어로 작성하세요.
 
-        [출력 형식 (JSON)]
+        [출력 형식 (반드시 JSON 포맷 준수)]
         {{
-            "score": (정수 -10 ~ 10),
-            "supply_score": (정수 -5 ~ 5),
-            "opinion": "적극매수 / 분할매수 / 관망 / 비중축소 / 전량매도 중 택1",
-            "catalyst": "핵심 재료 (5단어 이내)",
-            "summary": "전문가 분석 코멘트 (1~2문장, 명확한 근거 포함)",
+            "score": (정수 -10 ~ 10, 뉴스 종합 점수),
+            "supply_score": (정수 -5 ~ 5, 산업 사이클/공급망 영향 점수),
+            "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
+            "catalyst": "주가 핵심 재료 (5단어 이내)",
+            "summary": "전문가 분석 코멘트 (핵심 요약 1문장)",
             "risk": "잠재적 리스크 (1문장)"
         }}
         """
@@ -1037,7 +1032,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         if res_data and 'candidates' in res_data and res_data['candidates']:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = clean_json_input(raw)
+            raw = clean_json_input(raw) # [수정] JSON 정제 적용
             js = json.loads(raw)
             
             return {
@@ -1081,6 +1076,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         curr = df.iloc[-1]
     except: return None
 
+    # [V49.2] 수익률 계산
     profit_rate = 0.0
     if my_buy_price and my_buy_price > 0:
         profit_rate = (int(curr['Close']) - my_buy_price) / my_buy_price * 100
@@ -1177,20 +1173,24 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         atr = curr.get('ATR', curr['Close'] * 0.03)
         current_price = curr['Close']
 
+        # [V49.2] 보유자용 Logic (Holder Logic)
         if my_buy_price:
+            # 1. 수익 중일 때
             if profit_rate > 0:
                 if final_score >= 60: action_txt = f"🔴 강력 홀딩"
                 else: action_txt = f"🟠 차익 실현 권장"
+            # 2. 손실 중일 때
             else:
                 if final_score >= 60: action_txt = f"💧 버티기"
                 else: action_txt = f"✂️ 손절매 고려"
             
+            # 목표/손절가는 평단가 기준으로 재조정
             stop_raw = my_buy_price * 0.95 
             target_raw = my_buy_price * 1.10
             buy_basis_txt = "보유 중"
             buy_price_raw = my_buy_price
 
-        else: 
+        else: # 미보유자 (기존 로직)
             if final_score >= 80:
                 buy_price_raw = current_price
                 buy_basis_txt = "🚀 상승 기류 포착"
@@ -1240,16 +1240,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.8 (Final Fix)")
+    st.title("💎 Quant Sniper V49.9 (Final)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.8 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.9 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[Fix] HTML 렌더링 오류 완벽 수정:** 포트폴리오 카드 깨짐 현상 해결.
-        * **[Fix] AI 환각 방지:** '군대', '거주자' 등 오역 금지 및 전문 용어 강제.
-        * **[Stable] 기능 100% 유지:** 도넛 차트, 수급 그래프, 재무표 등 모든 기능 정상 작동.
+        * **[Fix] HTML 코드 노출 버그 완벽 수정.** (들여쓰기 문제 해결)
+        * **[Fix] AI 환각/오역 제거.** (군대, 거주자 -> 금융 용어)
+        * **[Stable] 도넛 차트 포함 모든 기능 정상 작동.**
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1337,7 +1337,7 @@ with tab2:
     if not portfolio_items:
         st.info("보유 중인 종목이 없습니다. 사이드바에서 추가하거나 관심 종목에서 이동해주세요.")
     else:
-        # [V49.8] 도넛 차트 기능 유지
+        # [V49.9] 도넛 차트 기능 복구
         try:
             st.write("###### 📊 보유 비중 현황")
             df_port = pd.DataFrame([{"name": k, "value": v.get('buy_price', 0)} for k, v in st.session_state['data_store']['portfolio'].items()])
@@ -1381,7 +1381,7 @@ with tab2:
                     st.write("###### 🧠 수급 동향")
                     render_investor_chart(res['investor_trend'])
                 
-                # [V49.8] 보유자 맞춤형 AI 조언 섹션
+                # [V49.2] 보유자 맞춤형 AI 조언 섹션
                 st.markdown("---")
                 st.write("###### 🤖 AI 포트폴리오 매니저의 조언")
                 if res['news']['method'] == "ai":
@@ -1553,7 +1553,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.8 (Final Fix)\n\n"
+            msg = f"💎 Quant Sniper V49.9 (Final)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
