@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V48.2 (Whale Trend & Detail)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V48.3 (Stable)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -317,20 +317,25 @@ def render_financial_table(df):
     st.markdown(html, unsafe_allow_html=True)
     st.caption("※ 단위: 억 원 / (괄호): 전분기/전년 대비 증감률")
 
-# [V48.2 Upgrade] 장기 차트 + 최근 5일 상세 표 렌더링
+# [V48.3 Upgrade] 장기 차트 + 최근 5일 상세 표 렌더링 (에러 수정)
 def render_investor_chart(df):
     if df.empty:
         st.caption("수급 데이터가 없습니다. (장중/집계 지연 가능성)")
         return
+    
+    # 1. 전처리 및 컬럼 표준화
     df = df.reset_index()
     if '날짜' not in df.columns: 
         if 'index' in df.columns: df.rename(columns={'index': '날짜'}, inplace=True)
     
-    # --- 1. 장기 추세 차트 (기존 로직) ---
+    # [Fix] 날짜 데이터 타입 강제 변환 (문자열 -> datetime)
+    try:
+        df['날짜'] = pd.to_datetime(df['날짜'])
+    except: pass # 이미 날짜형식이거나 실패 시 무시
+
+    # --- 1. 장기 추세 차트 ---
     cum_cols = [c for c in ['Cum_Individual', 'Cum_Foreigner', 'Cum_Institution', 'Cum_Pension'] if c in df.columns]
     df_line = df.melt('날짜', value_vars=cum_cols, var_name='Key', value_name='Cumulative')
-    daily_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
-    if '기관합계' in df.columns: daily_map['Cum_Institution'] = '기관합계'
     
     type_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
     df_line['Type'] = df_line['Key'].map(type_map)
@@ -352,28 +357,37 @@ def render_investor_chart(df):
     chart = line.properties(height=250)
     st.altair_chart(chart, use_container_width=True)
 
-    # --- 2. 최근 5일 상세 표 (New) ---
+    # --- 2. 최근 5일 상세 표 (Robust) ---
     st.markdown("###### 📊 최근 5거래일 수급 (단위: 원)", unsafe_allow_html=True)
     
-    recent_df = df.tail(5).sort_values('날짜', ascending=False)
-    
-    html = "<div class='investor-table-container'><table class='investor-table'><thead><tr><th>날짜</th><th>외국인</th><th>기관</th><th>개인</th></tr></thead><tbody>"
-    
-    for idx, row in recent_df.iterrows():
-        d_str = row['날짜'].strftime('%m-%d') if hasattr(row['날짜'], 'strftime') else str(row['날짜'])[:10]
+    try:
+        recent_df = df.tail(5).sort_values('날짜', ascending=False)
         
-        def format_val(val):
-            color = "#F04452" if val > 0 else ("#3182F6" if val < 0 else "#333")
-            return f"<span style='color:{color}; font-weight:700;'>{int(val):,}</span>"
+        html = "<div class='investor-table-container'><table class='investor-table'><thead><tr><th>날짜</th><th>외국인</th><th>기관</th><th>개인</th></tr></thead><tbody>"
+        
+        # [Fix] 컬럼 이름 유연하게 대응 (네이버 '기관' vs KRX '기관합계')
+        inst_col_name = '기관합계' if '기관합계' in df.columns else ('기관' if '기관' in df.columns else None)
 
-        frgn = format_val(row['외국인'])
-        inst = format_val(row['기관합계'])
-        indv = format_val(row['개인'])
+        for idx, row in recent_df.iterrows():
+            d_str = row['날짜'].strftime('%m-%d') if hasattr(row['날짜'], 'strftime') else str(row['날짜'])[:10]
+            
+            def format_val(val):
+                try:
+                    val = float(val)
+                    color = "#F04452" if val > 0 else ("#3182F6" if val < 0 else "#333")
+                    return f"<span style='color:{color}; font-weight:700;'>{int(val):,}</span>"
+                except: return "-"
+
+            frgn = format_val(row.get('외국인', 0))
+            inst = format_val(row.get(inst_col_name, 0)) if inst_col_name else "-"
+            indv = format_val(row.get('개인', 0))
+            
+            html += f"<tr><td>{d_str}</td><td>{frgn}</td><td>{inst}</td><td>{indv}</td></tr>"
         
-        html += f"<tr><td>{d_str}</td><td>{frgn}</td><td>{inst}</td><td>{indv}</td></tr>"
-    
-    html += "</tbody></table></div>"
-    st.markdown(html, unsafe_allow_html=True)
+        html += "</tbody></table></div>"
+        st.markdown(html, unsafe_allow_html=True)
+    except Exception as e:
+        st.caption(f"상세 표 렌더링 오류: {str(e)}")
 
 # --- [3. 데이터 로딩 및 분석 로직] ---
 REPO_OWNER = "echobm101-del"
@@ -1181,17 +1195,17 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V48.2 (Whale Trend & Detail)")
+    st.title("💎 Quant Sniper V48.3 (Stable)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V48.2 업데이트 노트", expanded=False):
+    with st.expander("📘 V48.3 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 수급 분석 강화:** 큰손 투자 동향을 '장기 차트(흐름)'와 '최근 5일 상세 표(정밀)'로 이중 시각화.
-        * **[Safety] 세력 이탈 감지:** 거래량이 터지면서 가격이 하락하는 '설거지(Dump)' 패턴 감지 시 점수 차감.
-        * **[New] 3중 뉴스 분석 엔진:** Google(해외) + Naver금융(종목) + Naver검색(사회 트렌드) 통합.
-        * **[Existing] 자동 저장(Auto-Save)**
+        * **[Fix] 수급 표 에러 수정:** '기관' vs '기관합계' 컬럼 자동 인식 및 날짜 형식 안정화.
+        * **[New] 수급 분석 강화:** 장기 차트(100일) + 최근 5일 상세 표(단기 정밀) 결합.
+        * **[Safety] 세력 이탈 감지:** 거래량이 터지면서 가격이 하락하는 '설거지' 패턴 감지 시 점수 차감.
+        * **[New] 3중 뉴스 분석 엔진:** Google + Naver금융 + Naver검색 통합.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1288,7 +1302,7 @@ with tab1:
                     render_fund_scorecard(res['fund_data'])
                     render_financial_table(res['fin_history'])
                 st.write("###### 🧠 큰손 투자 동향 (Chart & Table)")
-                # [V48.2] Render new investor visual
+                # [V48.3] Render investor visual (Fixed)
                 render_investor_chart(res['investor_trend'])
                 
                 st.write("###### 📰 AI 헤지펀드 매니저 분석")
@@ -1385,7 +1399,7 @@ with tab2:
                     render_fund_scorecard(res['fund_data'])
                     render_financial_table(res['fin_history'])
                 st.write("###### 🧠 큰손 투자 동향 (Chart & Table)")
-                # [V48.2] Render new investor visual
+                # [V48.3] Render investor visual (Fixed)
                 render_investor_chart(res['investor_trend'])
                 
                 st.write("###### 📰 AI 헤지펀드 매니저 분석")
