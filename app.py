@@ -963,17 +963,26 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         
-        # [수정] 프롬프트 강화: JSON 이외의 출력 금지 및 안전성 확보
+        # [수정] 프롬프트 이원화: 보유자(Holder)에게는 '대응 전략'을 묻습니다.
         if is_holding:
             role_prompt = f"""
             당신은 사용자의 '포트폴리오 매니저'입니다.
-            사용자는 현재 이 주식을 보유 중이며, 수익률은 {profit_rate:.2f}% 입니다.
-            보유자의 관점에서 '수익 실현(익절)', '손절매(리스크관리)', '계속 보유(홀딩)' 중 어떤 대응이 최선인지 구체적인 이유와 함께 조언하세요.
+            사용자는 현재 이 주식을 보유 중이며, 현재 수익률은 {profit_rate:.2f}% 입니다.
+            보유자의 관점에서 '익절(수익실현)', '손절(리스크관리)', '홀딩(추가상승기대)', '물타기금지' 등 구체적인 대응 전략을 제시하세요.
+            """
+            
+            output_guideline = """
+            "opinion": "🚨 홀딩 (수익 확대) / 💰 부분 익절 / 🛡️ 전량 익절 / 💧 버티기 (물타기 금지) / ✂️ 손절매",
+            "summary": "현재 수익률과 뉴스를 종합한 구체적인 행동 가이드 (한 문장)",
             """
         else:
             role_prompt = """
             당신은 30년 경력의 글로벌 헤지펀드 수석 전략가입니다.
             신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
+            """
+            output_guideline = """
+            "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
+            "summary": "전문가 분석 코멘트 (핵심 요약 1문장)",
             """
 
         prompt = f"""
@@ -995,9 +1004,8 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         {{
             "score": (정수 -10 ~ 10, 뉴스 종합 점수),
             "supply_score": (정수 -5 ~ 5, 산업 사이클/공급망 영향 점수),
-            "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
+            {output_guideline}
             "catalyst": "주가 핵심 재료 (5단어 이내)",
-            "summary": "전문가 분석 코멘트 (핵심 요약 1문장)",
             "risk": "잠재적 리스크 (1문장)"
         }}
         """
@@ -1007,12 +1015,10 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         if res_data and 'candidates' in res_data and res_data['candidates']:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
             
-            # [핵심 수정] 정규표현식을 사용한 강력한 JSON 추출 (잡담 제거)
             try:
-                # 1. 1차 시도: 순수 JSON 파싱
                 js = json.loads(raw)
             except:
-                # 2. 2차 시도: Markdown 코드 블록 제거 및 정규표현식 추출
+                # Regex로 JSON 부분만 추출 (안전장치)
                 cleaned = raw.replace("```json", "").replace("```", "").strip()
                 match = re.search(r'\{.*\}', cleaned, re.DOTALL)
                 if match:
@@ -1366,8 +1372,10 @@ with tab2:
                 # [Fix: UI Logic] AI 분석 결과가 'ai'가 아닐 때도(키워드 분석 등) 결과를 표시하도록 수정
                 if res['news']['method'] == "ai":
                     op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
-                    if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
-                    elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
+                    
+                    # [UI Update] 보유자 관점의 색상 로직 적용 (익절/손절은 빨강, 홀딩은 파랑/중립)
+                    if "익절" in op or "손절" in op: badge_cls = "ai-opinion-sell" # Action Needed (Strong)
+                    elif "매수" in op or "홀딩" in op or "버티기" in op: badge_cls = "ai-opinion-buy" # Stay/Good
                     
                     st.markdown(f"""
                     <div class='news-ai'>
