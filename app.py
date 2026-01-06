@@ -1315,7 +1315,15 @@ with tab2:
         with st.spinner("🚀 보유 종목 수익률 분석 중..."):
             port_results = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-                futures = [executor.submit(analyze_pro, info['code'], name, None, info.get('buy_price', 0)) for name, info in portfolio_items]
+                # [Fix: Type Safety] info.get('buy_price', 0)을 float()로 강제 변환하여 계산 오류 방지
+                futures = []
+                for name, info in portfolio_items:
+                    try:
+                        safe_buy_price = float(info.get('buy_price', 0))
+                    except:
+                        safe_buy_price = 0.0
+                    futures.append(executor.submit(analyze_pro, info['code'], name, None, safe_buy_price))
+
                 for f in concurrent.futures.as_completed(futures):
                     if f.result(): port_results.append(f.result())
             
@@ -1344,7 +1352,7 @@ with tab2:
                 st.markdown("---")
                 st.write("###### 🤖 AI 포트폴리오 매니저의 조언")
                 
-                # [수정됨] AI 분석 결과가 'ai'가 아닐 때도 결과를 표시하도록 수정
+                # [Fix: UI Logic] AI 분석 결과가 'ai'가 아닐 때도(키워드 분석 등) 결과를 표시하도록 수정
                 if res['news']['method'] == "ai":
                     op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
                     if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
@@ -1364,7 +1372,7 @@ with tab2:
                         </div>
                     </div>""", unsafe_allow_html=True)
                 else:
-                    # [Fallback UI 추가] AI가 아닌 경우(키워드 분석 등)에도 결과를 표시
+                    # [Fallback UI 추가] AI가 아닌 경우에도 결과를 표시
                     fallback_headline = res['news'].get('headline', '분석 결과 없음')
                     fallback_risk = res['news'].get('risk', 'API 키 확인 또는 뉴스 데이터 부족')
                     
@@ -1376,7 +1384,6 @@ with tab2:
                     </div>
                     """, unsafe_allow_html=True)
 
-                # [뉴스 원문 링크] 항상 표시되도록 위치 조정
                 if res['news'].get('raw_news'):
                     st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
                     for news in res['news']['raw_news']:
