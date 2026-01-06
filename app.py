@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.1 (Seamless Action)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.2 (AI Advisor)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -461,10 +461,8 @@ def load_from_github():
         if r.status_code == 200:
             content = base64.b64decode(r.json()['content']).decode('utf-8')
             data = json.loads(content)
-            
             if "portfolio" not in data and "watchlist" not in data:
                 return {"portfolio": {}, "watchlist": data}
-            
             return data
         return {"portfolio": {}, "watchlist": {}}
     except: return {"portfolio": {}, "watchlist": {}}
@@ -473,25 +471,20 @@ def update_github_file(new_data):
     try:
         token = USER_GITHUB_TOKEN
         if not token: return False
-        
         url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        
         r_get = requests.get(url, headers=headers)
         if r_get.status_code == 200:
             sha = r_get.json().get('sha')
         else:
             sha = None
-            
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
-        
         data = {
-            "message": "Update data via Streamlit App (V49.1)",
+            "message": "Update data via Streamlit App (V49.2)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
-        
         r_put = requests.put(url, headers=headers, json=data)
         return r_put.status_code in [200, 201]
     except Exception as e:
@@ -967,11 +960,25 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         trend = stock_data_context.get('trend', '분석중')
         cycle = stock_data_context.get('cycle', '정보없음')
-        pbr = stock_data_context.get('pbr', 0)
+        # [V49.2] 보유 상태 확인
+        is_holding = stock_data_context.get('is_holding', False)
+        profit_rate = stock_data_context.get('profit_rate', 0.0)
         
+        # [V49.2] 프롬프트 이원화 (보유자용 vs 신규매수용)
+        if is_holding:
+            role_prompt = f"""
+            당신은 사용자의 '포트폴리오 매니저'입니다.
+            사용자는 현재 이 주식을 보유 중이며, 수익률은 {profit_rate:.2f}% 입니다.
+            보유자의 관점에서 '수익 실현(익절)', '손절매(리스크관리)', '계속 보유(홀딩)' 중 어떤 대응이 최선인지 구체적인 이유와 함께 조언하세요.
+            """
+        else:
+            role_prompt = """
+            당신은 30년 경력의 글로벌 헤지펀드 수석 전략가입니다.
+            신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
+            """
+
         prompt = f"""
-        당신은 30년 경력의 글로벌 헤지펀드 수석 전략가입니다.
-        아래 정보를 바탕으로 '{company_name}' 주식에 대한 매수/매도 전략을 수립하세요.
+        {role_prompt}
 
         [분석 데이터]
         1. 기술적 추세: {trend}
@@ -980,7 +987,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         {str(news_titles)}
 
         [분석 지침]
-        1. 다양한 출처의 뉴스를 종합하여 **'공급망 이슈', '반도체/AI 사이클', '사회적 관심도'**를 파악하세요.
+        1. 다양한 출처의 뉴스를 종합하여 '공급망 이슈', '반도체/AI 사이클', '사회적 관심도'를 파악하세요.
         2. 단순 등락보다는 기업의 **본질적인 가치 변화**에 주목하세요.
         3. 감정을 배제하고 매우 논리적이고 전문적인 어조를 사용하세요.
 
@@ -1043,6 +1050,11 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         curr = df.iloc[-1]
     except: return None
 
+    # [V49.2] 수익률 계산
+    profit_rate = 0.0
+    if my_buy_price and my_buy_price > 0:
+        profit_rate = (int(curr['Close']) - my_buy_price) / my_buy_price * 100
+
     result_dict = {
         "name": name_override if name_override else code, 
         "code": code, 
@@ -1063,7 +1075,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         "win_rate": win_rate, 
         "cycle_txt": "확인 중", 
         "relation_tag": relation_tag,
-        "my_buy_price": my_buy_price # Add buy price
+        "my_buy_price": my_buy_price 
     }
 
     try:
@@ -1107,13 +1119,16 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         elif i_net > 0: supply_txt = "기관 매수 우위"
         elif f_net < 0 and i_net < 0: supply_txt = "외국인/기관 동반 매도"
 
+        # [V49.2] AI에게 전달할 보유 정보 Context 추가
         context = {
             "code": code,
             "trend": result_dict['trend_txt'],
             "pbr": fund_data.get('pbr', {}).get('val', 0) if fund_data else 0,
             "per": fund_data.get('per', {}).get('val', 0) if fund_data else 0,
             "supply": supply_txt,
-            "cycle": cycle_txt
+            "cycle": cycle_txt,
+            "is_holding": True if my_buy_price else False, # 보유 여부
+            "profit_rate": profit_rate # 수익률
         }
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
@@ -1133,34 +1148,48 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         atr = curr.get('ATR', curr['Close'] * 0.03)
         current_price = curr['Close']
 
-        # [V48.4 Update] 친절한 멘트 및 이유 포함
-        if final_score >= 80:
-            buy_price_raw = current_price
-            buy_basis_txt = "🚀 상승 기류 포착"
-            stop_raw = current_price - (atr * 2) 
-            target_raw = current_price + (atr * 4) 
-            action_txt = f"🔥 지금이 기회! ({main_reason})"
-
-        elif final_score >= 60:
-            buy_price_raw = current_price
-            buy_basis_txt = "✨ 좋은 흐름"
-            ma20 = curr.get('MA20', current_price * 0.95)
-            stop_raw = min(ma20, current_price - (atr * 1.5))
-            target_raw = current_price + (atr * 3)
-            action_txt = f"📈 매수 ({main_reason})"
-
-        else:
-            bb_lower = curr.get('BB_Lower', current_price * 0.9)
-            if current_price < curr.get('MA20', current_price):
-                buy_price_raw = bb_lower
-                buy_basis_txt = "밴드 하단 대기"
+        # [V49.2] 보유자용 Logic (Holder Logic)
+        if my_buy_price:
+            # 1. 수익 중일 때
+            if profit_rate > 0:
+                if final_score >= 60: action_txt = f"🔴 강력 홀딩 (수익 극대화)"
+                else: action_txt = f"🟠 차익 실현 권장 (힘 빠짐)"
+            # 2. 손실 중일 때
             else:
-                buy_price_raw = curr.get('MA20', current_price * 0.95)
-                buy_basis_txt = "눌림목 대기"
+                if final_score >= 60: action_txt = f"💧 버티기 (반등 기대)"
+                else: action_txt = f"✂️ 손절매 고려 (추세 이탈)"
+            
+            # 목표/손절가는 평단가 기준으로 재조정
+            stop_raw = my_buy_price * 0.95 
+            target_raw = my_buy_price * 1.10
+            buy_basis_txt = "보유 중"
+            buy_price_raw = my_buy_price
 
-            stop_raw = buy_price_raw * 0.95 
-            target_raw = buy_price_raw * 1.10 
-            action_txt = f"👀 관망 ({main_reason})"
+        else: # 미보유자 (기존 로직)
+            if final_score >= 80:
+                buy_price_raw = current_price
+                buy_basis_txt = "🚀 상승 기류 포착"
+                stop_raw = current_price - (atr * 2) 
+                target_raw = current_price + (atr * 4) 
+                action_txt = f"🔥 지금이 기회! ({main_reason})"
+            elif final_score >= 60:
+                buy_price_raw = current_price
+                buy_basis_txt = "✨ 좋은 흐름"
+                ma20 = curr.get('MA20', current_price * 0.95)
+                stop_raw = min(ma20, current_price - (atr * 1.5))
+                target_raw = current_price + (atr * 3)
+                action_txt = f"📈 매수 ({main_reason})"
+            else:
+                bb_lower = curr.get('BB_Lower', current_price * 0.9)
+                if current_price < curr.get('MA20', current_price):
+                    buy_price_raw = bb_lower
+                    buy_basis_txt = "밴드 하단 대기"
+                else:
+                    buy_price_raw = curr.get('MA20', current_price * 0.95)
+                    buy_basis_txt = "눌림목 대기"
+                stop_raw = buy_price_raw * 0.95 
+                target_raw = buy_price_raw * 1.10 
+                action_txt = f"👀 관망 ({main_reason})"
 
         buy_price = round_to_tick(buy_price_raw)
         target_price = round_to_tick(target_raw)
@@ -1186,16 +1215,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.1 (Seamless Action)")
+    st.title("💎 Quant Sniper V49.2 (AI Advisor)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.1 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.2 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 원클릭 매수:** 관심 종목 상세 페이지에서 '매수 체결' 버튼 하나로 잔고 이동.
-        * **[New] 포트폴리오 관리:** 내 잔고(Portfolio)와 관심 종목(Watchlist) 탭 분리.
-        * **[Upgrade] 친절한 AI:** 딱딱한 용어 대신 직관적인 조언 제공.
+        * **[New] 보유자 맞춤 조언:** "수익인데 더 들고 갈까요?"에 대한 AI의 구체적인 답변 제공.
+        * **[Upgrade] 대응 전략:** 홀딩, 익절, 손절 등 보유 상황에 맞는 행동 가이드.
+        * **[Existing]** 원클릭 매수 이동, 포트폴리오 관리, 3중 뉴스 분석 등.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1275,7 +1304,7 @@ with tab1:
                     st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
-# --- Tab 2: 내 잔고 (Portfolio) - New! ---
+# --- Tab 2: 내 잔고 (Portfolio) ---
 with tab2:
     st.markdown("### 💰 내 보유 종목 (Portfolio)")
     portfolio_items = list(st.session_state['data_store']['portfolio'].items())
@@ -1310,6 +1339,30 @@ with tab2:
                 with col2:
                     st.write("###### 🧠 수급 동향")
                     render_investor_chart(res['investor_trend'])
+                
+                # [V49.2] 보유자 맞춤형 AI 조언 섹션
+                st.markdown("---")
+                st.write("###### 🤖 AI 포트폴리오 매니저의 조언")
+                if res['news']['method'] == "ai":
+                    op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
+                    if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
+                    elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
+                    
+                    st.markdown(f"""
+                    <div class='news-ai'>
+                        <div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'>
+                            <span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span>
+                            <span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span>
+                        </div>
+                        <div style='font-size:14px; line-height:1.6; font-weight:600; color:#191F28; margin-bottom:8px;'>
+                            🗣️ <b>Manager's Comment:</b><br>{res['news']['headline']}
+                        </div>
+                        <div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>
+                            ⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}
+                        </div>
+                    </div>""", unsafe_allow_html=True)
+                else:
+                    st.info("AI 분석을 불러오는 중입니다...")
 
 # --- Tab 3: 관심 종목 (Watchlist) ---
 with tab3:
@@ -1459,7 +1512,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.1 (Seamless Action)\n\n"
+            msg = f"💎 Quant Sniper V49.2 (AI Advisor)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
