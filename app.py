@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V47.0 (AI Logic Upgrade)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V48.0 (Triple News Engine)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -833,34 +833,78 @@ def get_ai_recommended_stocks(keyword):
             return [], "AI 응답 해석 실패"
     return [], "AI 연결 실패"
 
+# [V48.0 Upgrade] 네이버 금융 + 네이버 검색 + 구글 뉴스 (3중 소스 크롤링)
+def get_naver_finance_news(code):
+    """Source 2: 네이버 금융 종목별 뉴스"""
+    titles = []
+    try:
+        url = f"https://finance.naver.com/item/news_news.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        # 네이버 금융 뉴스 제목 클래스 확인 필요 (보통 .title or .tit)
+        items = soup.select('.title') 
+        for item in items:
+            t = item.get_text().strip()
+            if t: titles.append(t)
+    except: pass
+    return titles[:5]
+
+def get_naver_search_news(keyword):
+    """Source 3: 네이버 뉴스 검색 (빅카인즈 대체 - 최신 트렌드/사회적 이슈)"""
+    titles = []
+    try:
+        # 네이버 뉴스 검색 URL
+        url = f"https://search.naver.com/search.naver?where=news&query={urllib.parse.quote(keyword)}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        items = soup.select('.news_tit')
+        for item in items:
+            t = item.get_text().strip()
+            if t: titles.append(t)
+    except: pass
+    return titles[:5]
+
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     """
-    [V47.0 업데이트] Gemini를 활용하여 뉴스 기사에서
-    단순 호재/악재뿐만 아니라 '공급망 이슈', '산업 사이클', 'AI 수혜 여부'를
-    심층 분석하여 점수화하는 함수입니다.
+    [V48.0 업데이트] 3중 뉴스 소스 (Google Global + Naver Finance + Naver Search)
+    통합 분석 로직. 빅카인즈 대용으로 네이버 광역 검색을 사용함.
     """
     if stock_data_context is None: stock_data_context = {}
     news_titles = []; news_data = []
     
-    # 1. 뉴스 데이터 수집 (기존 로직 유지)
+    # 1. Google News (Global/Macro)
     try:
         query = f"{company_name} 주가"
         encoded_query = urllib.parse.quote(query)
         base_url = "https://news.google.com/rss/search"
         rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
         feed = feedparser.parse(rss_url)
-        for entry in feed.entries[:10]: # 최신 10개만 분석
+        for entry in feed.entries[:5]: # 구글 5개
             date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else ""
             news_data.append({"title": entry.title, "link": entry.link, "date": date_str})
             news_titles.append(entry.title)
-    except: 
-        return {"score": 0, "headline": "뉴스 데이터 로딩 실패", "raw_news": [], "method": "error", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0}
+    except: pass
+
+    # 2. Naver Finance (Specific Stock Issue)
+    code = stock_data_context.get('code', '')
+    if code:
+        naver_fin_titles = get_naver_finance_news(code)
+        news_titles.extend(naver_fin_titles)
+    
+    # 3. Naver Search (Broad Trend/Social)
+    naver_search_titles = get_naver_search_news(company_name)
+    news_titles.extend(naver_search_titles)
+
+    # 중복 제거
+    news_titles = list(set(news_titles))
 
     if not news_titles: 
         return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0}
 
-    # 2. AI 분석 요청 (프롬프트 강화)
+    # 4. AI 분석 요청
     try:
         if not USER_GOOGLE_API_KEY: raise Exception("API Key가 설정되지 않았습니다.")
         
@@ -868,7 +912,6 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         cycle = stock_data_context.get('cycle', '정보없음')
         pbr = stock_data_context.get('pbr', 0)
         
-        # ★ 여기가 핵심입니다: AI에게 구체적인 역할을 부여합니다.
         prompt = f"""
         당신은 30년 경력의 글로벌 헤지펀드 수석 전략가입니다.
         아래 정보를 바탕으로 '{company_name}' 주식에 대한 매수/매도 전략을 수립하세요.
@@ -876,22 +919,22 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         [분석 데이터]
         1. 기술적 추세: {trend}
         2. 시장 사이클: {cycle}
-        3. 최신 뉴스 헤드라인 모음:
+        3. 뉴스 헤드라인 (출처: Google, Naver Finance, Naver Search):
         {str(news_titles)}
 
         [분석 지침]
-        1. 뉴스를 통해 **'공급망 이슈(Supply Chain)', '산업 사이클(반도체 등)', 'AI/신기술 호재'**가 있는지 집중적으로 파악하세요.
+        1. 다양한 출처의 뉴스를 종합하여 **'공급망 이슈', '반도체/AI 사이클', '사회적 관심도'**를 파악하세요.
         2. 단순 등락보다는 기업의 **본질적인 가치 변화**에 주목하세요.
         3. 감정을 배제하고 매우 논리적이고 전문적인 어조를 사용하세요.
 
         [출력 형식 (반드시 JSON 포맷 준수)]
         {{
-            "score": (정수 -10 ~ 10, 전반적인 뉴스 점수),
-            "supply_score": (정수 -5 ~ 5, 산업 사이클 및 공급망/AI 호재가 주가에 미치는 추가 영향력 점수),
+            "score": (정수 -10 ~ 10, 뉴스 종합 점수),
+            "supply_score": (정수 -5 ~ 5, 산업 사이클/공급망 영향 점수),
             "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
-            "catalyst": "주가 핵심 재료 (5단어 이내 요약)",
-            "summary": "전문가 분석 코멘트 (한 문장으로 핵심 요약)",
-            "risk": "잠재적 리스크 요인 (한 문장)"
+            "catalyst": "주가 핵심 재료 (5단어 이내)",
+            "summary": "전문가 분석 코멘트 (핵심 요약 1문장)",
+            "risk": "잠재적 리스크 (1문장)"
         }}
         """
         
@@ -899,14 +942,14 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         if res_data and 'candidates' in res_data and res_data['candidates']:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = raw.replace("```json", "").replace("```", "").strip() # 마크다운 제거
+            raw = raw.replace("```json", "").replace("```", "").strip()
             js = json.loads(raw)
             
             return {
                 "score": js.get('score', 0),
-                "supply_score": js.get('supply_score', 0), # ★ 추가된 사이클 점수
+                "supply_score": js.get('supply_score', 0),
                 "headline": js.get('summary', "분석 결과 없음"),
-                "raw_news": news_data,
+                "raw_news": news_data, # 링크는 구글뉴스 것만 제공 (공간 절약)
                 "method": "ai",
                 "catalyst": js.get('catalyst', ""),
                 "opinion": js.get('opinion', "중립"),
@@ -915,7 +958,6 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         else: raise Exception(error_msg)
         
     except Exception as e:
-        # AI 호출 실패 시 키워드 분석으로 대체 (기존 로직 유지)
         score, summary, _, _ = analyze_news_by_keywords(news_titles)
         return {"score": score, "supply_score": 0, "headline": f"{summary} (AI 분석 실패: {str(e)})", "raw_news": news_data, "method": "keyword", "catalyst": "키워드", "opinion": "관망", "risk": "API 오류"}
 
@@ -1014,6 +1056,7 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         elif f_net < 0 and i_net < 0: supply_txt = "외국인/기관 동반 매도"
 
         context = {
+            "code": code, # [V48.0] 네이버 금융 크롤링용 코드 추가
             "trend": result_dict['trend_txt'],
             "pbr": fund_data.get('pbr', {}).get('val', 0) if fund_data else 0,
             "per": fund_data.get('per', {}).get('val', 0) if fund_data else 0,
@@ -1093,17 +1136,17 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V47.0 (AI Logic Upgrade)")
+    st.title("💎 Quant Sniper V48.0 (Triple News Engine)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V47.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V48.0 업데이트 노트", expanded=False):
         st.markdown("""
+        * **[New] 3중 뉴스 분석 엔진:** Google(해외) + Naver금융(종목) + Naver검색(사회 트렌드)을 통합하여 정보 사각지대 제거.
         * **[New] AI 산업 사이클 분석:** 뉴스에서 단순 호재뿐만 아니라 공급망 이슈, 반도체 사이클, AI 수혜 여부를 분석하여 점수에 반영합니다.
         * **[Upgrade] 정교한 점수 산출:** 차트 점수 외에 산업 변동성 점수를 가중 반영하여 신뢰도 향상.
-        * **[Existing] 5일선/120일선/240일선 차트 반영**
-        * **[Existing] 자동 저장(Auto-Save)**
+        * **[Existing] 5일선/120일선/240일선 차트 & 자동 저장(Auto-Save)**
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1393,7 +1436,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V47.0 (AI Logic Upgrade)\n\n"
+            msg = f"💎 Quant Sniper V48.0 (Triple News Engine)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
