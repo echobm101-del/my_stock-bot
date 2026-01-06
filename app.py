@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.3 (AI Hedge Fund)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.4 (Real-Price AI)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -961,30 +961,35 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         cycle = stock_data_context.get('cycle', '정보없음')
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
-        
-        # [V49.3 핵심] 퀀트 알고리즘의 판단(Math Opinion)을 AI에게 주입
         quant_signal = stock_data_context.get('quant_signal', '중립')
+        
+        # [V49.4 수정] AI에게 '현재 주가' 정보를 강제 주입
+        current_price = stock_data_context.get('current_price', 0)
         
         if is_holding:
             role_prompt = f"""
             당신은 20년 경력의 베테랑 '헤지펀드 매니저'입니다.
             사용자는 현재 이 주식을 보유 중이며, 수익률은 {profit_rate:.2f}% 입니다.
             
-            [퀀트 알고리즘 신호]: {quant_signal}
-            (참고: 알고리즘은 기술적 지표(RSI, 이격도 등)를 기반으로 기계적인 판단을 내린 것입니다.)
+            [중요 정보]
+            - **현재 주가:** {current_price:,}원
+            - 퀀트 알고리즘 신호: {quant_signal}
             
-            당신의 임무는 '알고리즘의 기계적 신호'와 '최신 뉴스(재료)'를 종합하여, **최적의 실전 대응 전략**을 수립하는 것입니다.
-            예를 들어, 알고리즘이 '매도'라고 해도 뉴스가 강력한 호재라면 '일부만 익절하고 나머지는 홀딩'하는 식의 절충안을 제시하세요.
+            [지시사항]
+            반드시 **현재 주가({current_price:,}원)**를 기준으로 판단하세요. 
+            만약 현재 주가가 이미 '10만전자'를 넘었다면 "10만전자 돌파" 같은 과거 목표가를 언급하지 마세요. 
+            현재 가격대에서의 지지/저항 여부와 실전 대응 전략(익절/홀딩)을 제시하세요.
             """
             
             output_guideline = """
             "opinion": "🚨 홀딩 (추가 상승 기대) / 💰 부분 익절 (리스크 관리) / 🛡️ 전량 익절 (추세 꺾임) / 💧 버티기 (물타기 금지) / ✂️ 손절매",
-            "summary": "알고리즘 신호와 뉴스를 종합한 구체적인 행동 가이드 (한 문장)",
+            "summary": "현재 주가 위치와 뉴스를 종합한 구체적인 행동 가이드 (한 문장)",
             """
         else:
-            role_prompt = """
+            role_prompt = f"""
             당신은 30년 경력의 글로벌 헤지펀드 수석 전략가입니다.
             신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
+            현재 주가는 {current_price:,}원입니다.
             """
             output_guideline = """
             "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
@@ -1072,7 +1077,6 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         curr = df.iloc[-1]
     except: return None
 
-    # [V49.2] 수익률 계산
     profit_rate = 0.0
     if my_buy_price and my_buy_price > 0:
         profit_rate = (int(curr['Close']) - my_buy_price) / my_buy_price * 100
@@ -1100,7 +1104,6 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         "my_buy_price": my_buy_price 
     }
 
-    # [1] 기술적 분석 (점수 계산 및 텍스트 생성)
     try:
         pass_cnt = 0
         mas = [('5일', 'MA5'), ('20일', 'MA20'), ('60일', 'MA60')]
@@ -1119,7 +1122,6 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         tech_score = score 
     except: tech_score = 0
 
-    # [2] 기본적 분석
     try: fund_score, _, fund_data = get_company_guide_score(code); result_dict['fund_data'] = fund_data
     except: fund_score = 0; fund_data = {}
     
@@ -1127,7 +1129,6 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
     result_dict['cycle_txt'] = cycle_txt
     if "상승세" in cycle_txt: tech_score += 10 
 
-    # [3] 데이터 수집 (수급, 재무)
     try: result_dict['investor_trend'] = get_investor_trend(code)
     except: pass
     try: result_dict['fin_history'] = get_financial_history(code)
@@ -1135,19 +1136,16 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
     try: result_dict['supply'] = get_supply_demand(code)
     except: pass
 
-    # [4] 종합 점수 및 전략 계산 (AI 호출 전)
     try:
         bonus = 0
         if not result_dict['investor_trend'].empty: bonus += 5
         if not result_dict['fin_history'].empty: bonus += 5
         
-        # 임시 점수 계산 (AI 점수 제외)
         temp_score = int((tech_score * 0.5) + fund_score + bonus)
         
         atr = curr.get('ATR', curr['Close'] * 0.03)
         current_price = curr['Close']
         
-        # [V49.3] 퀀트 알고리즘의 '기계적 판단' 생성
         quant_signal = "중립"
         if my_buy_price:
             if profit_rate > 0:
@@ -1158,7 +1156,6 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
                 else: quant_signal = "손절매 고려 (하락 추세)"
     except: quant_signal = "판단 불가"
 
-    # [5] AI 분석 실행 (퀀트 신호 주입)
     try:
         supply_txt = "특이사항 없음"
         f_net = result_dict['supply'].get('f', 0)
@@ -1168,6 +1165,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         elif i_net > 0: supply_txt = "기관 매수 우위"
         elif f_net < 0 and i_net < 0: supply_txt = "외국인/기관 동반 매도"
 
+        # [V49.4 수정] AI에게 'current_price' 주입
         context = {
             "code": code,
             "trend": result_dict['trend_txt'],
@@ -1177,12 +1175,12 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
             "cycle": cycle_txt,
             "is_holding": True if my_buy_price else False,
             "profit_rate": profit_rate,
-            "quant_signal": quant_signal # [New] 퀀트 신호 전달
+            "quant_signal": quant_signal,
+            "current_price": result_dict['price'] # [New] 현재가 정보 추가
         }
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
 
-    # [6] 최종 점수 합산 및 전략 확정
     try:
         ai_news_score = result_dict['news'].get('score', 0)
         ai_cycle_score = result_dict['news'].get('supply_score', 0) * 2
@@ -1191,16 +1189,13 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         final_score = min(max(final_score, 0), 100)
         result_dict['score'] = final_score
 
-        # [Strategy String Building]
         if my_buy_price:
-            # 보유자용 텍스트는 AI 의견을 우선시하되, 점수 기반 색상만 결정
             action_txt = result_dict['news'].get('opinion', quant_signal)
             stop_raw = my_buy_price * 0.95 
             target_raw = my_buy_price * 1.10
             buy_basis_txt = "보유 중"
             buy_price_raw = my_buy_price
         else:
-            # 미보유자 (기존 로직 유지)
             if final_score >= 80:
                 buy_price_raw = current_price
                 buy_basis_txt = "🚀 상승 기류 포착"
@@ -1250,15 +1245,15 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.3 (AI Hedge Fund)")
+    st.title("💎 Quant Sniper V49.4 (Real-Price AI)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.3 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.4 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 헤지펀드식 전략:** 퀀트(수학)와 AI(뉴스)가 충돌할 때, 이를 종합한 '부분 익절' 등의 절충안 제시.
-        * **[Upgrade] 대응의 구체화:** 단순 매수/매도 대신 '홀딩', '버티기', '물타기 금지' 등 실전 용어 사용.
+        * **[New] 10만전자 환각 수정:** AI에게 수익률뿐만 아니라 **현재 주가**를 명확히 알려주어 현실적인 분석 유도.
+        * **[Upgrade] 헤지펀드식 전략:** 퀀트(수학)와 AI(뉴스)가 충돌할 때, 이를 종합한 '부분 익절' 등의 절충안 제시.
         * **[Fixed]** 내 잔고 탭에서의 AI 오류 수정 및 데이터 처리 안정화.
         """)
 
@@ -1382,13 +1377,13 @@ with tab2:
                     st.write("###### 🧠 수급 동향")
                     render_investor_chart(res['investor_trend'])
                 
+                # [V49.2] 보유자 맞춤형 AI 조언 섹션
                 st.markdown("---")
                 st.write("###### 🤖 AI 포트폴리오 매니저의 조언")
                 
                 if res['news']['method'] == "ai":
                     op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
                     
-                    # [V49.3] 직관적 색상 로직: '익절/손절(청산)'은 빨강, '홀딩/버티기'는 파랑/중립
                     if "익절" in op or "손절" in op: badge_cls = "ai-opinion-sell" 
                     elif "홀딩" in op or "버티기" in op or "매수" in op: badge_cls = "ai-opinion-buy"
                     
