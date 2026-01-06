@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V46.0 (Perfect Legend)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V47.0 (AI Logic Upgrade)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -147,8 +147,8 @@ def create_card_html(res):
     html += f"      <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 손절 {stop_price:,}<br><span style='font-size:10px; opacity:0.7;'>(방어선)</span></div>"
     html += f"  </div>"
     html += f"  <div style='margin-top:8px; display:flex; justify-content:space-between; align-items:center;'>"
-    html += f"       <span style='font-size:11px; font-weight:700; color:#555;'>{backtest_txt}</span>"
-    html += f"       <span style='font-size:12px; color:#888;'>{res['trend_txt']}</span>"
+    html += f"        <span style='font-size:11px; font-weight:700; color:#555;'>{backtest_txt}</span>"
+    html += f"        <span style='font-size:12px; color:#888;'>{res['trend_txt']}</span>"
     html += f"  </div>"
     html += f"</div>"
     
@@ -835,79 +835,89 @@ def get_ai_recommended_stocks(keyword):
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
+    """
+    [V47.0 업데이트] Gemini를 활용하여 뉴스 기사에서
+    단순 호재/악재뿐만 아니라 '공급망 이슈', '산업 사이클', 'AI 수혜 여부'를
+    심층 분석하여 점수화하는 함수입니다.
+    """
     if stock_data_context is None: stock_data_context = {}
     news_titles = []; news_data = []
+    
+    # 1. 뉴스 데이터 수집 (기존 로직 유지)
     try:
         query = f"{company_name} 주가"
         encoded_query = urllib.parse.quote(query)
         base_url = "https://news.google.com/rss/search"
         rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
         feed = feedparser.parse(rss_url)
-        for entry in feed.entries[:10]:
+        for entry in feed.entries[:10]: # 최신 10개만 분석
             date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else ""
             news_data.append({"title": entry.title, "link": entry.link, "date": date_str})
             news_titles.append(entry.title)
     except: 
-        return {"score": 0, "headline": "뉴스 데이터 로딩 실패", "raw_news": [], "method": "error", "catalyst": "", "opinion": "중립", "risk": ""}
+        return {"score": 0, "headline": "뉴스 데이터 로딩 실패", "raw_news": [], "method": "error", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0}
 
     if not news_titles: 
-        return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": ""}
+        return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0}
 
+    # 2. AI 분석 요청 (프롬프트 강화)
     try:
         if not USER_GOOGLE_API_KEY: raise Exception("API Key가 설정되지 않았습니다.")
+        
         trend = stock_data_context.get('trend', '분석중')
-        pbr = stock_data_context.get('pbr', 0)
-        per = stock_data_context.get('per', 0)
-        supply = stock_data_context.get('supply', '정보없음')
         cycle = stock_data_context.get('cycle', '정보없음')
+        pbr = stock_data_context.get('pbr', 0)
         
+        # ★ 여기가 핵심입니다: AI에게 구체적인 역할을 부여합니다.
         prompt = f"""
-        당신은 30년 경력의 월스트리트 수석 펀드매니저입니다. [시장 데이터]와 [뉴스 헤드라인]을 기반으로 매수/매도 의견을 제시하세요.
+        당신은 30년 경력의 글로벌 헤지펀드 수석 전략가입니다.
+        아래 정보를 바탕으로 '{company_name}' 주식에 대한 매수/매도 전략을 수립하세요.
 
-        [분석 대상]: {company_name}
-        [1. 시장 데이터]
-        - 기술적 위치: {trend}
-        - 펀더멘탈: PBR {pbr}배, PER {per}배
-        - 수급: {supply}
-        - 시장 사이클: {cycle}
-        
-        [2. 최신 뉴스]
+        [분석 데이터]
+        1. 기술적 추세: {trend}
+        2. 시장 사이클: {cycle}
+        3. 최신 뉴스 헤드라인 모음:
         {str(news_titles)}
 
-        [작성 가이드]
-        - 비유적 표현 금지. "기쁨", "슬픔" 등 감정적 단어 사용 금지.
-        - 매우 건조하고 분석적인 전문 용어 사용.
-        - 결론부터 제시 (두괄식).
+        [분석 지침]
+        1. 뉴스를 통해 **'공급망 이슈(Supply Chain)', '산업 사이클(반도체 등)', 'AI/신기술 호재'**가 있는지 집중적으로 파악하세요.
+        2. 단순 등락보다는 기업의 **본질적인 가치 변화**에 주목하세요.
+        3. 감정을 배제하고 매우 논리적이고 전문적인 어조를 사용하세요.
 
-        [출력 형식 (JSON)]
+        [출력 형식 (반드시 JSON 포맷 준수)]
         {{
-            "score": -10 ~ 10 (정수),
-            "opinion": "강력매수 / 매수 / 관망 / 매도 / 비중축소",
-            "catalyst": "핵심 재료 (5단어 이내)",
-            "summary": "종합 분석 요약 (1문장)",
-            "risk": "리스크 요인 (1문장)"
+            "score": (정수 -10 ~ 10, 전반적인 뉴스 점수),
+            "supply_score": (정수 -5 ~ 5, 산업 사이클 및 공급망/AI 호재가 주가에 미치는 추가 영향력 점수),
+            "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
+            "catalyst": "주가 핵심 재료 (5단어 이내 요약)",
+            "summary": "전문가 분석 코멘트 (한 문장으로 핵심 요약)",
+            "risk": "잠재적 리스크 요인 (한 문장)"
         }}
         """
+        
         res_data, error_msg = call_gemini_dynamic(prompt)
-        if res_data:
-            if 'candidates' in res_data and res_data['candidates']:
-                raw = res_data['candidates'][0]['content']['parts'][0]['text']
-                raw = raw.replace("```json", "").replace("```", "").strip()
-                js = json.loads(raw)
-                return {
-                    "score": js.get('score', 0),
-                    "headline": js.get('summary', "분석 결과 없음"),
-                    "raw_news": news_data,
-                    "method": "ai",
-                    "catalyst": js.get('catalyst', ""),
-                    "opinion": js.get('opinion', "중립"),
-                    "risk": js.get('risk', "특이사항 없음")
-                }
-            else: raise Exception("No response")
+        
+        if res_data and 'candidates' in res_data and res_data['candidates']:
+            raw = res_data['candidates'][0]['content']['parts'][0]['text']
+            raw = raw.replace("```json", "").replace("```", "").strip() # 마크다운 제거
+            js = json.loads(raw)
+            
+            return {
+                "score": js.get('score', 0),
+                "supply_score": js.get('supply_score', 0), # ★ 추가된 사이클 점수
+                "headline": js.get('summary', "분석 결과 없음"),
+                "raw_news": news_data,
+                "method": "ai",
+                "catalyst": js.get('catalyst', ""),
+                "opinion": js.get('opinion', "중립"),
+                "risk": js.get('risk', "특이사항 없음")
+            }
         else: raise Exception(error_msg)
+        
     except Exception as e:
+        # AI 호출 실패 시 키워드 분석으로 대체 (기존 로직 유지)
         score, summary, _, _ = analyze_news_by_keywords(news_titles)
-        return {"score": score, "headline": f"{summary} (AI 분석 실패: {str(e)})", "raw_news": news_data, "method": "keyword", "catalyst": "키워드", "opinion": "관망", "risk": "API 오류"}
+        return {"score": score, "supply_score": 0, "headline": f"{summary} (AI 분석 실패: {str(e)})", "raw_news": news_data, "method": "keyword", "catalyst": "키워드", "opinion": "관망", "risk": "API 오류"}
 
 def get_supply_demand(code):
     try:
@@ -946,7 +956,7 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         "fund_data": None, 
         "ma_status": [], 
         "trend_txt": "분석 중",
-        "news": {"score":0, "headline":"로딩 실패", "raw_news":[], "method":"none", "opinion":"", "catalyst":"", "risk":""}, 
+        "news": {"score":0, "supply_score":0, "headline":"로딩 실패", "raw_news":[], "method":"none", "opinion":"", "catalyst":"", "risk":""}, 
         "history": df, 
         "supply": {"f":0, "i":0},
         "stoch": {"k": curr['RSI'], "d": 0}, 
@@ -1013,12 +1023,17 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
 
-    # 5. 점수 산출 및 전략 수립 (★ 핵심 수정 - Hedge Fund Logic)
+    # 5. 점수 산출 및 전략 수립 (★ 핵심 수정: 산업 변동성 반영)
     try:
         bonus = 0
         if not result_dict['investor_trend'].empty: bonus += 5
         if not result_dict['fin_history'].empty: bonus += 5
-        final_score = int((tech_score * 0.5) + fund_score + bonus + result_dict['news']['score'])
+        
+        # [수정된 부분] AI가 분석한 공급망/사이클 점수(supply_score)를 가중치(2배)를 두어 반영
+        ai_news_score = result_dict['news'].get('score', 0)
+        ai_cycle_score = result_dict['news'].get('supply_score', 0) * 2 # 산업 사이클 중요도 UP
+        
+        final_score = int((tech_score * 0.5) + fund_score + bonus + ai_news_score + ai_cycle_score)
         final_score = min(max(final_score, 0), 100)
         result_dict['score'] = final_score
 
@@ -1026,24 +1041,21 @@ def analyze_pro(code, name_override=None, relation_tag=None):
         current_price = curr['Close']
 
         if final_score >= 80:
-            # [Strong Buy] 돌파 매매
             buy_price_raw = current_price
-            buy_basis_txt = "현재가 돌파"
+            buy_basis_txt = "강력 호재/돌파"
             stop_raw = current_price - (atr * 2) 
             target_raw = current_price + (atr * 4) 
             action_txt = "🔥 강력매수"
 
         elif final_score >= 60:
-            # [Buy] 추세 추종
             buy_price_raw = current_price
-            buy_basis_txt = "추세 추종"
+            buy_basis_txt = "추세/사이클 양호"
             ma20 = curr.get('MA20', current_price * 0.95)
             stop_raw = min(ma20, current_price - (atr * 1.5))
             target_raw = current_price + (atr * 3)
             action_txt = "매수"
 
         else:
-            # [Hold/Watch] 저점 매수 대기
             bb_lower = curr.get('BB_Lower', current_price * 0.9)
             if current_price < curr.get('MA20', current_price):
                 buy_price_raw = bb_lower
@@ -1081,17 +1093,17 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V46.0 (Perfect Legend)")
+    st.title("💎 Quant Sniper V47.0 (AI Logic Upgrade)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V46.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V47.0 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 5일선/120일선/240일선 차트 반영:** 급등주 매매의 핵심인 5일선과 중장기 이평선을 차트와 범례에 추가하여 시각화 강화.
-        * **[Optimization] 닫기 버튼 삭제:** 중복 기능인 상세창 내부 '닫기' 버튼을 제거하여 앱 속도 및 UX 개선.
-        * **[New] 자동 저장(Auto-Save):** 관심 종목 추가/삭제 시 GitHub 파일에 즉시 저장.
-        * **RSI/MACD 신호등:** 차트 상단에 직관적인 신호등 대시보드.
+        * **[New] AI 산업 사이클 분석:** 뉴스에서 단순 호재뿐만 아니라 공급망 이슈, 반도체 사이클, AI 수혜 여부를 분석하여 점수에 반영합니다.
+        * **[Upgrade] 정교한 점수 산출:** 차트 점수 외에 산업 변동성 점수를 가중 반영하여 신뢰도 향상.
+        * **[Existing] 5일선/120일선/240일선 차트 반영**
+        * **[Existing] 자동 저장(Auto-Save)**
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1381,7 +1393,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V46.0 (Perfect Legend)\n\n"
+            msg = f"💎 Quant Sniper V47.0 (AI Logic Upgrade)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
