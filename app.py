@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.7 (Stable)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.8 (Final Fix)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -140,7 +140,7 @@ def create_watchlist_card_html(res):
     if res.get('relation_tag'):
         relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>"
 
-    # [수정] f-string 내 따옴표 충돌 방지를 위해 문자열 구조 단순화
+    # [중요] HTML 문자열 생성 시 삼중 따옴표 사용으로 에러 방지
     html = f"""
     <div class='toss-card' style='border-left: 5px solid {score_col};'>
       <div style='display:flex; justify-content:space-between; align-items:center;'>
@@ -170,7 +170,6 @@ def create_watchlist_card_html(res):
     return html
 
 # [수정 완료] HTML 렌더링 오류의 원흉이었던 함수를 완벽하게 고쳤습니다.
-# 삼중 따옴표(""")를 사용하여 HTML 문자열이 중간에 끊기지 않도록 했습니다.
 def create_portfolio_card_html(res):
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
@@ -215,7 +214,7 @@ def create_portfolio_card_html(res):
             </div>
             <div style='text-align:right;'>
                 <div style='font-size:24px; font-weight:900; color:{profit_color};'>{profit_sign}{profit_rate:.2f}%</div>
-                <div style='font-size:12px; font-weight:600; color:#666;'>{profit_sign}{profit_val:,}원</div>
+                <div style='font-size:12px; font-weight:600; color:{profit_color};'>{profit_sign}{profit_val:,}원</div>
             </div>
         </div>
         
@@ -226,7 +225,7 @@ def create_portfolio_card_html(res):
 
         <div class='ai-flash-msg' style='border-left-color:{action_color};'>
             <div style='margin-bottom:4px; font-size:11px; color:#888;'>🤖 AI 포트폴리오 매니저 코멘트</div>
-            "{ai_msg}"
+            {ai_msg}
         </div>
     </div>
     """
@@ -263,7 +262,7 @@ def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
     if k < 20: stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"; stoch_cls = "buy"
     elif k > 80: stoch_txt = f"🔴 과열 구간 ({k:.1f}%)"; stoch_cls = "sell"
-    else: stoch_txt = f"⚪ 중립 ({k:.1f}%)"; stoch_cls = "neu"
+    else: stoch_txt = f"⚪ 중립 구간 ({k:.1f}%)"; stoch_cls = "neu"
 
     if vol_ratio >= 2.0: vol_txt = f"🔥 거래량 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
     elif vol_ratio >= 1.2: vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
@@ -505,7 +504,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.7)",
+            "message": "Update data via Streamlit App (V49.8)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -690,8 +689,8 @@ def get_market_cycle_status(code):
         kospi = fdr.DataReader('KS11', datetime.datetime.now()-datetime.timedelta(days=400))
         ma120 = kospi['Close'].rolling(120).mean().iloc[-1]
         curr = kospi['Close'].iloc[-1]
-        if curr > ma120: return "📈 시장 상승세 (공격적 매수 유효)"
-        else: return "📉 시장 하락세 (보수적 접근 필요)"
+        if curr > ma120: return "📈 시장 상승세 (적극 매수)"
+        else: return "📉 시장 하락세 (보수적 접근)"
     except: return "시장 분석 중"
 
 def calculate_sniper_score(code):
@@ -818,9 +817,9 @@ def get_company_guide_score(code):
                 div = float(recent.get('DIV', 0))
         except: pass
     pbr_stat = "good" if 0 < pbr < 1.0 else ("neu" if 1.0 <= pbr < 2.5 else "bad")
-    pbr_txt = "저평가(좋음)" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가/정보없음")
+    pbr_txt = "저평가" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가")
     per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
-    per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자/정보없음")
+    per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자")
     div_stat = "good" if div > 3.0 else "neu"
     div_txt = "고배당" if div > 3.0 else "일반"
     score = 20
@@ -868,7 +867,7 @@ def get_valid_model_name(api_key):
     except: pass
     return "models/gemini-pro"
 
-# [NEW] JSON 문자열 정리 함수 (JSON 파싱 에러 방지)
+# [V49.8] JSON 문자열 정리 함수 (필수)
 def clean_json_input(text):
     text = text.replace("```json", "").replace("```", "").strip()
     start = text.find("{")
@@ -918,7 +917,7 @@ def get_ai_recommended_stocks(keyword):
     if res_data and 'candidates' in res_data:
         try:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = clean_json_input(raw) # [수정] JSON 파싱 에러 방지
+            raw = clean_json_input(raw) 
             stock_list = json.loads(raw)
             valid_list = []
             for item in stock_list:
@@ -996,17 +995,17 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         
-        # [V49.7 수정] AI 페르소나 강화 (금융 전문가) & 금지어 설정
+        # [V49.8] 프롬프트 개선 (AI 환각 방지 및 전문 용어 강제)
         if is_holding:
             role_prompt = f"""
-            당신은 전문적인 '포트폴리오 매니저'입니다.
-            사용자는 현재 이 주식을 보유 중이며, 수익률은 {profit_rate:.2f}% 입니다.
-            보유자의 관점에서 '수익 실현', '손절매', '홀딩' 중 어떤 대응이 최선인지 구체적인 이유와 함께 조언하세요.
+            당신은 사용자의 '포트폴리오 매니저'입니다.
+            현재 수익률은 {profit_rate:.2f}% 입니다.
+            보유 관점에서 '차익 실현', '손절', '홀딩' 중 하나를 명확한 근거와 함께 제안하세요.
             """
         else:
             role_prompt = """
-            당신은 30년 경력의 여의도 증권가 수석 애널리스트입니다.
-            신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
+            당신은 여의도 증권가의 20년차 수석 애널리스트입니다.
+            신규 진입 관점에서 냉철하게 분석하세요.
             """
 
         prompt = f"""
@@ -1015,21 +1014,21 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         [분석 데이터]
         1. 기술적 추세: {trend}
         2. 시장 사이클: {cycle}
-        3. 뉴스 헤드라인 (출처: Google, Naver Finance, Naver Search):
+        3. 뉴스 헤드라인:
         {str(news_titles)}
 
-        [중요: 번역투 금지 및 전문 용어 사용]
-        1. '군대(Army)', '거주자(Residents)', '존재(Existence)' 같은 직역투 단어를 절대 사용하지 마십시오.
-        2. 'Forces'는 '수급 주체'나 '세력'으로, 'Position'은 '보유 비중'으로 번역하십시오.
-        3. 금융 전문 용어(수급, 펀더멘털, 모멘텀, 차익실현 등)를 사용하여 자연스러운 한국어로 작성하세요.
+        [중요: 금지어 및 용어 가이드]
+        1. '군대(Army)', '거주자(Residents)', '시위(Protest)' 등 오역 단어를 절대 사용 금지.
+        2. Market Forces -> '시장 수급', Position -> '포지션/비중'으로 번역.
+        3. 자연스러운 한국어 금융 용어 사용 (예: 펀더멘털, 모멘텀, 차익실현).
 
-        [출력 형식 (반드시 JSON 포맷 준수)]
+        [출력 형식 (JSON)]
         {{
-            "score": (정수 -10 ~ 10, 뉴스 종합 점수),
-            "supply_score": (정수 -5 ~ 5, 산업 사이클/공급망 영향 점수),
-            "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
-            "catalyst": "주가 핵심 재료 (5단어 이내)",
-            "summary": "전문가 분석 코멘트 (핵심 요약 1문장)",
+            "score": (정수 -10 ~ 10),
+            "supply_score": (정수 -5 ~ 5),
+            "opinion": "적극매수 / 분할매수 / 관망 / 비중축소 / 전량매도 중 택1",
+            "catalyst": "핵심 재료 (5단어 이내)",
+            "summary": "전문가 분석 코멘트 (1~2문장, 명확한 근거 포함)",
             "risk": "잠재적 리스크 (1문장)"
         }}
         """
@@ -1038,7 +1037,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         if res_data and 'candidates' in res_data and res_data['candidates']:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = clean_json_input(raw) # [수정] JSON 정제 적용
+            raw = clean_json_input(raw)
             js = json.loads(raw)
             
             return {
@@ -1082,7 +1081,6 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         curr = df.iloc[-1]
     except: return None
 
-    # [V49.2] 수익률 계산
     profit_rate = 0.0
     if my_buy_price and my_buy_price > 0:
         profit_rate = (int(curr['Close']) - my_buy_price) / my_buy_price * 100
@@ -1151,7 +1149,6 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         elif i_net > 0: supply_txt = "기관 매수 우위"
         elif f_net < 0 and i_net < 0: supply_txt = "외국인/기관 동반 매도"
 
-        # [V49.2] AI에게 전달할 보유 정보 Context 추가
         context = {
             "code": code,
             "trend": result_dict['trend_txt'],
@@ -1159,8 +1156,8 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
             "per": fund_data.get('per', {}).get('val', 0) if fund_data else 0,
             "supply": supply_txt,
             "cycle": cycle_txt,
-            "is_holding": True if my_buy_price else False, # 보유 여부
-            "profit_rate": profit_rate # 수익률
+            "is_holding": True if my_buy_price else False, 
+            "profit_rate": profit_rate 
         }
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
@@ -1180,24 +1177,20 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         atr = curr.get('ATR', curr['Close'] * 0.03)
         current_price = curr['Close']
 
-        # [V49.2] 보유자용 Logic (Holder Logic)
         if my_buy_price:
-            # 1. 수익 중일 때
             if profit_rate > 0:
                 if final_score >= 60: action_txt = f"🔴 강력 홀딩"
                 else: action_txt = f"🟠 차익 실현 권장"
-            # 2. 손실 중일 때
             else:
                 if final_score >= 60: action_txt = f"💧 버티기"
                 else: action_txt = f"✂️ 손절매 고려"
             
-            # 목표/손절가는 평단가 기준으로 재조정
             stop_raw = my_buy_price * 0.95 
             target_raw = my_buy_price * 1.10
             buy_basis_txt = "보유 중"
             buy_price_raw = my_buy_price
 
-        else: # 미보유자 (기존 로직)
+        else: 
             if final_score >= 80:
                 buy_price_raw = current_price
                 buy_basis_txt = "🚀 상승 기류 포착"
@@ -1247,16 +1240,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.7 (Stable)")
+    st.title("💎 Quant Sniper V49.8 (Final Fix)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.7 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.8 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[Fix] HTML 렌더링 오류 수정:** 포트폴리오 카드 깨짐 현상 해결.
-        * **[Fix] AI 환각 제거:** '군대', '거주자' 등 오역을 제거하고 전문 금융 용어 탑재.
-        * **[Restore] 기능 복구:** 도넛 차트, 수급 그래프, 재무표 등 V49.2의 모든 기능 원상 복구.
+        * **[Fix] HTML 렌더링 오류 완벽 수정:** 포트폴리오 카드 깨짐 현상 해결.
+        * **[Fix] AI 환각 방지:** '군대', '거주자' 등 오역 금지 및 전문 용어 강제.
+        * **[Stable] 기능 100% 유지:** 도넛 차트, 수급 그래프, 재무표 등 모든 기능 정상 작동.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1344,7 +1337,7 @@ with tab2:
     if not portfolio_items:
         st.info("보유 중인 종목이 없습니다. 사이드바에서 추가하거나 관심 종목에서 이동해주세요.")
     else:
-        # [V49.7] 도넛 차트 기능 복구
+        # [V49.8] 도넛 차트 기능 유지
         try:
             st.write("###### 📊 보유 비중 현황")
             df_port = pd.DataFrame([{"name": k, "value": v.get('buy_price', 0)} for k, v in st.session_state['data_store']['portfolio'].items()])
@@ -1388,7 +1381,7 @@ with tab2:
                     st.write("###### 🧠 수급 동향")
                     render_investor_chart(res['investor_trend'])
                 
-                # [V49.2] 보유자 맞춤형 AI 조언 섹션
+                # [V49.8] 보유자 맞춤형 AI 조언 섹션
                 st.markdown("---")
                 st.write("###### 🤖 AI 포트폴리오 매니저의 조언")
                 if res['news']['method'] == "ai":
@@ -1560,7 +1553,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.7 (Stable)\n\n"
+            msg = f"💎 Quant Sniper V49.8 (Final Fix)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
