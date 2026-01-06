@@ -34,31 +34,19 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.5 (Action First)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.2 (Restored & Fixed)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
     .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
-    
-    /* 기본 카드 스타일 */
     .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
     
-    /* [V49.5] 내 잔고 전용 액션 카드 스타일 */
-    .port-card { background: #FFFFFF; border-radius: 24px; padding: 20px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08); margin-bottom: 20px; border: 2px solid #E5E8EB; transition: transform 0.2s; }
-    .port-card:hover { transform: translateY(-3px); }
-    
-    .action-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
-    .action-badge { font-size: 16px; font-weight: 800; padding: 6px 12px; border-radius: 8px; display: inline-block; }
-    .ai-flash-msg { background-color: #F9FAFB; padding: 12px; border-radius: 12px; font-size: 14px; font-weight: 600; color: #333; margin-top: 15px; border-left: 4px solid #888; }
-    
-    /* 재무 그리드 */
     .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
     .fund-item-v2 { text-align: center; }
     .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
     .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
     .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
     
-    /* 기술적 지표 */
     .tech-status-box { display: flex; gap: 10px; margin-bottom: 10px; }
     .status-badge { flex: 1; padding: 12px 10px; border-radius: 12px; text-align: center; font-size: 13px; font-weight: 700; color: #4E5968; background: #F2F4F6; border: 1px solid #E5E8EB; }
     .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; }
@@ -68,6 +56,7 @@ st.markdown("""
 
     .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
     
+    /* 이동평균선 상태 배지 스타일 */
     .ma-status-container { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
     .ma-status-badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #555; background-color: #F2F4F6; border: 1px solid #E5E8EB; }
     .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; } 
@@ -79,6 +68,7 @@ st.markdown("""
     .ai-opinion-hold { background-color: #F2F4F6; color: #4E5968; border: 1px solid #4E5968; }
     
     .news-fallback { background: #FFF4E6; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #FFD8A8; color: #D9480F; font-weight: 600; }
+    
     .news-scroll-box { max-height: 300px; overflow-y: auto; border: 1px solid #F2F4F6; border-radius: 8px; padding: 10px; }
     .news-box { padding: 8px 0; border-bottom: 1px solid #F2F4F6; font-size: 13px; }
     .news-link { color: #333; text-decoration: none; font-weight: 500; display: block; margin-bottom: 2px;}
@@ -90,6 +80,11 @@ st.markdown("""
     .metric-value { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 2px;}
     .metric-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 700; display: inline-block; margin-top: 4px; }
 
+    .sniper-tag { font-size: 10px; padding: 2px 5px; border-radius: 4px; font-weight: 700; margin-right: 4px; }
+    .tag-vol { background: #FFF0EB; color: #D9480F; border: 1px solid #FFD8A8; }
+    .tag-smart { background: #E8F3FF; color: #3182F6; border: 1px solid #D0EBFF; }
+    .tag-pull { background: #E6FCF5; color: #087F5B; border: 1px solid #B2F2BB; }
+    
     .fin-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; margin-bottom: 10px; border: 1px solid #E5E8EB; }
     .fin-table th { background-color: #F9FAFB; padding: 8px; border-bottom: 1px solid #E5E8EB; color: #4E5968; font-weight: 600; }
     .fin-table td { padding: 8px; border-bottom: 1px solid #F2F4F6; color: #333; font-weight: 500; }
@@ -99,6 +94,7 @@ st.markdown("""
     
     .cycle-badge { background-color:#E6FCF5; color:#087F5B; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; border:1px solid #B2F2BB; display:inline-block; margin-top:4px; }
     .cycle-badge.bear { background-color:#FFF5F5; color:#F04452; border-color:#FFD8A8; }
+    
     .relation-badge { background-color:#F3F0FF; color:#7950F2; padding:3px 6px; border-radius:4px; font-size:10px; font-weight:700; border:1px solid #E5DBFF; margin-left:6px; vertical-align: middle; }
     
     .investor-table-container { margin-top: 10px; border: 1px solid #F2F4F6; border-radius: 8px; overflow: hidden; }
@@ -167,7 +163,6 @@ def create_watchlist_card_html(res):
     html += f"</div>"
     return html
 
-# [V49.5] Action-Oriented Portfolio Card
 def create_portfolio_card_html(res):
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
@@ -179,70 +174,53 @@ def create_portfolio_card_html(res):
         profit_rate = 0
         profit_val = 0
         
+    profit_cls = "profit-positive" if profit_rate > 0 else ("profit-negative" if profit_rate < 0 else "")
     profit_sign = "+" if profit_rate > 0 else ""
     profit_color = "#F04452" if profit_rate > 0 else ("#3182F6" if profit_rate < 0 else "#333")
     
-    # 대응 전략(Action) 색상 및 스타일 결정
-    action_txt = res['strategy']['action']
-    action_color = "#555"
-    border_color = "#E5E8EB"
-    bg_color = "#FFFFFF"
-    
-    # 단순화된 로직으로 색상 매핑
-    if "강력 홀딩" in action_txt or "수익" in action_txt:
-        action_color = "#F04452" # Red (Good)
-        border_color = "#F04452"
-        bg_color = "#FFF5F5"
-    elif "손절" in action_txt or "위험" in action_txt:
-        action_color = "#3182F6" # Blue (Bad/Warning)
-        border_color = "#3182F6"
-        bg_color = "#F5F9FF"
-    elif "관망" in action_txt:
-        action_color = "#F08C00" # Orange (Neutral)
-        border_color = "#FFD8A8"
-    
-    ai_msg = res['news']['headline']
-    if len(ai_msg) > 60: ai_msg = ai_msg[:60] + "..."
+    score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
+    chg = res.get('change_rate', 0.0)
+    chg_txt = f"{chg:+.2f}%" if chg != 0 else "0.00%"
+    chg_color = "#F04452" if chg > 0 else ("#3182F6" if chg < 0 else "#333")
 
+    # [수정] 따옴표 충돌 방지를 위한 HTML 문자열 안전 생성
     html = f"""
-    <div class='port-card' style='border: 2px solid {border_color};'>
-        <div class='action-header'>
-            <div>
-                <span style='font-size:13px; color:#888; font-weight:600;'>{res['name']} ({res['code']})</span>
-                <div class='action-badge' style='background-color:{action_color}20; color:{action_color}; margin-top:4px;'>
-                    {action_txt}
-                </div>
-            </div>
-            <div style='text-align:right;'>
-                <div style='font-size:22px; font-weight:900; color:{profit_color};'>{profit_sign}{profit_rate:.2f}%</div>
-                <div style='font-size:12px; font-weight:600; color:#666;'>{profit_sign}{profit_val:,}원</div>
-            </div>
-        </div>
-        
-        <div style='display:flex; justify-content:space-between; align-items:center; font-size:13px; color:#555; padding-bottom:10px; border-bottom:1px dashed #eee;'>
-            <div>현재 <b>{curr_price:,}원</b></div>
-            <div>평단 <b>{buy_price:,}원</b></div>
-        </div>
-
-        <div class='ai-flash-msg' style='border-left-color:{action_color};'>
-            🤖 AI 직보: "{ai_msg}"
-        </div>
+    <div class='toss-card' style='border: 2px solid {profit_color}40; background-color: {profit_color}05;'>
+      <div style='display:flex; justify-content:space-between; align-items:flex-start;'>
+          <div>
+              <span class='badge-clean' style='background-color:#333; color:#fff; font-size:10px; margin-bottom:4px;'>내 보유 종목</span>
+              <br><span class='stock-name'>{res['name']}</span>
+              <span class='stock-code'>{res['code']}</span>
+              <div style='font-size:14px; color:#555; margin-top:4px;'>현재 {curr_price:,}원 <span style='color:{chg_color}; font-weight:600;'>({chg_txt})</span></div>
+          </div>
+          <div style='text-align:right;'>
+              <div class='{profit_cls}'>{profit_sign}{profit_rate:.2f}%</div>
+              <div style='font-size:12px; font-weight:600; color:{profit_color};'>{profit_sign}{profit_val:,}원</div>
+          </div>
+      </div>
+      
+      <div style='margin-top:15px; padding-top:10px; border-top:1px solid #E5E8EB; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:13px; font-weight:700; text-align:center;'>
+          <div><div style='color:#333;'>{buy_price:,}원</div><div class='port-label'>내 평단가</div></div>
+          <div><div style='color:{score_col};'>{res['score']}점</div><div class='port-label'>AI 점수</div></div>
+          <div><div style='color:#555;'>{res['strategy']['action']}</div><div class='port-label'>AI 전략</div></div>
+      </div>
     </div>
     """
+    
     return html
 
 def render_signal_lights(rsi, macd, macd_sig):
     if rsi <= 35:
-        rsi_cls = "buy"; rsi_icon = "🟢"; rsi_msg = "저평가 (매수권)"
+        rsi_cls = "buy"; rsi_icon = "🟢"; rsi_msg = "저평가 (싸다!)"
     elif rsi >= 70:
-        rsi_cls = "sell"; rsi_icon = "🔴"; rsi_msg = "과열권 (경계)"
+        rsi_cls = "sell"; rsi_icon = "🔴"; rsi_msg = "과열권 (비싸다!)"
     else:
-        rsi_cls = "neu"; rsi_icon = "🟡"; rsi_msg = "중립 구간"
+        rsi_cls = "neu"; rsi_icon = "🟡"; rsi_msg = "중립 (특이사항 없음)"
 
     if macd > macd_sig:
-        macd_cls = "buy"; macd_icon = "🟢"; macd_msg = "상승 추세"
+        macd_cls = "buy"; macd_icon = "🟢"; macd_msg = "상승 추세 (골든크로스)"
     else:
-        macd_cls = "sell"; macd_icon = "🔴"; macd_msg = "하락 추세"
+        macd_cls = "sell"; macd_icon = "🔴"; macd_msg = "하락 반전 (데드크로스)"
 
     html = f"""
     <div class='tech-status-box'>
@@ -260,9 +238,9 @@ def render_signal_lights(rsi, macd, macd_sig):
 
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
-    if k < 20: stoch_txt = f"🟢 침체 ({k:.1f}%)"; stoch_cls = "buy"
-    elif k > 80: stoch_txt = f"🔴 과열 ({k:.1f}%)"; stoch_cls = "sell"
-    else: stoch_txt = f"⚪ 중립 ({k:.1f}%)"; stoch_cls = "neu"
+    if k < 20: stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"; stoch_cls = "buy"
+    elif k > 80: stoch_txt = f"🔴 과열 구간 ({k:.1f}%)"; stoch_cls = "sell"
+    else: stoch_txt = f"⚪ 중립 구간 ({k:.1f}%)"; stoch_cls = "neu"
 
     if vol_ratio >= 2.0: vol_txt = f"🔥 거래량 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
     elif vol_ratio >= 1.2: vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
@@ -275,7 +253,7 @@ def render_tech_metrics(stoch, vol_ratio):
             <div style='font-size:15px; margin-top:4px; font-weight:800;'>{stoch_txt}</div>
         </div>
         <div class='status-badge {vol_cls}'>
-            <div>📢 거래강도</div>
+            <div>📢 거래강도(전일비)</div>
             <div style='font-size:15px; margin-top:4px; font-weight:800;'>{vol_txt}</div>
         </div>
     </div>
@@ -296,10 +274,12 @@ def render_chart_legend():
     html = ""
     html += "<div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center; flex-wrap:wrap;'>"
     html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#000000; margin-right:4px;'></div>현재가</div>"
-    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#FF4B4B; margin-right:4px;'></div>5일선</div>"
-    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선</div>"
-    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선</div>"
-    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#9C27B0; margin-right:4px;'></div>120일선</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#FF4B4B; margin-right:4px;'></div>5일선(단기)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선(생명)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선(수급)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#9C27B0; margin-right:4px;'></div>120일선(경기)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#999; border-top:1px dashed #999; margin-right:4px;'></div>240일선(대세)</div>"
+    html += "   <div style='display:flex; align-items:center;'><div style='width:12px; height:10px; background:#868E96; opacity:0.5; margin-right:4px;'></div>볼린저밴드</div>"
     html += "</div>"
     return html
 
@@ -329,7 +309,7 @@ def create_chart_clean(df):
         return alt.Chart(pd.DataFrame()).mark_text()
 
 def render_fund_scorecard(fund_data):
-    if not fund_data: st.info("재무 정보 로딩 실패"); return
+    if not fund_data: st.info("재무 정보 로딩 실패 (일시적 오류)"); return
     per = fund_data['per']['val']
     pbr = fund_data['pbr']['val']
     div = fund_data['div']['val']
@@ -375,7 +355,7 @@ def render_financial_table(df):
 
 def render_investor_chart(df):
     if df.empty:
-        st.caption("수급 데이터 없음 (장중/지연)")
+        st.caption("수급 데이터가 없습니다. (장중/집계 지연 가능성)")
         return
     
     df = df.reset_index()
@@ -401,7 +381,7 @@ def render_investor_chart(df):
     base = alt.Chart(df_line).encode(x=alt.X('날짜:T', axis=alt.Axis(format='%m-%d', title=None)))
     
     line = base.mark_line().encode(
-        y=alt.Y('Cumulative:Q', axis=alt.Axis(title='누적 순매수')), 
+        y=alt.Y('Cumulative:Q', axis=alt.Axis(title='누적 순매수 (선)')), 
         color=color_encoding,
         tooltip=[alt.Tooltip('날짜:T', format='%Y-%m-%d'), alt.Tooltip('Type:N', title='투자자'), alt.Tooltip('Cumulative:Q', format=',', title='📈 누적')]
     )
@@ -435,7 +415,7 @@ def render_investor_chart(df):
         html += "</tbody></table></div>"
         st.markdown(html, unsafe_allow_html=True)
     except Exception as e:
-        st.caption(f"표 렌더링 오류: {str(e)}")
+        st.caption(f"상세 표 렌더링 오류: {str(e)}")
 
 # --- [3. 데이터 로딩 및 분석 로직] ---
 REPO_OWNER = "echobm101-del"
@@ -504,7 +484,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.5)",
+            "message": "Update data via Streamlit App (V49.2)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -689,8 +669,8 @@ def get_market_cycle_status(code):
         kospi = fdr.DataReader('KS11', datetime.datetime.now()-datetime.timedelta(days=400))
         ma120 = kospi['Close'].rolling(120).mean().iloc[-1]
         curr = kospi['Close'].iloc[-1]
-        if curr > ma120: return "📈 시장 상승세 (적극 매수)"
-        else: return "📉 시장 하락세 (보수적 접근)"
+        if curr > ma120: return "📈 시장 상승세 (공격적 매수 유효)"
+        else: return "📉 시장 하락세 (보수적 접근 필요)"
     except: return "시장 분석 중"
 
 def calculate_sniper_score(code):
@@ -724,37 +704,37 @@ def calculate_sniper_score(code):
         if vol_ratio >= 3.0: 
             if price_chg > 0 or is_bullish:
                 score += 40
-                tags.append("🔥 거래량폭발")
-                main_reason = "강한 매수세 유입"
+                tags.append("🔥 거래량폭발(매수)")
+                main_reason = "큰손 쓸어담는 중"
             else:
                 score -= 50 
-                tags.append("😱 매물폭탄")
-                main_reason = "세력 이탈 신호"
+                tags.append("😱 투매폭탄(위험)")
+                main_reason = "세력 이탈 경고"
         elif vol_ratio >= 1.5:
             if price_chg > 0 or is_bullish:
                 score += 20
-                tags.append("📈 거래증가")
+                tags.append("📈 거래량증가")
             else:
                 score -= 10
-                tags.append("📉 매도압력")
+                tags.append("📉 매도세출현")
         
         if curr['Close'] > curr['MA20']: 
             score += 20
         if curr['RSI'] < 30: 
-            score += 10; tags.append("💎 과매도")
-            if main_reason == "관망 필요": main_reason = "저점 매수 기회"
+            score += 10; tags.append("💎 과매도(기회)")
+            if main_reason == "관망 필요": main_reason = "바닥 잡을 찬스"
         if curr['MACD'] > curr['MACD_Signal']: 
-            score += 10; tags.append("🌊 골든크로스")
-            if main_reason == "관망 필요": main_reason = "추세 전환 시그널"
+            score += 10; tags.append("🌊 추세전환")
+            if main_reason == "관망 필요": main_reason = "상승 파도타기"
         
         change = (curr['Close'] - df.iloc[-2]['Close']) / df.iloc[-2]['Close'] * 100
         
         win_rate = backtest_strategy(df)
         if win_rate >= 70: 
             score += 10; tags.append(f"👑 승률{win_rate}%")
-            if main_reason == "관망 필요": main_reason = "높은 승률 구간"
+            if main_reason == "관망 필요": main_reason = "승률 높은 구간"
 
-        if score < 60: main_reason = "에너지 축적 중"
+        if score < 60: main_reason = "힘 모으는 중"
 
         return score, tags, vol_ratio, change, win_rate, df, main_reason
     except: return 0, [], 0, 0, 0, pd.DataFrame(), ""
@@ -817,9 +797,9 @@ def get_company_guide_score(code):
                 div = float(recent.get('DIV', 0))
         except: pass
     pbr_stat = "good" if 0 < pbr < 1.0 else ("neu" if 1.0 <= pbr < 2.5 else "bad")
-    pbr_txt = "저평가" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가")
+    pbr_txt = "저평가(좋음)" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가/정보없음")
     per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
-    per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자")
+    per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자/정보없음")
     div_stat = "good" if div > 3.0 else "neu"
     div_txt = "고배당" if div > 3.0 else "일반"
     score = 20
@@ -867,7 +847,7 @@ def get_valid_model_name(api_key):
     except: pass
     return "models/gemini-pro"
 
-# [V49.5] JSON Cleaning (필수)
+# [NEW] JSON 문자열 정리 함수 (필수 추가)
 def clean_json_input(text):
     text = text.replace("```json", "").replace("```", "").strip()
     start = text.find("{")
@@ -899,7 +879,7 @@ def call_gemini_dynamic(prompt):
 
 def get_ai_recommended_stocks(keyword):
     prompt = f"""
-    당신은 여의도 증권사 20년차 수석 애널리스트입니다.
+    당신은 한국 주식 전문가입니다.
     사용자가 입력한 검색어 '{keyword}'와 가장 관련성이 높은 한국(KOSPI/KOSDAQ) 상장 주식 5개를 추천해주세요.
     
     [핵심 규칙]
@@ -917,7 +897,7 @@ def get_ai_recommended_stocks(keyword):
     if res_data and 'candidates' in res_data:
         try:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = clean_json_input(raw) 
+            raw = clean_json_input(raw) # [수정] JSON 정제 적용
             stock_list = json.loads(raw)
             valid_list = []
             for item in stock_list:
@@ -992,45 +972,45 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         trend = stock_data_context.get('trend', '분석중')
         cycle = stock_data_context.get('cycle', '정보없음')
+        # [V49.2] 보유 상태 확인
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         
-        # [V49.5 수정] 환각 방지를 위한 강력한 페르소나 및 금지어 설정
-        role_desc = ""
+        # [V49.2] 프롬프트 이원화 (보유자용 vs 신규매수용)
         if is_holding:
-            role_desc = f"""
+            role_prompt = f"""
             당신은 사용자의 '포트폴리오 매니저'입니다.
-            현재 수익률은 {profit_rate:.2f}% 입니다.
-            보유 관점에서 '차익 실현', '손절', '홀딩' 중 하나를 명확한 근거와 함께 제안하세요.
+            사용자는 현재 이 주식을 보유 중이며, 수익률은 {profit_rate:.2f}% 입니다.
+            보유자의 관점에서 '수익 실현(익절)', '손절매(리스크관리)', '계속 보유(홀딩)' 중 어떤 대응이 최선인지 구체적인 이유와 함께 조언하세요.
             """
         else:
-            role_desc = """
-            당신은 여의도 증권가의 20년차 수석 애널리스트입니다.
-            신규 진입 관점에서 냉철하게 분석하세요.
+            role_prompt = """
+            당신은 30년 경력의 글로벌 헤지펀드 수석 전략가입니다.
+            신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
             """
 
         prompt = f"""
-        {role_desc}
+        {role_prompt}
 
         [분석 데이터]
         1. 기술적 추세: {trend}
         2. 시장 사이클: {cycle}
-        3. 뉴스 헤드라인:
+        3. 뉴스 헤드라인 (출처: Google, Naver Finance, Naver Search):
         {str(news_titles)}
 
-        [매우 중요: 작성 원칙]
-        1. '군대', '거주자', '존재' 같은 번역투 단어를 절대 사용하지 마십시오. (Military terms forbidden)
-        2. 'General Consensus'는 '시장 의견'으로, 'Forces'는 '수급 주체'나 '세력'으로 표현하십시오.
-        3. 금융 전문 용어(수급, 펀더멘털, 모멘텀, 차익실현)를 사용하여 매우 건조하고 분석적인 어조로 작성하세요.
-        4. 모든 답변은 완벽한 한국어로 작성되어야 합니다.
+        [분석 지침]
+        1. 다양한 출처의 뉴스를 종합하여 '공급망 이슈', '반도체/AI 사이클', '사회적 관심도'를 파악하세요.
+        2. 단순 등락보다는 기업의 **본질적인 가치 변화**에 주목하세요.
+        3. 감정을 배제하고 매우 논리적이고 전문적인 어조를 사용하세요.
+        4. [중요] '군대(Army)', '거주자(Residents)' 같은 번역투 단어는 절대 사용하지 마십시오. 금융 전문 용어를 사용하세요.
 
-        [출력 형식 (JSON)]
+        [출력 형식 (반드시 JSON 포맷 준수)]
         {{
-            "score": (정수 -10 ~ 10),
-            "supply_score": (정수 -5 ~ 5),
-            "opinion": "적극매수 / 분할매수 / 관망 / 비중축소 / 전량매도 중 택1",
-            "catalyst": "핵심 재료 (5단어 이내, 예: HBM 공급 확대)",
-            "summary": "전문가 분석 코멘트 (1~2문장, 명확한 근거 포함)",
+            "score": (정수 -10 ~ 10, 뉴스 종합 점수),
+            "supply_score": (정수 -5 ~ 5, 산업 사이클/공급망 영향 점수),
+            "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
+            "catalyst": "주가 핵심 재료 (5단어 이내)",
+            "summary": "전문가 분석 코멘트 (핵심 요약 1문장)",
             "risk": "잠재적 리스크 (1문장)"
         }}
         """
@@ -1039,7 +1019,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         if res_data and 'candidates' in res_data and res_data['candidates']:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = clean_json_input(raw)
+            raw = clean_json_input(raw) # [수정] JSON 정제
             js = json.loads(raw)
             
             return {
@@ -1083,6 +1063,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         curr = df.iloc[-1]
     except: return None
 
+    # [V49.2] 수익률 계산
     profit_rate = 0.0
     if my_buy_price and my_buy_price > 0:
         profit_rate = (int(curr['Close']) - my_buy_price) / my_buy_price * 100
@@ -1151,6 +1132,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         elif i_net > 0: supply_txt = "기관 매수 우위"
         elif f_net < 0 and i_net < 0: supply_txt = "외국인/기관 동반 매도"
 
+        # [V49.2] AI에게 전달할 보유 정보 Context 추가
         context = {
             "code": code,
             "trend": result_dict['trend_txt'],
@@ -1158,8 +1140,8 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
             "per": fund_data.get('per', {}).get('val', 0) if fund_data else 0,
             "supply": supply_txt,
             "cycle": cycle_txt,
-            "is_holding": True if my_buy_price else False, 
-            "profit_rate": profit_rate 
+            "is_holding": True if my_buy_price else False, # 보유 여부
+            "profit_rate": profit_rate # 수익률
         }
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
@@ -1179,26 +1161,30 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         atr = curr.get('ATR', curr['Close'] * 0.03)
         current_price = curr['Close']
 
+        # [V49.2] 보유자용 Logic (Holder Logic)
         if my_buy_price:
+            # 1. 수익 중일 때
             if profit_rate > 0:
-                if final_score >= 60: action_txt = f"🔴 강력 홀딩"
-                else: action_txt = f"🟠 차익 실현 권장"
+                if final_score >= 60: action_txt = f"🔴 강력 홀딩 (수익 극대화)"
+                else: action_txt = f"🟠 차익 실현 권장 (힘 빠짐)"
+            # 2. 손실 중일 때
             else:
-                if final_score >= 60: action_txt = f"💧 버티기"
-                else: action_txt = f"✂️ 손절매 고려"
+                if final_score >= 60: action_txt = f"💧 버티기 (반등 기대)"
+                else: action_txt = f"✂️ 손절매 고려 (추세 이탈)"
             
+            # 목표/손절가는 평단가 기준으로 재조정
             stop_raw = my_buy_price * 0.95 
             target_raw = my_buy_price * 1.10
             buy_basis_txt = "보유 중"
             buy_price_raw = my_buy_price
 
-        else: 
+        else: # 미보유자 (기존 로직)
             if final_score >= 80:
                 buy_price_raw = current_price
                 buy_basis_txt = "🚀 상승 기류 포착"
                 stop_raw = current_price - (atr * 2) 
                 target_raw = current_price + (atr * 4) 
-                action_txt = f"🔥 적극 매수 ({main_reason})"
+                action_txt = f"🔥 지금이 기회! ({main_reason})"
             elif final_score >= 60:
                 buy_price_raw = current_price
                 buy_basis_txt = "✨ 좋은 흐름"
@@ -1242,16 +1228,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.5 (Action First)")
+    st.title("💎 Quant Sniper V49.2 (AI Advisor)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.5 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.2 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[UI] Action-First:** 보유 종목 카드를 '대응 전략 중심'으로 전면 개편.
-        * **[New] AI 직보:** 클릭 없이도 AI의 핵심 코멘트를 카드에서 즉시 확인.
-        * **[Fix] AI 환각 제거:** '군대', '거주자' 등 오역을 제거하고 전문 금융 용어 탑재.
+        * **[New] 보유자 맞춤 조언:** "수익인데 더 들고 갈까요?"에 대한 AI의 구체적인 답변 제공.
+        * **[Upgrade] 대응 전략:** 홀딩, 익절, 손절 등 보유 상황에 맞는 행동 가이드.
+        * **[Existing]** 원클릭 매수 이동, 포트폴리오 관리, 3중 뉴스 분석 등.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1268,6 +1254,7 @@ with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click t
                 st.markdown(f"""<div class='metric-box'><div class='metric-title'>{key}</div><div class='metric-value' style='color:{val_color}'>{d['val']:,.2f}</div><div style='font-size:12px; color:{val_color}'>{d['change']:+.2f}%</div><div class='metric-badge' style='{badge_style}'>{badge_text}</div></div>""", unsafe_allow_html=True)
     else: st.warning("거시 경제 데이터를 불러오지 못했습니다.")
 
+# [V49.0] 탭 분리 (Tab Separation)
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
 # --- Tab 1: 테마 검색 (Existing) ---
@@ -1318,12 +1305,12 @@ with tab1:
                     render_financial_table(res['fin_history'])
                 st.write("###### 🧠 큰손 투자 동향")
                 render_investor_chart(res['investor_trend'])
-                st.write("###### 📰 AI 수석 애널리스트 리포트")
+                st.write("###### 📰 AI 헤지펀드 매니저 분석")
                 if res['news']['method'] == "ai": 
                     op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
                     if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
                     elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
-                    st.markdown(f"""<div class='news-ai'><div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'><span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span><span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span></div><div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>🤖 <b>Analyst Opinion:</b> {res['news']['headline']}</div><div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}</div></div>""", unsafe_allow_html=True)
+                    st.markdown(f"""<div class='news-ai'><div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'><span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span><span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span></div><div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>🤖 <b>Deep Analysis:</b> {res['news']['headline']}</div><div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}</div></div>""", unsafe_allow_html=True)
                 else: st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
                 st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
                 for news in res['news']['raw_news']:
@@ -1338,22 +1325,6 @@ with tab2:
     if not portfolio_items:
         st.info("보유 중인 종목이 없습니다. 사이드바에서 추가하거나 관심 종목에서 이동해주세요.")
     else:
-        # [V49.5] 도넛 차트 시각화
-        try:
-            st.write("###### 📊 보유 비중 현황")
-            df_port = pd.DataFrame([{"name": k, "value": v.get('buy_price', 0)} for k, v in st.session_state['data_store']['portfolio'].items()])
-            base = alt.Chart(df_port).encode(theta=alt.Theta("value", stack=True))
-            pie = base.mark_arc(outerRadius=100, innerRadius=50).encode(
-                color=alt.Color("name"),
-                tooltip=["name", "value"]
-            )
-            text = base.mark_text(radius=120).encode(
-                text="name",
-                order=alt.Order("value", sort="descending")
-            )
-            st.altair_chart(pie + text, use_container_width=True)
-        except: pass
-
         with st.spinner("🚀 보유 종목 수익률 분석 중..."):
             port_results = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -1382,6 +1353,7 @@ with tab2:
                     st.write("###### 🧠 수급 동향")
                     render_investor_chart(res['investor_trend'])
                 
+                # [V49.2] 보유자 맞춤형 AI 조언 섹션
                 st.markdown("---")
                 st.write("###### 🤖 AI 포트폴리오 매니저의 조언")
                 if res['news']['method'] == "ai":
@@ -1432,6 +1404,7 @@ with tab3:
             
             with st.expander(expander_label):
                 
+                # [V49.1] 매수 체결 및 이동 섹션
                 st.markdown("---")
                 st.write("### 🛒 매수 체결 하셨나요?")
                 c1, c2 = st.columns([0.4, 0.6])
@@ -1441,13 +1414,16 @@ with tab3:
                     st.write("") 
                     st.write("")
                     if st.button("📥 내 잔고로 이동", key=f"move_{res['code']}"):
+                        # 1. Add to Portfolio
                         st.session_state['data_store']['portfolio'][res['name']] = {
                             "code": res['code'],
                             "buy_price": input_price
                         }
+                        # 2. Remove from Watchlist
                         if res['name'] in st.session_state['data_store']['watchlist']:
                             del st.session_state['data_store']['watchlist'][res['name']]
 
+                        # 3. Save & Rerun
                         if update_github_file(st.session_state['data_store']):
                             st.success(f"✅ {res['name']} 매수 등록 완료! (잔고 탭으로 이동됨)")
                             time.sleep(1.0)
@@ -1549,7 +1525,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.5 (Action First)\n\n"
+            msg = f"💎 Quant Sniper V49.2 (AI Advisor)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
