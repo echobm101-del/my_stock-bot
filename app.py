@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V48.0 (Triple News Engine)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V48.1 (Whale Defense)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -647,13 +647,36 @@ def calculate_sniper_score(code):
         df['BB_Lower'] = df['MA20'] - (df['Close'].rolling(20).std() * 2)
         
         curr = df.iloc[-1]
+        prev = df.iloc[-2] # [V48.1] 직전 봉 추가 (비교용)
         vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
         
         score = 0; tags = []
         vol_ratio = curr['Volume'] / vol_avg if vol_avg > 0 else 0
         
-        if vol_ratio >= 3.0: score += 40; tags.append("🔥 거래량폭발")
-        elif vol_ratio >= 1.5: score += 20; tags.append("📈 거래량증가")
+        # ----------------------------------------------------------------------
+        # [V48.1 Update] 세력 이탈 방지 로직 (거래량 + 가격 방향성 체크)
+        # ----------------------------------------------------------------------
+        price_chg = (curr['Close'] - prev['Close']) / prev['Close'] * 100
+        is_bullish = curr['Close'] >= curr['Open'] # 양봉 여부
+
+        if vol_ratio >= 3.0: 
+            # 거래량이 터졌는데 가격이 오르거나 양봉이면 -> 세력 매수 (좋음)
+            if price_chg > 0 or is_bullish:
+                score += 40
+                tags.append("🔥 거래량폭발(매수)")
+            # 거래량이 터졌는데 가격이 떨어지고 음봉이면 -> 세력 이탈/설거지 (매우 위험)
+            else:
+                score -= 50 
+                tags.append("😱 투매폭탄(위험)")
+                
+        elif vol_ratio >= 1.5:
+            if price_chg > 0 or is_bullish:
+                score += 20
+                tags.append("📈 거래량증가")
+            else:
+                score -= 10
+                tags.append("📉 매도세출현")
+        # ----------------------------------------------------------------------
         
         if curr['Close'] > curr['MA20']: score += 20
         if curr['RSI'] < 30: score += 10; tags.append("💎 과매도(기회)")
@@ -1136,17 +1159,17 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V48.0 (Triple News Engine)")
+    st.title("💎 Quant Sniper V48.1 (Whale Defense)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V48.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V48.1 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 3중 뉴스 분석 엔진:** Google(해외) + Naver금융(종목) + Naver검색(사회 트렌드)을 통합하여 정보 사각지대 제거.
-        * **[New] AI 산업 사이클 분석:** 뉴스에서 단순 호재뿐만 아니라 공급망 이슈, 반도체 사이클, AI 수혜 여부를 분석하여 점수에 반영합니다.
-        * **[Upgrade] 정교한 점수 산출:** 차트 점수 외에 산업 변동성 점수를 가중 반영하여 신뢰도 향상.
-        * **[Existing] 5일선/120일선/240일선 차트 & 자동 저장(Auto-Save)**
+        * **[Safety] 세력 이탈 감지:** 거래량이 터지면서 가격이 하락하는 '설거지(Dump)' 패턴 감지 시 점수 차감.
+        * **[New] 3중 뉴스 분석 엔진:** Google(해외) + Naver금융(종목) + Naver검색(사회 트렌드) 통합.
+        * **[New] AI 산업 사이클 분석:** 공급망 이슈 및 반도체 사이클 반영.
+        * **[Existing] 자동 저장(Auto-Save)**
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1416,20 +1439,20 @@ with st.sidebar:
                         with st.spinner(f"🤖 AI가 '{target_keyword}' 관련주를 생각 중입니다..."):
                             ai_stocks, msg = get_ai_recommended_stocks(target_keyword)
                         
-                        if ai_stocks:
-                            st.success(msg)
-                            st.session_state['preview_list'] = ai_stocks
-                            st.session_state['current_theme_name'] = f"AI 추천: {target_keyword}"
-                            st.rerun()
-                        else:
-                            with st.spinner("네이버 금융 테마 스캔 (Fallback)..."):
-                                raw_stocks, msg = get_naver_theme_stocks(target_keyword)
-                            if raw_stocks:
+                            if ai_stocks:
                                 st.success(msg)
-                                st.session_state['preview_list'] = raw_stocks
-                                st.session_state['current_theme_name'] = target_keyword
+                                st.session_state['preview_list'] = ai_stocks
+                                st.session_state['current_theme_name'] = f"AI 추천: {target_keyword}"
                                 st.rerun()
-                            else: st.error(f"❌ '{target_keyword}'에 대한 결과를 찾을 수 없습니다.")
+                            else:
+                                with st.spinner("네이버 금융 테마 스캔 (Fallback)..."):
+                                    raw_stocks, msg = get_naver_theme_stocks(target_keyword)
+                                if raw_stocks:
+                                    st.success(msg)
+                                    st.session_state['preview_list'] = raw_stocks
+                                    st.session_state['current_theme_name'] = target_keyword
+                                    st.rerun()
+                                else: st.error(f"❌ '{target_keyword}'에 대한 결과를 찾을 수 없습니다.")
                     except Exception as e: st.error(f"오류: {str(e)}")
 
     if st.button("🚀 텔레그램 리포트 전송"):
