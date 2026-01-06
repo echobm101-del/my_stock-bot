@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V48.1 (Whale Defense)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V48.2 (Whale Trend & Detail)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -96,6 +96,12 @@ st.markdown("""
     .cycle-badge.bear { background-color:#FFF5F5; color:#F04452; border-color:#FFD8A8; }
     
     .relation-badge { background-color:#F3F0FF; color:#7950F2; padding:3px 6px; border-radius:4px; font-size:10px; font-weight:700; border:1px solid #E5DBFF; margin-left:6px; vertical-align: middle; }
+    
+    /* V48.2 New Style for Investor Table */
+    .investor-table-container { margin-top: 10px; border: 1px solid #F2F4F6; border-radius: 8px; overflow: hidden; }
+    .investor-table { width: 100%; font-size: 11px; text-align: center; border-collapse: collapse; }
+    .investor-table th { background-color: #F9FAFB; padding: 6px; color: #666; font-weight: 600; border-bottom: 1px solid #E5E8EB; }
+    .investor-table td { padding: 6px; border-bottom: 1px solid #F2F4F6; color: #333; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -311,6 +317,7 @@ def render_financial_table(df):
     st.markdown(html, unsafe_allow_html=True)
     st.caption("※ 단위: 억 원 / (괄호): 전분기/전년 대비 증감률")
 
+# [V48.2 Upgrade] 장기 차트 + 최근 5일 상세 표 렌더링
 def render_investor_chart(df):
     if df.empty:
         st.caption("수급 데이터가 없습니다. (장중/집계 지연 가능성)")
@@ -318,16 +325,12 @@ def render_investor_chart(df):
     df = df.reset_index()
     if '날짜' not in df.columns: 
         if 'index' in df.columns: df.rename(columns={'index': '날짜'}, inplace=True)
+    
+    # --- 1. 장기 추세 차트 (기존 로직) ---
     cum_cols = [c for c in ['Cum_Individual', 'Cum_Foreigner', 'Cum_Institution', 'Cum_Pension'] if c in df.columns]
     df_line = df.melt('날짜', value_vars=cum_cols, var_name='Key', value_name='Cumulative')
     daily_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
     if '기관합계' in df.columns: daily_map['Cum_Institution'] = '기관합계'
-    
-    def get_daily(row):
-        col = daily_map.get(row['Key'])
-        if col and col in df.columns: return df.loc[df['날짜'] == row['날짜'], col].values[0]
-        return 0
-    df_line['Daily'] = df_line.apply(get_daily, axis=1)
     
     type_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관합계', 'Cum_Pension': '연기금'}
     df_line['Type'] = df_line['Key'].map(type_map)
@@ -340,19 +343,37 @@ def render_investor_chart(df):
 
     base = alt.Chart(df_line).encode(x=alt.X('날짜:T', axis=alt.Axis(format='%m-%d', title=None)))
     
-    bar = base.mark_bar(opacity=0.3).encode(
-        y=alt.Y('Daily:Q', axis=alt.Axis(title='일별 순매수 (막대)', titleColor='#888')), 
-        color=color_encoding
-    )
-    
     line = base.mark_line().encode(
         y=alt.Y('Cumulative:Q', axis=alt.Axis(title='누적 순매수 (선)')), 
         color=color_encoding,
-        tooltip=[alt.Tooltip('날짜:T', format='%Y-%m-%d'), alt.Tooltip('Type:N', title='투자자'), alt.Tooltip('Cumulative:Q', format=',', title='📈 누적'), alt.Tooltip('Daily:Q', format=',', title='💰 당일(강도)')]
+        tooltip=[alt.Tooltip('날짜:T', format='%Y-%m-%d'), alt.Tooltip('Type:N', title='투자자'), alt.Tooltip('Cumulative:Q', format=',', title='📈 누적')]
     )
     
-    chart = alt.layer(bar, line).resolve_scale(y='independent').properties(height=250)
+    chart = line.properties(height=250)
     st.altair_chart(chart, use_container_width=True)
+
+    # --- 2. 최근 5일 상세 표 (New) ---
+    st.markdown("###### 📊 최근 5거래일 수급 (단위: 원)", unsafe_allow_html=True)
+    
+    recent_df = df.tail(5).sort_values('날짜', ascending=False)
+    
+    html = "<div class='investor-table-container'><table class='investor-table'><thead><tr><th>날짜</th><th>외국인</th><th>기관</th><th>개인</th></tr></thead><tbody>"
+    
+    for idx, row in recent_df.iterrows():
+        d_str = row['날짜'].strftime('%m-%d') if hasattr(row['날짜'], 'strftime') else str(row['날짜'])[:10]
+        
+        def format_val(val):
+            color = "#F04452" if val > 0 else ("#3182F6" if val < 0 else "#333")
+            return f"<span style='color:{color}; font-weight:700;'>{int(val):,}</span>"
+
+        frgn = format_val(row['외국인'])
+        inst = format_val(row['기관합계'])
+        indv = format_val(row['개인'])
+        
+        html += f"<tr><td>{d_str}</td><td>{frgn}</td><td>{inst}</td><td>{indv}</td></tr>"
+    
+    html += "</tbody></table></div>"
+    st.markdown(html, unsafe_allow_html=True)
 
 # --- [3. 데이터 로딩 및 분석 로직] ---
 REPO_OWNER = "echobm101-del"
@@ -511,11 +532,12 @@ def get_investor_trend_from_naver(code):
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
     try:
+        # [V48.2 Upgrade] 장기 추세 확인을 위해 데이터 수집 기간 100일로 확대
         end_d = datetime.datetime.now().strftime("%Y%m%d")
-        start_d = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
+        start_d = (datetime.datetime.now() - datetime.timedelta(days=100)).strftime("%Y%m%d")
         df = stock.get_market_investor_net_purchase_by_date(start_d, end_d, code)
         if not df.empty:
-            df = df.tail(20).copy()
+            df = df.tail(60).copy() # 차트는 최근 60개(약 3달) 보여줌
             df['Cum_Individual'] = df['개인'].cumsum()
             df['Cum_Foreigner'] = df['외국인'].cumsum()
             df['Cum_Institution'] = df['기관합계'].cumsum()
@@ -1159,16 +1181,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V48.1 (Whale Defense)")
+    st.title("💎 Quant Sniper V48.2 (Whale Trend & Detail)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V48.1 업데이트 노트", expanded=False):
+    with st.expander("📘 V48.2 업데이트 노트", expanded=False):
         st.markdown("""
+        * **[New] 수급 분석 강화:** 큰손 투자 동향을 '장기 차트(흐름)'와 '최근 5일 상세 표(정밀)'로 이중 시각화.
         * **[Safety] 세력 이탈 감지:** 거래량이 터지면서 가격이 하락하는 '설거지(Dump)' 패턴 감지 시 점수 차감.
         * **[New] 3중 뉴스 분석 엔진:** Google(해외) + Naver금융(종목) + Naver검색(사회 트렌드) 통합.
-        * **[New] AI 산업 사이클 분석:** 공급망 이슈 및 반도체 사이클 반영.
         * **[Existing] 자동 저장(Auto-Save)**
         """)
 
@@ -1265,7 +1287,8 @@ with tab1:
                     st.write("###### 🏢 재무 펀더멘탈")
                     render_fund_scorecard(res['fund_data'])
                     render_financial_table(res['fin_history'])
-                st.write("###### 🧠 큰손 투자 동향")
+                st.write("###### 🧠 큰손 투자 동향 (Chart & Table)")
+                # [V48.2] Render new investor visual
                 render_investor_chart(res['investor_trend'])
                 
                 st.write("###### 📰 AI 헤지펀드 매니저 분석")
@@ -1361,7 +1384,8 @@ with tab2:
                     st.write("###### 🏢 재무 펀더멘탈")
                     render_fund_scorecard(res['fund_data'])
                     render_financial_table(res['fin_history'])
-                st.write("###### 🧠 큰손 투자 동향")
+                st.write("###### 🧠 큰손 투자 동향 (Chart & Table)")
+                # [V48.2] Render new investor visual
                 render_investor_chart(res['investor_trend'])
                 
                 st.write("###### 📰 AI 헤지펀드 매니저 분석")
