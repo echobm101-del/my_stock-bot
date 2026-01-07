@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.6 (Auto Strategy)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.7 (Overdrive)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -105,14 +105,29 @@ st.markdown("""
     .profit-negative { color: #3182F6; font-weight: 800; font-size: 20px; }
     .port-label { font-size: 11px; color: #888; margin-top: 4px; }
     
-    /* V49.6 New Styles for Strategy Bar */
+    /* V49.7 Overdrive Strategy Styles */
     .strategy-container { background-color: #F9FAFB; border-radius: 12px; padding: 12px; margin-top: 12px; border: 1px solid #E5E8EB; }
     .strategy-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .strategy-title { font-size: 12px; font-weight: 700; color: #4E5968; }
+    
     .progress-bg { background-color: #E0E0E0; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 8px; }
+    /* 기본 모드 */
     .progress-fill { background: linear-gradient(90deg, #ff9a9e 0%, #ff5e62 100%); height: 100%; transition: width 0.5s ease; }
+    /* 오버드라이브 모드 (금색/보라색) */
+    .progress-fill.overdrive { background: linear-gradient(90deg, #FFD700 0%, #FDBB2D 50%, #8A2BE2 100%); }
+    
     .price-guide { display: flex; justify-content: space-between; font-size: 11px; color: #666; font-weight: 500; }
     .price-guide strong { color: #333; }
+    
+    /* 강조 버튼 스타일 */
+    .action-badge-default { background-color:#eee; color:#333; padding:4px 10px; border-radius:12px; font-weight:700; font-size:12px; }
+    .action-badge-strong { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; box-shadow: 0 2px 6px rgba(118, 75, 162, 0.4); animation: pulse 2s infinite; }
+    
+    @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(118, 75, 162, 0.4); }
+        70% { box-shadow: 0 0 0 6px rgba(118, 75, 162, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(118, 75, 162, 0); }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -171,37 +186,60 @@ def create_watchlist_card_html(res):
     return html
 
 def create_portfolio_card_html(res):
-    # [V49.6] 업그레이드된 포트폴리오 카드 (자동 목표가/손절가 시각화)
+    # [V49.7] 오버드라이브 & 트레일링 스탑 통합 카드
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
     
-    # 1. 자동 계산된 목표/손절가 (analyze_pro에서 이미 1.10, 0.95 배수 적용됨)
-    target_price = res['strategy'].get('target', 0)
-    stop_price = res['strategy'].get('stop', 0)
-    
+    profit_rate = 0.0
+    profit_val = 0
     if buy_price > 0:
         profit_rate = (curr_price - buy_price) / buy_price * 100
         profit_val = curr_price - buy_price
-    else:
-        profit_rate = 0; profit_val = 0
+
+    # 1. 동적 목표/손절가 계산 (오버드라이브 로직)
+    is_overdrive = False
+    
+    # 기본 설정 (수익률 10% 미만)
+    final_target = int(buy_price * 1.10) # +10%
+    final_stop = int(buy_price * 0.95)   # -5%
+    status_msg = f"목표까지 {max(final_target - curr_price, 0):,}원 남음"
+    stop_label = "🛡️ 손절가 (-5%)"
+    target_label = "🚀 목표가 (+10%)"
+    progress_cls = "progress-fill" # 기본 (빨강)
+    action_btn_cls = "action-badge-default"
+    action_text = res['strategy']['action']
+
+    # 🚀 오버드라이브 모드 (수익률 10% 이상)
+    if profit_rate >= 10.0:
+        is_overdrive = True
+        final_target = int(buy_price * 1.20) # 목표 확장 (+20%)
+        final_stop = int(buy_price * 1.05)   # 익절 보존 (+5%)
         
+        status_msg = f"🎉 목표 초과 달성 중 (+{profit_rate:.2f}%)"
+        stop_label = "🔒 익절 보존선 (+5%)" # 명칭 변경
+        target_label = "🌟 2차 목표가 (+20%)" # 명칭 변경
+        progress_cls = "progress-fill overdrive" # 스페셜 컬러 (금색/보라)
+        
+        action_btn_cls = "action-badge-strong" # 강조 버튼
+        action_text = "🔥 강력 홀딩 (수익 극대화)" # 멘트 강화
+
+    # 2. 목표 달성률 계산
+    progress_pct = 0
+    if buy_price > 0:
+        total_range = final_target - buy_price
+        current_range = curr_price - buy_price
+        if total_range > 0 and current_range > 0:
+            progress_pct = (current_range / total_range) * 100
+            progress_pct = max(0, min(100, progress_pct))
+
+    # 기본 UI 변수 설정
     profit_cls = "profit-positive" if profit_rate > 0 else ("profit-negative" if profit_rate < 0 else "")
     profit_sign = "+" if profit_rate > 0 else ""
     profit_color = "#F04452" if profit_rate > 0 else ("#3182F6" if profit_rate < 0 else "#333")
-    
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
     chg = res.get('change_rate', 0.0)
     chg_txt = f"{chg:+.2f}%" if chg != 0 else "0.00%"
     chg_color = "#F04452" if chg > 0 else ("#3182F6" if chg < 0 else "#333")
-
-    # 2. 목표 달성률(Progress) 계산
-    progress_pct = 0
-    if buy_price > 0 and target_price > buy_price:
-        current_gain = curr_price - buy_price
-        target_gain = target_price - buy_price
-        if current_gain > 0:
-            progress_pct = (current_gain / target_gain) * 100
-            progress_pct = max(0, min(100, progress_pct)) # 0~100% 제한
 
     html = ""
     html += f"<div class='toss-card' style='border: 2px solid {profit_color}40; background-color: {profit_color}05;'>"
@@ -219,28 +257,31 @@ def create_portfolio_card_html(res):
     html += f"      </div>"
     html += f"  </div>"
     
-    # [V49.6 New] 자동 전략 시각화 섹션
-    html += f"  <div class='strategy-container'>"
+    # 전략 컨테이너
+    strategy_bg = "#F3F0FF" if is_overdrive else "#F9FAFB" # 오버드라이브 시 배경색 은은하게 변경
+    html += f"  <div class='strategy-container' style='background-color:{strategy_bg};'>"
     html += f"      <div class='strategy-header'>"
-    html += f"          <span class='strategy-title'>🎯 AI 대응 가이드 (자동계산)</span>"
-    html += f"          <span style='font-size:11px; color:#F04452; font-weight:700;'>목표까지 {max(target_price - curr_price, 0):,}원 남음</span>"
+    html += f"          <span class='strategy-title'>🎯 AI 대응 가이드</span>"
+    html += f"          <span style='font-size:11px; color:#F04452; font-weight:700;'>{status_msg}</span>"
     html += f"      </div>"
     
     # Progress Bar
     html += f"      <div class='progress-bg'>"
-    html += f"          <div class='progress-fill' style='width: {progress_pct}%;'></div>"
+    html += f"          <div class='{progress_cls}' style='width: {progress_pct}%;'></div>"
     html += f"      </div>"
     
-    # Labels (Stop - Target)
+    # Labels
+    stop_color = "#7950F2" if is_overdrive else "#3182F6" # 익절 보존선일 때 보라색
     html += f"      <div class='price-guide'>"
-    html += f"          <div>🛡️ 손절가 (-5%)<br><strong style='color:#3182F6;'>{stop_price:,}원</strong></div>"
-    html += f"          <div style='text-align:right;'>🚀 목표가 (+10%)<br><strong style='color:#F04452;'>{target_price:,}원</strong></div>"
+    html += f"          <div>{stop_label}<br><strong style='color:{stop_color};'>{final_stop:,}원</strong></div>"
+    html += f"          <div style='text-align:right;'>{target_label}<br><strong style='color:#F04452;'>{final_target:,}원</strong></div>"
     html += f"      </div>"
     html += f"  </div>"
     
+    # Footer (AI Score & Action)
     html += f"  <div style='margin-top:10px; padding-top:8px; display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#666;'>"
     html += f"      <div>AI 점수: <strong style='color:{score_col}'>{res['score']}점</strong></div>"
-    html += f"      <div style='background-color:#eee; padding:3px 8px; border-radius:12px; font-weight:700;'>{res['strategy']['action']}</div>"
+    html += f"      <div class='{action_btn_cls}'>{action_text}</div>"
     html += f"  </div>"
     html += f"</div>"
     
@@ -521,7 +562,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.6)",
+            "message": "Update data via Streamlit App (V49.7)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1332,16 +1373,15 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.6 (Auto Strategy)")
+    st.title("💎 Quant Sniper V49.7 (Overdrive)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.6 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.7 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 자동 대응 전략 탭:** 수동 입력 없이 목표가(+10%)와 손절가(-5%)를 자동 계산하여 시각화합니다.
-        * **[Upgrade] 심층 수급 분석:** AI가 외국인/기관 매도 이유(환율, 차익실현, 저항선)를 추론하여 설명합니다.
-        * **[Upgrade] 헤지펀드식 전략:** 퀀트 신호와 재료를 종합한 정교한 대응 전략.
+        * **[New] 오버드라이브 모드:** 목표가(10%) 초과 시 목표를 자동 상향(+20%)하고, 손절가를 익절 보존선(+5%)으로 전환합니다.
+        * **[UI] 스페셜 이펙트:** 초과 달성 시 프로그레스 바가 금색/보라색으로 변하고 강력 홀딩 버튼이 활성화됩니다.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1652,7 +1692,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.6 (Auto Strategy)\n\n"
+            msg = f"💎 Quant Sniper V49.7 (Overdrive)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
