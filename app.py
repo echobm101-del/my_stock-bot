@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.5 (Deep Supply)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.6 (Auto Strategy)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -104,6 +104,15 @@ st.markdown("""
     .profit-positive { color: #F04452; font-weight: 800; font-size: 20px; }
     .profit-negative { color: #3182F6; font-weight: 800; font-size: 20px; }
     .port-label { font-size: 11px; color: #888; margin-top: 4px; }
+    
+    /* V49.6 New Styles for Strategy Bar */
+    .strategy-container { background-color: #F9FAFB; border-radius: 12px; padding: 12px; margin-top: 12px; border: 1px solid #E5E8EB; }
+    .strategy-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .strategy-title { font-size: 12px; font-weight: 700; color: #4E5968; }
+    .progress-bg { background-color: #E0E0E0; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 8px; }
+    .progress-fill { background: linear-gradient(90deg, #ff9a9e 0%, #ff5e62 100%); height: 100%; transition: width 0.5s ease; }
+    .price-guide { display: flex; justify-content: space-between; font-size: 11px; color: #666; font-weight: 500; }
+    .price-guide strong { color: #333; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -162,15 +171,19 @@ def create_watchlist_card_html(res):
     return html
 
 def create_portfolio_card_html(res):
+    # [V49.6] 업그레이드된 포트폴리오 카드 (자동 목표가/손절가 시각화)
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
+    
+    # 1. 자동 계산된 목표/손절가 (analyze_pro에서 이미 1.10, 0.95 배수 적용됨)
+    target_price = res['strategy'].get('target', 0)
+    stop_price = res['strategy'].get('stop', 0)
     
     if buy_price > 0:
         profit_rate = (curr_price - buy_price) / buy_price * 100
         profit_val = curr_price - buy_price
     else:
-        profit_rate = 0
-        profit_val = 0
+        profit_rate = 0; profit_val = 0
         
     profit_cls = "profit-positive" if profit_rate > 0 else ("profit-negative" if profit_rate < 0 else "")
     profit_sign = "+" if profit_rate > 0 else ""
@@ -180,6 +193,15 @@ def create_portfolio_card_html(res):
     chg = res.get('change_rate', 0.0)
     chg_txt = f"{chg:+.2f}%" if chg != 0 else "0.00%"
     chg_color = "#F04452" if chg > 0 else ("#3182F6" if chg < 0 else "#333")
+
+    # 2. 목표 달성률(Progress) 계산
+    progress_pct = 0
+    if buy_price > 0 and target_price > buy_price:
+        current_gain = curr_price - buy_price
+        target_gain = target_price - buy_price
+        if current_gain > 0:
+            progress_pct = (current_gain / target_gain) * 100
+            progress_pct = max(0, min(100, progress_pct)) # 0~100% 제한
 
     html = ""
     html += f"<div class='toss-card' style='border: 2px solid {profit_color}40; background-color: {profit_color}05;'>"
@@ -193,13 +215,32 @@ def create_portfolio_card_html(res):
     html += f"      <div style='text-align:right;'>"
     html += f"          <div class='{profit_cls}'>{profit_sign}{profit_rate:.2f}%</div>"
     html += f"          <div style='font-size:12px; font-weight:600; color:{profit_color};'>{profit_sign}{profit_val:,}원</div>"
+    html += f"          <div style='font-size:11px; color:#888; margin-top:2px;'>평단 {buy_price:,}원</div>"
     html += f"      </div>"
     html += f"  </div>"
     
-    html += f"  <div style='margin-top:15px; padding-top:10px; border-top:1px solid #E5E8EB; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:13px; font-weight:700; text-align:center;'>"
-    html += f"      <div><div style='color:#333;'>{buy_price:,}원</div><div class='port-label'>내 평단가</div></div>"
-    html += f"      <div><div style='color:{score_col};'>{res['score']}점</div><div class='port-label'>AI 점수</div></div>"
-    html += f"      <div><div style='color:#555;'>{res['strategy']['action']}</div><div class='port-label'>AI 조언</div></div>"
+    # [V49.6 New] 자동 전략 시각화 섹션
+    html += f"  <div class='strategy-container'>"
+    html += f"      <div class='strategy-header'>"
+    html += f"          <span class='strategy-title'>🎯 AI 대응 가이드 (자동계산)</span>"
+    html += f"          <span style='font-size:11px; color:#F04452; font-weight:700;'>목표까지 {max(target_price - curr_price, 0):,}원 남음</span>"
+    html += f"      </div>"
+    
+    # Progress Bar
+    html += f"      <div class='progress-bg'>"
+    html += f"          <div class='progress-fill' style='width: {progress_pct}%;'></div>"
+    html += f"      </div>"
+    
+    # Labels (Stop - Target)
+    html += f"      <div class='price-guide'>"
+    html += f"          <div>🛡️ 손절가 (-5%)<br><strong style='color:#3182F6;'>{stop_price:,}원</strong></div>"
+    html += f"          <div style='text-align:right;'>🚀 목표가 (+10%)<br><strong style='color:#F04452;'>{target_price:,}원</strong></div>"
+    html += f"      </div>"
+    html += f"  </div>"
+    
+    html += f"  <div style='margin-top:10px; padding-top:8px; display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#666;'>"
+    html += f"      <div>AI 점수: <strong style='color:{score_col}'>{res['score']}점</strong></div>"
+    html += f"      <div style='background-color:#eee; padding:3px 8px; border-radius:12px; font-weight:700;'>{res['strategy']['action']}</div>"
     html += f"  </div>"
     html += f"</div>"
     
@@ -480,7 +521,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.2)",
+            "message": "Update data via Streamlit App (V49.6)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1236,6 +1277,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
 
         if my_buy_price:
             action_txt = result_dict['news'].get('opinion', quant_signal)
+            # [V49.6] 자동 목표가/손절가 로직 (수동 입력 대체)
             stop_raw = my_buy_price * 0.95 
             target_raw = my_buy_price * 1.10
             buy_basis_txt = "보유 중"
@@ -1290,15 +1332,15 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.5 (Deep Supply)")
+    st.title("💎 Quant Sniper V49.6 (Auto Strategy)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.5 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.6 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 심층 수급 분석:** AI가 외국인/기관 매도 이유(환율, 차익실현, 저항선)를 추론하여 설명합니다.
-        * **[Upgrade] 10만전자 환각 수정:** AI에게 현재 주가를 명확히 인지시켜 현실적인 목표가를 제시합니다.
+        * **[New] 자동 대응 전략 탭:** 수동 입력 없이 목표가(+10%)와 손절가(-5%)를 자동 계산하여 시각화합니다.
+        * **[Upgrade] 심층 수급 분석:** AI가 외국인/기관 매도 이유(환율, 차익실현, 저항선)를 추론하여 설명합니다.
         * **[Upgrade] 헤지펀드식 전략:** 퀀트 신호와 재료를 종합한 정교한 대응 전략.
         """)
 
@@ -1536,7 +1578,7 @@ with tab3:
                 st.write("###### 🧠 수급 동향")
                 render_investor_chart(res['investor_trend'])
                 st.write("###### 📰 AI 분석")
-                if res['news']['method'] == "ai":
+                if res['news']['method'] == "ai": 
                     op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
                     if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
                     elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
@@ -1610,7 +1652,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.5 (Deep Supply)\n\n"
+            msg = f"💎 Quant Sniper V49.6 (Auto Strategy)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
