@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.8 (Infinite Chasing)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.9 (Rescue Mode)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -105,23 +105,29 @@ st.markdown("""
     .profit-negative { color: #3182F6; font-weight: 800; font-size: 20px; }
     .port-label { font-size: 11px; color: #888; margin-top: 4px; }
     
-    /* V49.7 Overdrive Strategy Styles */
+    /* V49.9 Dynamic Strategy Styles */
     .strategy-container { background-color: #F9FAFB; border-radius: 12px; padding: 12px; margin-top: 12px; border: 1px solid #E5E8EB; }
     .strategy-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .strategy-title { font-size: 12px; font-weight: 700; color: #4E5968; }
     
     .progress-bg { background-color: #E0E0E0; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 8px; }
-    /* 기본 모드 */
+    
+    /* Mode 1: Normal (Red) */
     .progress-fill { background: linear-gradient(90deg, #ff9a9e 0%, #ff5e62 100%); height: 100%; transition: width 0.5s ease; }
-    /* 오버드라이브 모드 (금색/보라색) */
+    
+    /* Mode 2: Overdrive (Gold/Purple) */
     .progress-fill.overdrive { background: linear-gradient(90deg, #FFD700 0%, #FDBB2D 50%, #8A2BE2 100%); }
+    
+    /* Mode 3: Rescue/Loss (Blue) */
+    .progress-fill.rescue { background: linear-gradient(90deg, #a1c4fd 0%, #c2e9fb 100%); }
     
     .price-guide { display: flex; justify-content: space-between; font-size: 11px; color: #666; font-weight: 500; }
     .price-guide strong { color: #333; }
     
-    /* 강조 버튼 스타일 */
+    /* Button Styles */
     .action-badge-default { background-color:#eee; color:#333; padding:4px 10px; border-radius:12px; font-weight:700; font-size:12px; }
     .action-badge-strong { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; box-shadow: 0 2px 6px rgba(118, 75, 162, 0.4); animation: pulse 2s infinite; }
+    .action-badge-rescue { background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; }
     
     @keyframes pulse {
         0% { box-shadow: 0 0 0 0 rgba(118, 75, 162, 0.4); }
@@ -186,7 +192,7 @@ def create_watchlist_card_html(res):
     return html
 
 def create_portfolio_card_html(res):
-    # [V49.8] 오버드라이브 & 무한 추격(Infinite Chasing) 로직 적용
+    # [V49.9] 상황별 3단 변신 카드 (일반/오버드라이브/구조대)
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
     
@@ -196,60 +202,93 @@ def create_portfolio_card_html(res):
         profit_rate = (curr_price - buy_price) / buy_price * 100
         profit_val = curr_price - buy_price
 
-    # 1. 동적 목표/손절가 계산
+    # --- 전략 분기 (Strategy Branching) ---
     is_overdrive = False
+    is_rescue = False
     
-    # A. 기본 모드 (수익률 10% 미만)
+    # 변수 초기화 (기본 모드: -10% ~ +10%)
     final_target = int(buy_price * 1.10) # +10%
     final_stop = int(buy_price * 0.95)   # -5%
     
     status_msg = f"목표까지 {max(final_target - curr_price, 0):,}원 남음"
     stop_label = "🛡️ 손절가 (-5%)"
     target_label = "🚀 목표가 (+10%)"
-    progress_cls = "progress-fill" 
+    stop_color = "#3182F6"
+    target_color = "#F04452"
+    
+    progress_cls = "progress-fill" # Default Red
     action_btn_cls = "action-badge-default"
     action_text = res['strategy']['action']
+    strategy_bg = "#F9FAFB"
 
-    # B. 오버드라이브 모드 (수익률 10% 이상)
+    # [CASE 1] 오버드라이브 모드 (수익률 +10% 이상)
     if profit_rate >= 10.0:
         is_overdrive = True
         
-        # [수정된 로직] 목표가 산정 방식 고도화
-        # 기본적으로 2차 목표는 +20%지만,
+        # 무한 추격 로직 (Infinite Chasing)
         base_target_2nd = int(buy_price * 1.20)
-        
-        # 만약 현재가가 이미 2차 목표(+20%)를 넘었다면? -> 현재가 기준 +10%로 목표를 계속 밀어냄 (무한 추격)
         if curr_price >= base_target_2nd:
-            final_target = int(curr_price * 1.10) # 현재가보다 10% 더 위로 설정
-            target_label = "🔥 무한 질주 (추세 추종)" # 라벨 변경
+            final_target = int(curr_price * 1.10) # 현재가보다 더 위로 도망감
+            target_label = "🔥 무한 질주 (추세 추종)"
         else:
             final_target = base_target_2nd
             target_label = "🌟 2차 목표가 (+20%)"
 
-        # 익절 보존선: 매수가 대비 +5% OR (수익률이 매우 높으면) 현재가의 -10% 지점 등 전략적 선택
-        # 여기서는 심플하게 '매수가 +5%' 유지 (최소 수익 보장)
-        final_stop = int(buy_price * 1.05)   
+        final_stop = int(buy_price * 1.05) # 익절 보존 (+5%)
         
         status_msg = f"🎉 목표 초과 달성 중 (+{profit_rate:.2f}%)"
         stop_label = "🔒 익절 보존선 (+5%)"
-        progress_cls = "progress-fill overdrive" 
+        stop_color = "#7950F2" # Purple for Profit lock
         
+        progress_cls = "progress-fill overdrive"
         action_btn_cls = "action-badge-strong"
         action_text = "🔥 강력 홀딩 (수익 극대화)"
+        strategy_bg = "#F3F0FF"
 
-    # 2. 목표 달성률 계산 (Target이 항상 Current보다 높게 설정되므로 바가 100%에 갇히지 않음)
-    progress_pct = 0
-    if buy_price > 0:
-        # 분모(Total Range) 계산 시, 시작점을 '매수가'로 할지 '현재 구간'으로 할지 결정
-        # 직관성을 위해 [매수가 ~ 목표가] 전체 구간에서 현재 위치를 백분율로 표시
-        total_range = final_target - buy_price
-        current_range = curr_price - buy_price
+    # [CASE 2] 구조대(Rescue) 모드 (수익률 -10% 이하)
+    elif profit_rate <= -10.0:
+        is_rescue = True
         
-        if total_range > 0 and current_range > 0:
+        # 현실적인 탈출 목표 설정 (현재가 기준)
+        final_target = int(curr_price * 1.15) # 현재가 대비 +15% (기술적 반등 목표)
+        final_stop = int(curr_price * 0.95)   # 현재가 대비 -5% (추가 급락 방지)
+        
+        status_msg = f"🚨 위기 관리: 단기 반등 목표 {final_target:,}원"
+        
+        stop_label = "🛑 2차 방어선 (현재가 -5%)"
+        target_label = "📈 기술적 반등 목표 (+15%)"
+        stop_color = "#555" # Dark Gray
+        target_color = "#3182F6" # Blue (Cold/Recovery)
+        
+        progress_cls = "progress-fill rescue" # Blue/Cold Gradient
+        action_btn_cls = "action-badge-rescue"
+        action_text = "⛑️ 리스크 관리 (반등 시 비중 축소)"
+        strategy_bg = "#E8F3FF"
+
+    # --- 프로그레스 바 계산 ---
+    progress_pct = 0
+    if is_rescue:
+        # 구조대 모드는 '현재가'가 기준 (0% 지점)
+        # Bar: 현재가가 Stop(0%) ~ Target(100%) 사이 어디쯤인지 표시하면 좋겠지만,
+        # 직관성을 위해 '반등 목표 달성률'로 표현
+        # 여기서는 단순하게 바를 비워두거나, 바닥에서부터 올라오는 느낌을 줌
+        # 하지만 통일성을 위해 [Stop ~ Target] 구간 내 현재 위치를 표시
+        total_range = final_target - final_stop
+        current_range = curr_price - final_stop
+        if total_range > 0:
+            progress_pct = (current_range / total_range) * 100
+            progress_pct = max(0, min(100, progress_pct))
+    elif buy_price > 0:
+        # 일반/오버드라이브: [평단 ~ 목표] 또는 [익절선 ~ 목표]
+        # 직관성을 위해 [Stop ~ Target] 전체 레인지 사용
+        total_range = final_target - final_stop
+        current_range = curr_price - final_stop
+        
+        if total_range > 0:
             progress_pct = (current_range / total_range) * 100
             progress_pct = max(0, min(100, progress_pct))
 
-    # 기본 UI 변수 설정
+    # --- HTML 조립 ---
     profit_cls = "profit-positive" if profit_rate > 0 else ("profit-negative" if profit_rate < 0 else "")
     profit_sign = "+" if profit_rate > 0 else ""
     profit_color = "#F04452" if profit_rate > 0 else ("#3182F6" if profit_rate < 0 else "#333")
@@ -275,7 +314,6 @@ def create_portfolio_card_html(res):
     html += f"  </div>"
     
     # 전략 컨테이너
-    strategy_bg = "#F3F0FF" if is_overdrive else "#F9FAFB" 
     html += f"  <div class='strategy-container' style='background-color:{strategy_bg};'>"
     html += f"      <div class='strategy-header'>"
     html += f"          <span class='strategy-title'>🎯 AI 대응 가이드</span>"
@@ -288,14 +326,13 @@ def create_portfolio_card_html(res):
     html += f"      </div>"
     
     # Labels
-    stop_color = "#7950F2" if is_overdrive else "#3182F6" 
     html += f"      <div class='price-guide'>"
     html += f"          <div>{stop_label}<br><strong style='color:{stop_color};'>{final_stop:,}원</strong></div>"
-    html += f"          <div style='text-align:right;'>{target_label}<br><strong style='color:#F04452;'>{final_target:,}원</strong></div>"
+    html += f"          <div style='text-align:right;'>{target_label}<br><strong style='color:{target_color};'>{final_target:,}원</strong></div>"
     html += f"      </div>"
     html += f"  </div>"
     
-    # Footer (AI Score & Action)
+    # Footer
     html += f"  <div style='margin-top:10px; padding-top:8px; display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#666;'>"
     html += f"      <div>AI 점수: <strong style='color:{score_col}'>{res['score']}점</strong></div>"
     html += f"      <div class='{action_btn_cls}'>{action_text}</div>"
@@ -579,7 +616,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.8)",
+            "message": "Update data via Streamlit App (V49.9)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1390,15 +1427,15 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.8 (Infinite Chasing)")
+    st.title("💎 Quant Sniper V49.9 (Rescue Mode)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.8 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.9 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 무한 추격 모드:** 수익률이 목표가를 초과할 경우, 목표가를 현재가 위로 자동 갱신하여 상승 추세를 끝까지 따라갑니다.
-        * **[Upgrade] 오버드라이브:** +10% 수익 돌파 시 목표 자동 확장 및 손절가 익절 전환 기능 유지.
+        * **[New] 구조대(Rescue) 모드:** 손실률이 10% 이상일 경우, 기준을 '평단가'에서 '현재가'로 자동 전환하여 현실적인 탈출 목표(+15%)와 추가 방어선(-5%)을 제시합니다.
+        * **[UI] 3단계 상태 시각화:** 일반(Red) / 오버드라이브(Gold/Purple) / 구조대(Blue) 모드로 직관적인 상태 구분.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1709,7 +1746,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.8 (Infinite Chasing)\n\n"
+            msg = f"💎 Quant Sniper V49.9 (Rescue Mode)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
