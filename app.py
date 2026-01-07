@@ -37,7 +37,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.2 (DART Verified)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.3 (Golden Balance)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -584,7 +584,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.2)",
+            "message": "Update data via Streamlit App (V50.3)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1075,12 +1075,10 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
     news_titles = list(set(news_titles))
 
     dart_summary = "공시 정보 없음"
-    # [V50.2] DART 데이터 가져오기 로직 강화
     if code and USER_DART_KEY:
          dart_summary = get_dart_disclosure_summary(code)
 
     if not news_titles: 
-        # [Fix] 뉴스 없어도 DART 데이터 있으면 반환하도록 수정
         if dart_summary == "공시 정보 없음":
              return {"score": 0, "headline": "관련 뉴스 및 공시 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0, "dart_text": ""}
 
@@ -1107,34 +1105,34 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         hint_str = "\n".join(supply_analysis_hint) if supply_analysis_hint else "특이사항 없음"
 
-        # [V50.2] 페르소나 및 지시사항 강화
+        # [V50.3] Prompt Logic Update: Balanced Mode (종합적 판단)
         if is_holding:
             role_prompt = f"""
-            당신은 '냉철한 팩트 폭격기'이자 20년 경력의 헤지펀드 매니저입니다.
+            당신은 '균형 잡힌 시각'을 가진 20년 경력의 헤지펀드 매니저입니다.
             사용자는 현재 이 주식을 보유 중이며, 수익률은 {profit_rate:.2f}% 입니다.
             
             [지시사항]
-            1. 뉴스(찌라시)보다 **DART 공시(Fact)**를 절대적인 기준으로 삼으세요.
-            2. '공시' 섹션에 있는 내용(CB발행, 유상증자, 계약체결 등)이 있다면 **반드시** 요약문에 인용하세요. (예: "최근 CB발행 공시가 있어 물량 부담이 우려됩니다.")
-            3. 공시가 없다면 뉴스를 참고하되, 보수적으로 판단하세요.
+            1. **DART 공시, 뉴스(시장 재료), 기술적 추세**를 종합적으로 고려하세요.
+            2. '치명적인 악재 공시'(횡령, 부도, 대규모 유상증자 등)가 있다면 1순위로 경고하세요.
+            3. 그렇지 않다면, 공시에만 매몰되지 말고 시장의 관심(뉴스)과 차트 흐름을 중요하게 반영하세요.
             """
             output_guideline = """
             "opinion": "🚨 홀딩 / 💰 부분 익절 / 🛡️ 전량 익절 / 💧 버티기 / ✂️ 손절매",
-            "summary": "공시 사실관계를 포함한 구체적인 행동 가이드 (반드시 공시 내용 언급할 것)",
+            "summary": "공시와 뉴스를 종합한 현실적인 행동 가이드 (한 문장)",
             """
         else:
             role_prompt = f"""
-            당신은 '팩트 기반' 글로벌 투자 전략가입니다.
+            당신은 '팩트와 트렌드'를 모두 읽는 글로벌 투자 전략가입니다.
             신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
             현재 주가는 {current_price:,}원입니다.
             
             [지시사항]
-            1. 긍정적인 뉴스만 보고 뇌동매매 하지 않도록 **DART 공시의 리스크**를 먼저 체크하세요.
-            2. '공시' 데이터가 존재한다면 요약문에 **구체적인 날짜와 내용**을 언급하며 분석하세요.
+            1. DART 공시는 '리스크 체크' 용도로 먼저 확인하세요.
+            2. 특별한 공시 리스크가 없다면, 뉴스(성장성)와 수급(기술적 위치)에 더 가중치를 두고 공격적으로 판단하세요.
             """
             output_guideline = """
             "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
-            "summary": "공시 데이터 기반의 핵심 요약 (반드시 공시 내용 인용할 것)",
+            "summary": "재료(뉴스)와 리스크(공시)를 균형 있게 요약한 코멘트",
             """
 
         prompt = f"""
@@ -1148,7 +1146,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         - 추세: {trend}
         - 수급 특이사항: {hint_str}
         
-        [데이터 2: DART 공식 공시 (가장 중요!)]
+        [데이터 2: DART 공식 공시]
         {dart_summary}
 
         [데이터 3: 뉴스 헤드라인]
@@ -1187,7 +1185,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 "catalyst": js.get('catalyst', ""),
                 "opinion": js.get('opinion', "중립"),
                 "risk": js.get('risk', "특이사항 없음"),
-                "dart_text": dart_summary # [New] 공시 원문 반환
+                "dart_text": dart_summary 
             }
         else: raise Exception(error_msg)
         
@@ -1409,16 +1407,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.2 (DART Verified)")
+    st.title("💎 Quant Sniper V50.3 (Golden Balance)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.2 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.3 업데이트 노트", expanded=False):
         st.markdown("""
+        * **[AI Logic] 분석 밸런스 조정:** 공시 정보에 과도하게 치우치지 않고, 뉴스(재료)와 기술적 추세를 종합적으로 고려하도록 AI 판단 로직을 개선했습니다.
         * **[Visual] DART 공시 시각화:** 분석에 사용된 최근 3개월치 주요 공시를 UI에서 직접 확인할 수 있습니다.
-        * **[AI] 팩트 기반 분석 강화:** AI가 분석 요약 작성 시 반드시 공시 데이터(Fact)를 인용하도록 로직을 강화했습니다.
-        * **[Fix]** KeyError 및 데이터 로딩 안정성 개선.
+        * **[Fix]** 데이터 로딩 안정성 및 에러 처리 강화.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1757,7 +1755,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.2 (DART Verified)\n\n"
+            msg = f"💎 Quant Sniper V50.3 (Golden Balance)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
