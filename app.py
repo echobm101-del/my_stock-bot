@@ -34,7 +34,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.7 (Overdrive)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.8 (Infinite Chasing)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -186,7 +186,7 @@ def create_watchlist_card_html(res):
     return html
 
 def create_portfolio_card_html(res):
-    # [V49.7] 오버드라이브 & 트레일링 스탑 통합 카드
+    # [V49.8] 오버드라이브 & 무한 추격(Infinite Chasing) 로직 적용
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
     
@@ -196,38 +196,55 @@ def create_portfolio_card_html(res):
         profit_rate = (curr_price - buy_price) / buy_price * 100
         profit_val = curr_price - buy_price
 
-    # 1. 동적 목표/손절가 계산 (오버드라이브 로직)
+    # 1. 동적 목표/손절가 계산
     is_overdrive = False
     
-    # 기본 설정 (수익률 10% 미만)
+    # A. 기본 모드 (수익률 10% 미만)
     final_target = int(buy_price * 1.10) # +10%
     final_stop = int(buy_price * 0.95)   # -5%
+    
     status_msg = f"목표까지 {max(final_target - curr_price, 0):,}원 남음"
     stop_label = "🛡️ 손절가 (-5%)"
     target_label = "🚀 목표가 (+10%)"
-    progress_cls = "progress-fill" # 기본 (빨강)
+    progress_cls = "progress-fill" 
     action_btn_cls = "action-badge-default"
     action_text = res['strategy']['action']
 
-    # 🚀 오버드라이브 모드 (수익률 10% 이상)
+    # B. 오버드라이브 모드 (수익률 10% 이상)
     if profit_rate >= 10.0:
         is_overdrive = True
-        final_target = int(buy_price * 1.20) # 목표 확장 (+20%)
-        final_stop = int(buy_price * 1.05)   # 익절 보존 (+5%)
+        
+        # [수정된 로직] 목표가 산정 방식 고도화
+        # 기본적으로 2차 목표는 +20%지만,
+        base_target_2nd = int(buy_price * 1.20)
+        
+        # 만약 현재가가 이미 2차 목표(+20%)를 넘었다면? -> 현재가 기준 +10%로 목표를 계속 밀어냄 (무한 추격)
+        if curr_price >= base_target_2nd:
+            final_target = int(curr_price * 1.10) # 현재가보다 10% 더 위로 설정
+            target_label = "🔥 무한 질주 (추세 추종)" # 라벨 변경
+        else:
+            final_target = base_target_2nd
+            target_label = "🌟 2차 목표가 (+20%)"
+
+        # 익절 보존선: 매수가 대비 +5% OR (수익률이 매우 높으면) 현재가의 -10% 지점 등 전략적 선택
+        # 여기서는 심플하게 '매수가 +5%' 유지 (최소 수익 보장)
+        final_stop = int(buy_price * 1.05)   
         
         status_msg = f"🎉 목표 초과 달성 중 (+{profit_rate:.2f}%)"
-        stop_label = "🔒 익절 보존선 (+5%)" # 명칭 변경
-        target_label = "🌟 2차 목표가 (+20%)" # 명칭 변경
-        progress_cls = "progress-fill overdrive" # 스페셜 컬러 (금색/보라)
+        stop_label = "🔒 익절 보존선 (+5%)"
+        progress_cls = "progress-fill overdrive" 
         
-        action_btn_cls = "action-badge-strong" # 강조 버튼
-        action_text = "🔥 강력 홀딩 (수익 극대화)" # 멘트 강화
+        action_btn_cls = "action-badge-strong"
+        action_text = "🔥 강력 홀딩 (수익 극대화)"
 
-    # 2. 목표 달성률 계산
+    # 2. 목표 달성률 계산 (Target이 항상 Current보다 높게 설정되므로 바가 100%에 갇히지 않음)
     progress_pct = 0
     if buy_price > 0:
+        # 분모(Total Range) 계산 시, 시작점을 '매수가'로 할지 '현재 구간'으로 할지 결정
+        # 직관성을 위해 [매수가 ~ 목표가] 전체 구간에서 현재 위치를 백분율로 표시
         total_range = final_target - buy_price
         current_range = curr_price - buy_price
+        
         if total_range > 0 and current_range > 0:
             progress_pct = (current_range / total_range) * 100
             progress_pct = max(0, min(100, progress_pct))
@@ -258,7 +275,7 @@ def create_portfolio_card_html(res):
     html += f"  </div>"
     
     # 전략 컨테이너
-    strategy_bg = "#F3F0FF" if is_overdrive else "#F9FAFB" # 오버드라이브 시 배경색 은은하게 변경
+    strategy_bg = "#F3F0FF" if is_overdrive else "#F9FAFB" 
     html += f"  <div class='strategy-container' style='background-color:{strategy_bg};'>"
     html += f"      <div class='strategy-header'>"
     html += f"          <span class='strategy-title'>🎯 AI 대응 가이드</span>"
@@ -271,7 +288,7 @@ def create_portfolio_card_html(res):
     html += f"      </div>"
     
     # Labels
-    stop_color = "#7950F2" if is_overdrive else "#3182F6" # 익절 보존선일 때 보라색
+    stop_color = "#7950F2" if is_overdrive else "#3182F6" 
     html += f"      <div class='price-guide'>"
     html += f"          <div>{stop_label}<br><strong style='color:{stop_color};'>{final_stop:,}원</strong></div>"
     html += f"          <div style='text-align:right;'>{target_label}<br><strong style='color:#F04452;'>{final_target:,}원</strong></div>"
@@ -562,7 +579,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.7)",
+            "message": "Update data via Streamlit App (V49.8)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1373,15 +1390,15 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.7 (Overdrive)")
+    st.title("💎 Quant Sniper V49.8 (Infinite Chasing)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.7 업데이트 노트", expanded=False):
+    with st.expander("📘 V49.8 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 오버드라이브 모드:** 목표가(10%) 초과 시 목표를 자동 상향(+20%)하고, 손절가를 익절 보존선(+5%)으로 전환합니다.
-        * **[UI] 스페셜 이펙트:** 초과 달성 시 프로그레스 바가 금색/보라색으로 변하고 강력 홀딩 버튼이 활성화됩니다.
+        * **[New] 무한 추격 모드:** 수익률이 목표가를 초과할 경우, 목표가를 현재가 위로 자동 갱신하여 상승 추세를 끝까지 따라갑니다.
+        * **[Upgrade] 오버드라이브:** +10% 수익 돌파 시 목표 자동 확장 및 손절가 익절 전환 기능 유지.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1692,7 +1709,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.7 (Overdrive)\n\n"
+            msg = f"💎 Quant Sniper V49.8 (Infinite Chasing)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
