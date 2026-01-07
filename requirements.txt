@@ -10,3 +10,4 @@ feedparser
 setuptools
 google-generativeai
 opendartreader
+yfinance
