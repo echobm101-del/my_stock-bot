@@ -37,7 +37,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.1 (BugFix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.2 (DART Verified)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -71,7 +71,7 @@ st.markdown("""
     
     .news-fallback { background: #FFF4E6; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #FFD8A8; color: #D9480F; font-weight: 600; }
     
-    .news-scroll-box { max-height: 300px; overflow-y: auto; border: 1px solid #F2F4F6; border-radius: 8px; padding: 10px; }
+    .news-scroll-box { max-height: 200px; overflow-y: auto; border: 1px solid #F2F4F6; border-radius: 8px; padding: 10px; margin-top:5px; }
     .news-box { padding: 8px 0; border-bottom: 1px solid #F2F4F6; font-size: 13px; }
     .news-link { color: #333; text-decoration: none; font-weight: 500; display: block; margin-bottom: 2px;}
     .news-link:hover { color: #3182F6; text-decoration: underline; }
@@ -131,19 +131,15 @@ st.markdown("""
     .action-badge-default { background-color:#eee; color:#333; padding:4px 10px; border-radius:12px; font-weight:700; font-size:12px; }
     .action-badge-strong { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; box-shadow: 0 2px 6px rgba(118, 75, 162, 0.4); animation: pulse 2s infinite; }
     .action-badge-rescue { background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; }
-    
-    @keyframes pulse {
-        0% { box-shadow: 0 0 0 0 rgba(118, 75, 162, 0.4); }
-        70% { box-shadow: 0 0 0 6px rgba(118, 75, 162, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(118, 75, 162, 0); }
-    }
+
+    /* DART Badge */
+    .dart-badge { background-color: #FFF0F6; color: #C2255C; border: 1px solid #FCC2D7; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-right: 4px; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- [2. 시각화 및 렌더링 함수] ---
 
 def create_watchlist_card_html(res):
-    # 안전 장치: strategy 키가 없으면 기본값 설정
     strategy = res.get('strategy', {})
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
     buy_price = strategy.get('buy', 0)
@@ -198,7 +194,6 @@ def create_watchlist_card_html(res):
     return html
 
 def create_portfolio_card_html(res):
-    # [Fix] 안전 장치: strategy 키가 없으면 기본값으로 채워줌
     strategy = res.get('strategy', {})
     if not strategy:
         strategy = {'action': '분석 대기', 'buy': 0, 'target': 0, 'stop': 0}
@@ -212,13 +207,11 @@ def create_portfolio_card_html(res):
         profit_rate = (curr_price - buy_price) / buy_price * 100
         profit_val = curr_price - buy_price
 
-    # --- 전략 분기 (Strategy Branching) ---
     is_overdrive = False
     is_rescue = False
     
-    # 변수 초기화
-    final_target = int(buy_price * 1.10) # +10%
-    final_stop = int(buy_price * 0.95)   # -5%
+    final_target = int(buy_price * 1.10) 
+    final_stop = int(buy_price * 0.95)   
     
     status_msg = f"목표까지 {max(final_target - curr_price, 0):,}원 남음"
     stop_label = "🛡️ 손절가 (-5%)"
@@ -228,11 +221,9 @@ def create_portfolio_card_html(res):
     
     progress_cls = "progress-fill" 
     action_btn_cls = "action-badge-default"
-    # [Fix] 여기서 에러가 났었음 -> .get()으로 안전하게 가져옴
     action_text = strategy.get('action', '분석 대기')
     strategy_bg = "#F9FAFB"
 
-    # [CASE 1] 오버드라이브 모드
     if profit_rate >= 10.0:
         is_overdrive = True
         base_target_2nd = int(buy_price * 1.20)
@@ -251,7 +242,6 @@ def create_portfolio_card_html(res):
         action_text = "🔥 강력 홀딩 (수익 극대화)"
         strategy_bg = "#F3F0FF"
 
-    # [CASE 2] 구조대(Rescue) 모드
     elif profit_rate <= -10.0:
         is_rescue = True
         final_target = int(curr_price * 1.15) 
@@ -266,7 +256,6 @@ def create_portfolio_card_html(res):
         action_text = "⛑️ 리스크 관리 (반등 시 비중 축소)"
         strategy_bg = "#E8F3FF"
 
-    # --- 프로그레스 바 계산 ---
     progress_pct = 0
     total_range = final_target - final_stop
     current_range = curr_price - final_stop
@@ -274,7 +263,6 @@ def create_portfolio_card_html(res):
         progress_pct = (current_range / total_range) * 100
         progress_pct = max(0, min(100, progress_pct))
 
-    # --- HTML 조립 ---
     profit_cls = "profit-positive" if profit_rate > 0 else ("profit-negative" if profit_rate < 0 else "")
     profit_sign = "+" if profit_rate > 0 else ""
     profit_color = "#F04452" if profit_rate > 0 else ("#3182F6" if profit_rate < 0 else "#333")
@@ -596,7 +584,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.1)",
+            "message": "Update data via Streamlit App (V50.2)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -980,7 +968,6 @@ def call_gemini_dynamic(prompt):
         else: return None, f"HTTP {res.status_code}: {res.text}"
     except Exception as e: return None, f"Connection Error: {str(e)}"
 
-# [추가] DART 공시 정보 가져오기 함수
 @st.cache_data(ttl=3600)
 def get_dart_disclosure_summary(code):
     if not USER_DART_KEY:
@@ -1087,13 +1074,15 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
 
     news_titles = list(set(news_titles))
 
-    # [수정] DART 데이터 가져오기 (context에서 code 추출)
     dart_summary = "공시 정보 없음"
+    # [V50.2] DART 데이터 가져오기 로직 강화
     if code and USER_DART_KEY:
          dart_summary = get_dart_disclosure_summary(code)
 
     if not news_titles: 
-        return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0}
+        # [Fix] 뉴스 없어도 DART 데이터 있으면 반환하도록 수정
+        if dart_summary == "공시 정보 없음":
+             return {"score": 0, "headline": "관련 뉴스 및 공시 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0, "dart_text": ""}
 
     try:
         if not USER_GOOGLE_API_KEY: raise Exception("API Key가 설정되지 않았습니다.")
@@ -1105,54 +1094,47 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         quant_signal = stock_data_context.get('quant_signal', '중립')
         current_price = stock_data_context.get('current_price', 0)
         
-        # [V49.5] 수급 분석 힌트 생성 (Supply Deep Dive Hint)
         supply_analysis_hint = []
-        
-        # 1. 환율 체크
         usd_krw_change = stock_data_context.get('usd_krw_change', 0.0)
         if usd_krw_change > 0.5: supply_analysis_hint.append(f"원/달러 환율 급등(+{usd_krw_change:.2f}%)으로 인한 외국인 환차손 회피 매물 가능성")
         elif usd_krw_change < -0.5: supply_analysis_hint.append("환율 하락으로 인한 외국인 수급 개선 기대")
         
-        # 2. 단기 이격도 체크 (20일 기준)
         price_surge = stock_data_context.get('price_surge', 0.0)
         if price_surge > 15: supply_analysis_hint.append(f"단기 급등(+{price_surge:.1f}%)에 따른 기관/외인의 차익 실현 욕구 증가")
         
-        # 3. 라운드 피겨 체크
         round_fig_msg = stock_data_context.get('round_figure_msg', "")
         if round_fig_msg: supply_analysis_hint.append(round_fig_msg)
         
         hint_str = "\n".join(supply_analysis_hint) if supply_analysis_hint else "특이사항 없음"
 
+        # [V50.2] 페르소나 및 지시사항 강화
         if is_holding:
             role_prompt = f"""
-            당신은 20년 경력의 베테랑 '헤지펀드 매니저'입니다.
+            당신은 '냉철한 팩트 폭격기'이자 20년 경력의 헤지펀드 매니저입니다.
             사용자는 현재 이 주식을 보유 중이며, 수익률은 {profit_rate:.2f}% 입니다.
             
-            [중요 정보]
-            - **현재 주가:** {current_price:,}원
-            - 퀀트 알고리즘 신호: {quant_signal}
-            - 수급 원인 분석 힌트: {hint_str}
-            
             [지시사항]
-            1. 현재 주가({current_price:,}원)를 기준으로 판단하세요. 
-            2. 외국인/기관 수급의 원인을 위 '수급 원인 분석 힌트'를 참고하여 추론해 주세요. (예: 환율 상승, 차익 실현 등)
-            3. 실전 대응 전략(익절/홀딩)을 제시하세요.
+            1. 뉴스(찌라시)보다 **DART 공시(Fact)**를 절대적인 기준으로 삼으세요.
+            2. '공시' 섹션에 있는 내용(CB발행, 유상증자, 계약체결 등)이 있다면 **반드시** 요약문에 인용하세요. (예: "최근 CB발행 공시가 있어 물량 부담이 우려됩니다.")
+            3. 공시가 없다면 뉴스를 참고하되, 보수적으로 판단하세요.
             """
-            
             output_guideline = """
-            "opinion": "🚨 홀딩 (추가 상승 기대) / 💰 부분 익절 (리스크 관리) / 🛡️ 전량 익절 (추세 꺾임) / 💧 버티기 (물타기 금지) / ✂️ 손절매",
-            "summary": "수급 원인 분석과 현재 주가 위치를 종합한 구체적인 행동 가이드 (한 문장)",
+            "opinion": "🚨 홀딩 / 💰 부분 익절 / 🛡️ 전량 익절 / 💧 버티기 / ✂️ 손절매",
+            "summary": "공시 사실관계를 포함한 구체적인 행동 가이드 (반드시 공시 내용 언급할 것)",
             """
         else:
             role_prompt = f"""
-            당신은 30년 경력의 글로벌 헤지펀드 수석 전략가입니다.
+            당신은 '팩트 기반' 글로벌 투자 전략가입니다.
             신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
             현재 주가는 {current_price:,}원입니다.
-            수급 특이사항: {hint_str}
+            
+            [지시사항]
+            1. 긍정적인 뉴스만 보고 뇌동매매 하지 않도록 **DART 공시의 리스크**를 먼저 체크하세요.
+            2. '공시' 데이터가 존재한다면 요약문에 **구체적인 날짜와 내용**을 언급하며 분석하세요.
             """
             output_guideline = """
             "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
-            "summary": "전문가 분석 코멘트 (핵심 요약 1문장)",
+            "summary": "공시 데이터 기반의 핵심 요약 (반드시 공시 내용 인용할 것)",
             """
 
         prompt = f"""
@@ -1162,29 +1144,20 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         - 종목명: {company_name} ({code})
         - 현재 주가: {current_price:,}원
 
-        [분석 데이터]
-        1. 기술적 추세: {trend}
-        2. 시장 사이클: {cycle}
-        3. 수급 특이사항: {hint_str}
+        [데이터 1: 기술적/수급]
+        - 추세: {trend}
+        - 수급 특이사항: {hint_str}
         
-        [📢 중요: DART 공식 공시 (최근 3개월)]
+        [데이터 2: DART 공식 공시 (가장 중요!)]
         {dart_summary}
-        (해석 가이드: 전환사채/유상증자는 악재 가능성, 공급계약/무상증자는 호재 가능성, 임원 매도는 경고 신호로 해석할 것)
 
-        [📰 뉴스 헤드라인]
+        [데이터 3: 뉴스 헤드라인]
         {str(news_titles)}
 
-        [분석 지침]
-        1. **공시(DART) 내용을 최우선 팩트(Fact)로 간주하세요.** 뉴스보다 공시의 신뢰도가 높습니다.
-        2. 공시 내용(예: 계약 체결, CB 발행 등)이 주가에 미칠 영향을 구체적으로 분석하세요.
-        3. 뉴스와 공시가 상충되면 공시를 따르세요.
-        4. 감정을 배제하고 논리적인 헤지펀드 매니저 톤을 유지하세요.
-        5. **절대 서론이나 부가 설명 없이 오직 JSON 데이터만 출력하세요.**
-
-        [출력 형식 (반드시 JSON 포맷 준수)]
+        [출력 형식 (JSON Only)]
         {{
-            "score": (정수 -10 ~ 10, 뉴스 종합 점수),
-            "supply_score": (정수 -5 ~ 5, 산업 사이클/공급망 영향 점수),
+            "score": (정수 -10 ~ 10),
+            "supply_score": (정수 -5 ~ 5),
             {output_guideline}
             "catalyst": "주가 핵심 재료 (5단어 이내)",
             "risk": "잠재적 리스크 (1문장)"
@@ -1195,7 +1168,6 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         if res_data and 'candidates' in res_data and res_data['candidates']:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            
             try:
                 js = json.loads(raw)
             except:
@@ -1204,7 +1176,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 if match:
                     js = json.loads(match.group())
                 else:
-                    raise Exception("AI 응답에서 JSON 데이터를 추출할 수 없습니다.")
+                    raise Exception("JSON Parsing Failed")
 
             return {
                 "score": js.get('score', 0),
@@ -1214,13 +1186,14 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 "method": "ai",
                 "catalyst": js.get('catalyst', ""),
                 "opinion": js.get('opinion', "중립"),
-                "risk": js.get('risk', "특이사항 없음")
+                "risk": js.get('risk', "특이사항 없음"),
+                "dart_text": dart_summary # [New] 공시 원문 반환
             }
         else: raise Exception(error_msg)
         
     except Exception as e:
         score, summary, _, _ = analyze_news_by_keywords(news_titles)
-        return {"score": score, "supply_score": 0, "headline": f"{summary} (AI 분석 실패: {str(e)})", "raw_news": news_data, "method": "keyword", "catalyst": "키워드", "opinion": "관망", "risk": "API 오류"}
+        return {"score": score, "supply_score": 0, "headline": f"{summary} (AI 분석 실패)", "raw_news": news_data, "method": "keyword", "catalyst": "키워드", "opinion": "관망", "risk": "API 오류", "dart_text": dart_summary}
 
 def get_supply_demand(code):
     try:
@@ -1257,12 +1230,11 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         "price": int(curr['Close']),
         "change_rate": chg_rate, 
         "score": 50,
-        # [Fix] 초기화 시 빈 딕셔너리가 아닌 기본값 딕셔너리로 설정하여 에러 방지
         "strategy": {"action": "분석 실패", "buy": 0, "target": 0, "stop": 0, "buy_basis": ""}, 
         "fund_data": None, 
         "ma_status": [], 
         "trend_txt": "분석 중",
-        "news": {"score":0, "supply_score":0, "headline":"로딩 실패", "raw_news":[], "method":"none", "opinion":"", "catalyst":"", "risk":""}, 
+        "news": {"score":0, "supply_score":0, "headline":"로딩 실패", "raw_news":[], "method":"none", "opinion":"", "catalyst":"", "risk":"", "dart_text": ""}, 
         "history": df, 
         "supply": {"f":0, "i":0},
         "stoch": {"k": curr['RSI'], "d": 0}, 
@@ -1336,28 +1308,22 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         elif i_net > 0: supply_txt = "기관 매수 우위"
         elif f_net < 0 and i_net < 0: supply_txt = "외국인/기관 동반 매도"
 
-        # [V49.5] 수급 분석용 추가 데이터 추출
-        
-        # 1. 매크로(환율) 데이터 가져오기 (캐싱 활용)
         macro_data = get_macro_data()
         usd_change = 0.0
         if macro_data and 'USD/KRW' in macro_data:
             usd_change = macro_data['USD/KRW']['change']
             
-        # 2. 이격도/단기 급등 체크 (20일 전 대비)
         price_surge = 0.0
         if len(df) >= 20:
             past_price = df['Close'].iloc[-20]
             if past_price > 0:
                 price_surge = (current_price - past_price) / past_price * 100
                 
-        # 3. 라운드 피겨(심리적 저항선) 체크
         round_fig_msg = ""
         str_price = str(int(current_price))
-        if len(str_price) >= 4: # 만원 단위 이상만 체크
-            unit = 10**(len(str_price)-1) # 예: 54000 -> 10000
+        if len(str_price) >= 4: 
+            unit = 10**(len(str_price)-1)
             next_big = (int(current_price / unit) + 1) * unit
-            # 현재가와 다음 큰 단위의 괴리가 3% 이내일 때
             if (next_big - current_price) / current_price < 0.03:
                 round_fig_msg = f"심리적 저항선({next_big:,}원) 접근 중"
 
@@ -1372,9 +1338,9 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
             "profit_rate": profit_rate,
             "quant_signal": quant_signal,
             "current_price": result_dict['price'],
-            "usd_krw_change": usd_change, # [New]
-            "price_surge": price_surge, # [New]
-            "round_figure_msg": round_fig_msg # [New]
+            "usd_krw_change": usd_change, 
+            "price_surge": price_surge, 
+            "round_figure_msg": round_fig_msg 
         }
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
@@ -1389,7 +1355,6 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
 
         if my_buy_price:
             action_txt = result_dict['news'].get('opinion', quant_signal)
-            # [V49.6] 자동 목표가/손절가 로직 (수동 입력 대체)
             stop_raw = my_buy_price * 0.95 
             target_raw = my_buy_price * 1.10
             buy_basis_txt = "보유 중"
@@ -1444,16 +1409,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.1 (BugFix)")
+    st.title("💎 Quant Sniper V50.2 (DART Verified)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.1 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.2 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[Fix]** 'KeyError: action' 오류 수정: 데이터 로딩 실패 시 앱이 멈추지 않고 '분석 대기' 상태로 표시되도록 안전장치를 추가했습니다.
-        * **[New] DART 공시 연동:** Open DART API를 통해 최신 공시 정보를 실시간으로 가져와 AI 분석에 반영합니다.
-        * **[New] 구조대(Rescue) 모드:** 손실률이 10% 이상일 경우, 기준을 '평단가'에서 '현재가'로 자동 전환하여 현실적인 탈출 목표(+15%)와 추가 방어선(-5%)을 제시합니다.
+        * **[Visual] DART 공시 시각화:** 분석에 사용된 최근 3개월치 주요 공시를 UI에서 직접 확인할 수 있습니다.
+        * **[AI] 팩트 기반 분석 강화:** AI가 분석 요약 작성 시 반드시 공시 데이터(Fact)를 인용하도록 로직을 강화했습니다.
+        * **[Fix]** KeyError 및 데이터 로딩 안정성 개선.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1528,6 +1493,16 @@ with tab1:
                     elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
                     st.markdown(f"""<div class='news-ai'><div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'><span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span><span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span></div><div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>🤖 <b>Deep Analysis:</b> {res['news']['headline']}</div><div style='font-size:12px; color:#D9480F; background-color:#FFF5F5; padding:8px; border-radius:6px; border:1px solid #FFD8A8;'>⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}</div></div>""", unsafe_allow_html=True)
                 else: st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
+                
+                # [V50.2] DART 공시 원문 표시 (증거 자료)
+                if res['news'].get('dart_text') and res['news']['dart_text'] != "공시 정보 없음" and res['news']['dart_text'] != "최근 3개월 내 특이 공시 없음":
+                    st.write("###### 📢 최근 3개월 DART 주요 공시 (Fact Check)")
+                    st.markdown(f"""
+                    <div style='background:#FFF0F6; padding:10px; border-radius:8px; border:1px solid #FCC2D7; font-size:12px; color:#C2255C; white-space: pre-line;'>
+                    {res['news']['dart_text']}
+                    </div>
+                    """, unsafe_allow_html=True)
+
                 st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
                 for news in res['news']['raw_news']:
                     st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
@@ -1607,6 +1582,15 @@ with tab2:
                         <div style='font-size:12px; color:#D9480F; margin-bottom:4px;'>⚡ 키워드 분석 모드 (AI 미연동)</div>
                         <div style='font-size:14px; font-weight:700; color:#333; margin-bottom:6px;'>{fallback_headline}</div>
                         <div style='font-size:11px; color:#666;'>※ {fallback_risk}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                # [V50.2] DART 공시 원문 표시 (증거 자료)
+                if res['news'].get('dart_text') and res['news']['dart_text'] != "공시 정보 없음" and res['news']['dart_text'] != "최근 3개월 내 특이 공시 없음":
+                    st.write("###### 📢 최근 3개월 DART 주요 공시 (Fact Check)")
+                    st.markdown(f"""
+                    <div style='background:#FFF0F6; padding:10px; border-radius:8px; border:1px solid #FCC2D7; font-size:12px; color:#C2255C; white-space: pre-line;'>
+                    {res['news']['dart_text']}
                     </div>
                     """, unsafe_allow_html=True)
 
@@ -1696,6 +1680,15 @@ with tab3:
                     elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
                     st.markdown(f"""<div class='news-ai'><div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'><span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span><span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span></div><div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>🤖 <b>Deep Analysis:</b> {res['news']['headline']}</div></div>""", unsafe_allow_html=True)
                 else: st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
+                
+                # [V50.2] DART 공시 원문 표시 (증거 자료)
+                if res['news'].get('dart_text') and res['news']['dart_text'] != "공시 정보 없음" and res['news']['dart_text'] != "최근 3개월 내 특이 공시 없음":
+                    st.write("###### 📢 최근 3개월 DART 주요 공시 (Fact Check)")
+                    st.markdown(f"""
+                    <div style='background:#FFF0F6; padding:10px; border-radius:8px; border:1px solid #FCC2D7; font-size:12px; color:#C2255C; white-space: pre-line;'>
+                    {res['news']['dart_text']}
+                    </div>
+                    """, unsafe_allow_html=True)
 
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
@@ -1764,7 +1757,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.1 (BugFix)\n\n"
+            msg = f"💎 Quant Sniper V50.2 (DART Verified)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
