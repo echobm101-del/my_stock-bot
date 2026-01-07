@@ -38,7 +38,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.4 (Global Insight)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.5 (Date Fixed)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -586,7 +586,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.4)",
+            "message": "Update data via Streamlit App (V50.5)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1047,38 +1047,107 @@ def get_ai_recommended_stocks(keyword):
             return [], "AI 응답 해석 실패"
     return [], "AI 연결 실패"
 
+# ==============================================================================
+# [V50.5] 날짜 처리 개선 함수 (NEW)
+# ==============================================================================
+def parse_relative_date(date_text):
+    """
+    '1시간 전', '3일 전', '2023.05.20' 등의 텍스트를 datetime 객체로 변환
+    """
+    now = datetime.datetime.now()
+    date_text = date_text.strip()
+    
+    try:
+        if "분 전" in date_text:
+            minutes = int(re.search(r'(\d+)', date_text).group(1))
+            return now - datetime.timedelta(minutes=minutes)
+        elif "시간 전" in date_text:
+            hours = int(re.search(r'(\d+)', date_text).group(1))
+            return now - datetime.timedelta(hours=hours)
+        elif "일 전" in date_text:
+            days = int(re.search(r'(\d+)', date_text).group(1))
+            return now - datetime.timedelta(days=days)
+        elif "어제" in date_text:
+            return now - datetime.timedelta(days=1)
+        else:
+            # 날짜 형식이 '2024.01.05' 또는 '2024.01.05.' 인 경우 처리
+            clean_date = date_text.replace('.', '-').rstrip('-')
+            return pd.to_datetime(clean_date)
+    except:
+        return now - datetime.timedelta(days=365) # 파싱 실패시 아주 과거로 처리
+
+# [V50.5] Refactored: get_naver_finance_news (날짜 추출 포함)
 def get_naver_finance_news(code):
-    titles = []
+    news_data = []
     try:
         url = f"https://finance.naver.com/item/news_news.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers)
         soup = BeautifulSoup(res.text, 'html.parser')
-        items = soup.select('.title') 
-        for item in items:
-            t = item.get_text().strip()
-            if t: titles.append(t)
+        
+        titles = soup.select('.title')
+        dates = soup.select('.date')
+        
+        for t, d in zip(titles, dates):
+            title_text = t.get_text().strip()
+            link = "https://finance.naver.com" + t.select_one('a')['href']
+            date_text = d.get_text().strip()
+            
+            try:
+                parsed_date = pd.to_datetime(date_text)
+            except:
+                parsed_date = datetime.datetime.now()
+                
+            news_data.append({
+                "title": title_text,
+                "link": link,
+                "date": parsed_date.strftime("%Y-%m-%d"),
+                "datetime": parsed_date
+            })
+            
+            if len(news_data) >= 5: break
     except: pass
-    return titles[:5]
+    return news_data
 
+# [V50.5] Refactored: get_naver_search_news (최신순 정렬 + 날짜 추출)
 def get_naver_search_news(keyword):
-    titles = []
+    news_data = []
     try:
-        url = f"https://search.naver.com/search.naver?where=news&query={urllib.parse.quote(keyword)}"
+        # 정확도순 대신 최신순(sort=1)으로 정렬하여 검색
+        url = f"https://search.naver.com/search.naver?where=news&query={urllib.parse.quote(keyword)}&sort=1"
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers)
         soup = BeautifulSoup(res.text, 'html.parser')
-        items = soup.select('.news_tit')
-        for item in items:
-            t = item.get_text().strip()
-            if t: titles.append(t)
-    except: pass
-    return titles[:5]
+        
+        items = soup.select('div.news_area')
+        
+        for item in items[:5]: # 상위 5개만
+            title_tag = item.select_one('.news_tit')
+            date_tag = item.select_one('.info_group span.info')
+            
+            if title_tag:
+                title = title_tag.get_text().strip()
+                link = title_tag['href']
+                
+                date_str = date_tag.text.strip() if date_tag else str(datetime.date.today())
+                parsed_date = parse_relative_date(date_str)
+                
+                news_data.append({
+                    "title": title,
+                    "link": link,
+                    "date": parsed_date.strftime("%Y-%m-%d"),
+                    "datetime": parsed_date
+                })
+    except Exception as e:
+        pass
+    return news_data
 
+# [V50.5] Refactored: get_news_sentiment_llm (정렬 및 필터링 로직 강화)
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
-    news_titles = []; news_data = []
+    
+    full_news_list = []
     
     # 1. Google News
     try:
@@ -1088,36 +1157,64 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
         feed = feedparser.parse(rss_url)
         for entry in feed.entries[:3]:
-            date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else ""
-            news_data.append({"title": entry.title, "link": entry.link, "date": date_str})
-            news_titles.append(entry.title)
+            # Convert struct_time to datetime
+            dt = datetime.datetime.fromtimestamp(time.mktime(entry.published_parsed)) if entry.published_parsed else datetime.datetime.now()
+            full_news_list.append({
+                "title": entry.title,
+                "link": entry.link,
+                "date": dt.strftime("%Y-%m-%d"),
+                "datetime": dt,
+                "source": "Google"
+            })
     except: pass
 
     code = stock_data_context.get('code', '')
     
     # 2. Naver Finance News
     if code:
-        naver_fin_titles = get_naver_finance_news(code)
-        news_titles.extend(naver_fin_titles)
+        full_news_list.extend(get_naver_finance_news(code))
     
     # 3. Naver Search News
-    naver_search_titles = get_naver_search_news(company_name)
-    news_titles.extend(naver_search_titles)
+    full_news_list.extend(get_naver_search_news(company_name))
+
+    # [중요] 필터링 및 정렬 로직 적용
+    # 1) 중복 제거 (제목 기준)
+    seen_titles = set()
+    unique_news = []
+    for n in full_news_list:
+        if n['title'] not in seen_titles:
+            seen_titles.add(n['title'])
+            unique_news.append(n)
+    
+    # 2) 날짜순 정렬 (최신순)
+    unique_news.sort(key=lambda x: x.get('datetime', datetime.datetime.min), reverse=True)
+    
+    # 3) 너무 오래된 뉴스 필터링 (7일 이전 제외)
+    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=7)
+    recent_news = [n for n in unique_news if n.get('datetime', datetime.datetime.now()) > cutoff_date]
+    
+    # 4) AI용 텍스트 및 UI용 데이터 준비
+    ai_news_context = []
+    display_news_data = [] 
+    
+    target_news = recent_news[:7] if recent_news else unique_news[:3] # 최근 뉴스가 없으면 전체 중 최신 3개라도 사용
+
+    for n in target_news:
+        date_str = n['date']
+        ai_news_context.append(f"[{date_str}] {n['title']}")
+        display_news_data.append(n)
 
     # 4. [New] Economic & Global News (Context Injection)
     econ_news = get_hankyung_news_rss()
     global_news = get_yahoo_global_news()
     
-    # Add to prompt context, but not to 'raw_news' display to keep UI clean
     macro_context = "\n".join(econ_news[:3] + global_news[:2])
-
-    news_titles = list(set(news_titles))
 
     dart_summary = "공시 정보 없음"
     if code and USER_DART_KEY:
          dart_summary = get_dart_disclosure_summary(code)
 
-    if not news_titles: 
+    if not display_news_data: 
         if dart_summary == "공시 정보 없음":
              return {"score": 0, "headline": "관련 뉴스 및 공시 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0, "dart_text": ""}
 
@@ -1153,6 +1250,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             1. **DART 공시(Fact), 뉴스(Issue), 글로벌/거시 경제(Macro)**를 입체적으로 분석하세요.
             2. 한국경제(한경)와 야후파이낸스(Global) 뉴스에서 시장의 큰 흐름을 읽고, 개별 종목에 미칠 영향을 판단하세요.
             3. 공시 리스크가 있다면 최우선으로 경고하되, 없다면 시장 트렌드에 편승할지 여부를 결정하세요.
+            4. **뉴스 날짜를 확인하세요.** 7일 이상 지난 뉴스는 현재 주가에 이미 반영되었을 가능성이 높으므로 가중치를 낮추세요.
             """
             output_guideline = """
             "opinion": "🚨 홀딩 / 💰 부분 익절 / 🛡️ 전량 익절 / 💧 버티기 / ✂️ 손절매",
@@ -1167,6 +1265,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             [지시사항]
             1. 단순히 개별 뉴스만 보지 말고, 함께 제공된 'Global/Macro 뉴스'를 통해 시장 분위기를 파악하세요.
             2. 시장이 하락세(Global News 부정적)라면 개별 호재가 있어도 보수적으로, 상승장이라면 적극적으로 조언하세요.
+            3. **뉴스 날짜를 반드시 확인하세요.** 최신 뉴스가 호재인지 악재인지 판단하세요.
             """
             output_guideline = """
             "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
@@ -1187,8 +1286,8 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         [데이터 2: DART 공식 공시]
         {dart_summary}
 
-        [데이터 3: 개별 종목 뉴스]
-        {str(news_titles)}
+        [데이터 3: 개별 종목 뉴스 (최신순 정렬됨)]
+        {str(ai_news_context)}
 
         [데이터 4: 🌍 글로벌 & 거시 경제 뉴스 (시장 분위기 파악용)]
         {macro_context}
@@ -1221,7 +1320,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 "score": js.get('score', 0),
                 "supply_score": js.get('supply_score', 0),
                 "headline": js.get('summary', "분석 결과 없음"),
-                "raw_news": news_data,
+                "raw_news": display_news_data,
                 "method": "ai",
                 "catalyst": js.get('catalyst', ""),
                 "opinion": js.get('opinion', "중립"),
@@ -1231,8 +1330,8 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         else: raise Exception(error_msg)
         
     except Exception as e:
-        score, summary, _, _ = analyze_news_by_keywords(news_titles)
-        return {"score": score, "supply_score": 0, "headline": f"{summary} (AI 분석 실패)", "raw_news": news_data, "method": "keyword", "catalyst": "키워드", "opinion": "관망", "risk": "API 오류", "dart_text": dart_summary}
+        score, summary, _, _ = analyze_news_by_keywords([n['title'] for n in display_news_data])
+        return {"score": score, "supply_score": 0, "headline": f"{summary} (AI 분석 실패)", "raw_news": display_news_data, "method": "keyword", "catalyst": "키워드", "opinion": "관망", "risk": "API 오류", "dart_text": dart_summary}
 
 def get_supply_demand(code):
     try:
@@ -1448,16 +1547,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.4 (Global Insight)")
+    st.title("💎 Quant Sniper V50.5 (Date Fixed)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.4 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.5 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 글로벌 & 경제 뉴스 통합:** '야후 파이낸스'와 '한국경제 RSS'를 연동하여 AI가 미국 증시와 거시 경제 흐름을 분석에 반영합니다.
-        * **[AI] 입체적 분석 강화:** 개별 종목의 호재/악재뿐만 아니라 시장의 분위기(Macro)까지 고려하여 매수/매도 의견을 제시합니다.
-        * **[DART]** 공시 기반 팩트 체크 기능 유지.
+        * **[New] 뉴스 날짜 분석:** 최신 뉴스만 필터링하여 AI에게 전달합니다. 과거(7일 이전) 뉴스는 분석에서 제외됩니다.
+        * **[New] 정확도 향상:** 네이버 검색 및 뉴스 페이지에서 날짜 정보를 정확히 파싱합니다.
+        * **[AI] 입체적 분석:** 시장 흐름(Macro)과 개별 종목 이슈를 시계열에 맞춰 분석합니다.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1796,7 +1895,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.4 (Global Insight)\n\n"
+            msg = f"💎 Quant Sniper V50.5 (Date Fixed)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
