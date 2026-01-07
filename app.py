@@ -18,7 +18,7 @@ import urllib.parse
 import numpy as np
 from io import StringIO
 import random
-import OpenDartReader  # [추가] DART 라이브러리
+import OpenDartReader
 
 # ==============================================================================
 # [보안 설정] Streamlit Secrets에서 키 가져오기
@@ -28,7 +28,6 @@ try:
     USER_TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
     USER_CHAT_ID = st.secrets["CHAT_ID"]
     USER_GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
-    # [추가] DART API 키 가져오기
     USER_DART_KEY = st.secrets["DART_API_KEY"]
 except Exception as e:
     USER_GITHUB_TOKEN = ""
@@ -38,7 +37,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.0 (DART Integration)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.1 (BugFix)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -144,11 +143,14 @@ st.markdown("""
 # --- [2. 시각화 및 렌더링 함수] ---
 
 def create_watchlist_card_html(res):
+    # 안전 장치: strategy 키가 없으면 기본값 설정
+    strategy = res.get('strategy', {})
     score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
-    buy_price = res['strategy'].get('buy', 0)
-    target_price = res['strategy'].get('target', 0)
-    stop_price = res['strategy'].get('stop', 0)
-    buy_basis = res['strategy'].get('buy_basis', '20일선')
+    buy_price = strategy.get('buy', 0)
+    target_price = strategy.get('target', 0)
+    stop_price = strategy.get('stop', 0)
+    buy_basis = strategy.get('buy_basis', '20일선')
+    action_txt = strategy.get('action', '분석 중')
     
     chg = res.get('change_rate', 0.0)
     if chg > 0: 
@@ -180,7 +182,7 @@ def create_watchlist_card_html(res):
     html += f"      </div>"
     html += f"      <div style='text-align:right;'>"
     html += f"          <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>"
-    html += f"          <div class='badge-clean' style='background-color:{score_col}20; color:{score_col}; font-weight:700;'>{res['strategy']['action']}</div>"
+    html += f"          <div class='badge-clean' style='background-color:{score_col}20; color:{score_col}; font-weight:700;'>{action_txt}</div>"
     html += f"      </div>"
     html += f"  </div>"
     html += f"  <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>"
@@ -196,7 +198,11 @@ def create_watchlist_card_html(res):
     return html
 
 def create_portfolio_card_html(res):
-    # [V49.9] 상황별 3단 변신 카드 (일반/오버드라이브/구조대)
+    # [Fix] 안전 장치: strategy 키가 없으면 기본값으로 채워줌
+    strategy = res.get('strategy', {})
+    if not strategy:
+        strategy = {'action': '분석 대기', 'buy': 0, 'target': 0, 'stop': 0}
+        
     buy_price = res.get('my_buy_price', 0)
     curr_price = res['price']
     
@@ -210,7 +216,7 @@ def create_portfolio_card_html(res):
     is_overdrive = False
     is_rescue = False
     
-    # 변수 초기화 (기본 모드: -10% ~ +10%)
+    # 변수 초기화
     final_target = int(buy_price * 1.10) # +10%
     final_stop = int(buy_price * 0.95)   # -5%
     
@@ -220,72 +226,53 @@ def create_portfolio_card_html(res):
     stop_color = "#3182F6"
     target_color = "#F04452"
     
-    progress_cls = "progress-fill" # Default Red
+    progress_cls = "progress-fill" 
     action_btn_cls = "action-badge-default"
-    action_text = res['strategy']['action']
+    # [Fix] 여기서 에러가 났었음 -> .get()으로 안전하게 가져옴
+    action_text = strategy.get('action', '분석 대기')
     strategy_bg = "#F9FAFB"
 
-    # [CASE 1] 오버드라이브 모드 (수익률 +10% 이상)
+    # [CASE 1] 오버드라이브 모드
     if profit_rate >= 10.0:
         is_overdrive = True
-        
-        # 무한 추격 로직 (Infinite Chasing)
         base_target_2nd = int(buy_price * 1.20)
         if curr_price >= base_target_2nd:
-            final_target = int(curr_price * 1.10) # 현재가보다 더 위로 도망감
+            final_target = int(curr_price * 1.10) 
             target_label = "🔥 무한 질주 (추세 추종)"
         else:
             final_target = base_target_2nd
             target_label = "🌟 2차 목표가 (+20%)"
-
-        final_stop = int(buy_price * 1.05) # 익절 보존 (+5%)
-        
+        final_stop = int(buy_price * 1.05) 
         status_msg = f"🎉 목표 초과 달성 중 (+{profit_rate:.2f}%)"
         stop_label = "🔒 익절 보존선 (+5%)"
-        stop_color = "#7950F2" # Purple for Profit lock
-        
+        stop_color = "#7950F2"
         progress_cls = "progress-fill overdrive"
         action_btn_cls = "action-badge-strong"
         action_text = "🔥 강력 홀딩 (수익 극대화)"
         strategy_bg = "#F3F0FF"
 
-    # [CASE 2] 구조대(Rescue) 모드 (수익률 -10% 이하)
+    # [CASE 2] 구조대(Rescue) 모드
     elif profit_rate <= -10.0:
         is_rescue = True
-        
-        # 현실적인 탈출 목표 설정 (현재가 기준)
-        final_target = int(curr_price * 1.15) # 현재가 대비 +15% (기술적 반등 목표)
-        final_stop = int(curr_price * 0.95)   # 현재가 대비 -5% (추가 급락 방지)
-        
+        final_target = int(curr_price * 1.15) 
+        final_stop = int(curr_price * 0.95)   
         status_msg = f"🚨 위기 관리: 단기 반등 목표 {final_target:,}원"
-        
         stop_label = "🛑 2차 방어선 (현재가 -5%)"
         target_label = "📈 기술적 반등 목표 (+15%)"
-        stop_color = "#555" # Dark Gray
-        target_color = "#3182F6" # Blue (Cold/Recovery)
-        
-        progress_cls = "progress-fill rescue" # Blue/Cold Gradient
+        stop_color = "#555" 
+        target_color = "#3182F6" 
+        progress_cls = "progress-fill rescue" 
         action_btn_cls = "action-badge-rescue"
         action_text = "⛑️ 리스크 관리 (반등 시 비중 축소)"
         strategy_bg = "#E8F3FF"
 
     # --- 프로그레스 바 계산 ---
     progress_pct = 0
-    if is_rescue:
-        # 구조대 모드는 '현재가'가 기준 (0% 지점)
-        total_range = final_target - final_stop
-        current_range = curr_price - final_stop
-        if total_range > 0:
-            progress_pct = (current_range / total_range) * 100
-            progress_pct = max(0, min(100, progress_pct))
-    elif buy_price > 0:
-        # 일반/오버드라이브
-        total_range = final_target - final_stop
-        current_range = curr_price - final_stop
-        
-        if total_range > 0:
-            progress_pct = (current_range / total_range) * 100
-            progress_pct = max(0, min(100, progress_pct))
+    total_range = final_target - final_stop
+    current_range = curr_price - final_stop
+    if total_range > 0:
+        progress_pct = (current_range / total_range) * 100
+        progress_pct = max(0, min(100, progress_pct))
 
     # --- HTML 조립 ---
     profit_cls = "profit-positive" if profit_rate > 0 else ("profit-negative" if profit_rate < 0 else "")
@@ -312,26 +299,20 @@ def create_portfolio_card_html(res):
     html += f"      </div>"
     html += f"  </div>"
     
-    # 전략 컨테이너
     html += f"  <div class='strategy-container' style='background-color:{strategy_bg};'>"
     html += f"      <div class='strategy-header'>"
     html += f"          <span class='strategy-title'>🎯 AI 대응 가이드</span>"
     html += f"          <span style='font-size:11px; color:#F04452; font-weight:700;'>{status_msg}</span>"
     html += f"      </div>"
-    
-    # Progress Bar
     html += f"      <div class='progress-bg'>"
     html += f"          <div class='{progress_cls}' style='width: {progress_pct}%;'></div>"
     html += f"      </div>"
-    
-    # Labels
     html += f"      <div class='price-guide'>"
     html += f"          <div>{stop_label}<br><strong style='color:{stop_color};'>{final_stop:,}원</strong></div>"
     html += f"          <div style='text-align:right;'>{target_label}<br><strong style='color:{target_color};'>{final_target:,}원</strong></div>"
     html += f"      </div>"
     html += f"  </div>"
     
-    # Footer
     html += f"  <div style='margin-top:10px; padding-top:8px; display:flex; justify-content:space-between; align-items:center; font-size:12px; color:#666;'>"
     html += f"      <div>AI 점수: <strong style='color:{score_col}'>{res['score']}점</strong></div>"
     html += f"      <div class='{action_btn_cls}'>{action_text}</div>"
@@ -615,7 +596,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.0)",
+            "message": "Update data via Streamlit App (V50.1)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1276,7 +1257,8 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         "price": int(curr['Close']),
         "change_rate": chg_rate, 
         "score": 50,
-        "strategy": {}, 
+        # [Fix] 초기화 시 빈 딕셔너리가 아닌 기본값 딕셔너리로 설정하여 에러 방지
+        "strategy": {"action": "분석 실패", "buy": 0, "target": 0, "stop": 0, "buy_basis": ""}, 
         "fund_data": None, 
         "ma_status": [], 
         "trend_txt": "분석 중",
@@ -1462,16 +1444,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.0 (DART Integration)")
+    st.title("💎 Quant Sniper V50.1 (BugFix)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.0 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.1 업데이트 노트", expanded=False):
         st.markdown("""
+        * **[Fix]** 'KeyError: action' 오류 수정: 데이터 로딩 실패 시 앱이 멈추지 않고 '분석 대기' 상태로 표시되도록 안전장치를 추가했습니다.
         * **[New] DART 공시 연동:** Open DART API를 통해 최신 공시 정보를 실시간으로 가져와 AI 분석에 반영합니다.
         * **[New] 구조대(Rescue) 모드:** 손실률이 10% 이상일 경우, 기준을 '평단가'에서 '현재가'로 자동 전환하여 현실적인 탈출 목표(+15%)와 추가 방어선(-5%)을 제시합니다.
-        * **[UI] 3단계 상태 시각화:** 일반(Red) / 오버드라이브(Gold/Purple) / 구조대(Blue) 모드로 직관적인 상태 구분.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1782,7 +1764,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.0 (DART Integration)\n\n"
+            msg = f"💎 Quant Sniper V50.1 (BugFix)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
