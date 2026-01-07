@@ -18,6 +18,7 @@ import urllib.parse
 import numpy as np
 from io import StringIO
 import random
+import OpenDartReader  # [추가] DART 라이브러리
 
 # ==============================================================================
 # [보안 설정] Streamlit Secrets에서 키 가져오기
@@ -27,14 +28,17 @@ try:
     USER_TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
     USER_CHAT_ID = st.secrets["CHAT_ID"]
     USER_GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+    # [추가] DART API 키 가져오기
+    USER_DART_KEY = st.secrets["DART_API_KEY"]
 except Exception as e:
     USER_GITHUB_TOKEN = ""
     USER_TELEGRAM_TOKEN = ""
     USER_CHAT_ID = ""
     USER_GOOGLE_API_KEY = ""
+    USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V49.9 (Rescue Mode)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.0 (DART Integration)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -269,18 +273,13 @@ def create_portfolio_card_html(res):
     progress_pct = 0
     if is_rescue:
         # 구조대 모드는 '현재가'가 기준 (0% 지점)
-        # Bar: 현재가가 Stop(0%) ~ Target(100%) 사이 어디쯤인지 표시하면 좋겠지만,
-        # 직관성을 위해 '반등 목표 달성률'로 표현
-        # 여기서는 단순하게 바를 비워두거나, 바닥에서부터 올라오는 느낌을 줌
-        # 하지만 통일성을 위해 [Stop ~ Target] 구간 내 현재 위치를 표시
         total_range = final_target - final_stop
         current_range = curr_price - final_stop
         if total_range > 0:
             progress_pct = (current_range / total_range) * 100
             progress_pct = max(0, min(100, progress_pct))
     elif buy_price > 0:
-        # 일반/오버드라이브: [평단 ~ 목표] 또는 [익절선 ~ 목표]
-        # 직관성을 위해 [Stop ~ Target] 전체 레인지 사용
+        # 일반/오버드라이브
         total_range = final_target - final_stop
         current_range = curr_price - final_stop
         
@@ -616,7 +615,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.9)",
+            "message": "Update data via Streamlit App (V50.0)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1000,6 +999,26 @@ def call_gemini_dynamic(prompt):
         else: return None, f"HTTP {res.status_code}: {res.text}"
     except Exception as e: return None, f"Connection Error: {str(e)}"
 
+# [추가] DART 공시 정보 가져오기 함수
+@st.cache_data(ttl=3600)
+def get_dart_disclosure_summary(code):
+    if not USER_DART_KEY:
+        return "DART API 키 미설정"
+    try:
+        dart = OpenDartReader(USER_DART_KEY)
+        end_d = datetime.datetime.now().strftime("%Y%m%d")
+        start_d = (datetime.datetime.now() - datetime.timedelta(days=90)).strftime("%Y%m%d")
+        df = dart.list(code, start=start_d, end=end_d)
+        if df is None or df.empty:
+            return "최근 3개월 내 특이 공시 없음"
+        df = df.sort_values('rcept_dt', ascending=False).head(5)
+        summary_list = []
+        for index, row in df.iterrows():
+            summary_list.append(f"[{row['rcept_dt']}] {row['report_nm']}")
+        return "\n".join(summary_list)
+    except Exception as e:
+        return f"DART 데이터 조회 실패 ({str(e)})"
+
 def get_ai_recommended_stocks(keyword):
     prompt = f"""
     당신은 한국 주식 전문가입니다.
@@ -1087,6 +1106,11 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
 
     news_titles = list(set(news_titles))
 
+    # [수정] DART 데이터 가져오기 (context에서 code 추출)
+    dart_summary = "공시 정보 없음"
+    if code and USER_DART_KEY:
+         dart_summary = get_dart_disclosure_summary(code)
+
     if not news_titles: 
         return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0}
 
@@ -1153,17 +1177,28 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         prompt = f"""
         {role_prompt}
 
+        [종목 정보]
+        - 종목명: {company_name} ({code})
+        - 현재 주가: {current_price:,}원
+
         [분석 데이터]
         1. 기술적 추세: {trend}
         2. 시장 사이클: {cycle}
-        3. 뉴스 헤드라인 (출처: Google, Naver Finance, Naver Search):
+        3. 수급 특이사항: {hint_str}
+        
+        [📢 중요: DART 공식 공시 (최근 3개월)]
+        {dart_summary}
+        (해석 가이드: 전환사채/유상증자는 악재 가능성, 공급계약/무상증자는 호재 가능성, 임원 매도는 경고 신호로 해석할 것)
+
+        [📰 뉴스 헤드라인]
         {str(news_titles)}
 
         [분석 지침]
-        1. 다양한 출처의 뉴스를 종합하여 '공급망 이슈', '반도체/AI 사이클', '사회적 관심도'를 파악하세요.
-        2. 단순 등락보다는 기업의 **본질적인 가치 변화**에 주목하세요.
-        3. 감정을 배제하고 매우 논리적이고 전문적인 어조를 사용하세요.
-        4. **절대 서론이나 부가 설명 없이 오직 JSON 데이터만 출력하세요.**
+        1. **공시(DART) 내용을 최우선 팩트(Fact)로 간주하세요.** 뉴스보다 공시의 신뢰도가 높습니다.
+        2. 공시 내용(예: 계약 체결, CB 발행 등)이 주가에 미칠 영향을 구체적으로 분석하세요.
+        3. 뉴스와 공시가 상충되면 공시를 따르세요.
+        4. 감정을 배제하고 논리적인 헤지펀드 매니저 톤을 유지하세요.
+        5. **절대 서론이나 부가 설명 없이 오직 JSON 데이터만 출력하세요.**
 
         [출력 형식 (반드시 JSON 포맷 준수)]
         {{
@@ -1405,7 +1440,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
 
         buy_price = round_to_tick(buy_price_raw)
         target_price = round_to_tick(target_raw)
-        stop_price = round_to_tick(stop_raw)
+        stop_price = round_to_tick(stop_price)
         
         result_dict['strategy'] = {
             "buy": buy_price,
@@ -1427,13 +1462,14 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V49.9 (Rescue Mode)")
+    st.title("💎 Quant Sniper V50.0 (DART Integration)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.9 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.0 업데이트 노트", expanded=False):
         st.markdown("""
+        * **[New] DART 공시 연동:** Open DART API를 통해 최신 공시 정보를 실시간으로 가져와 AI 분석에 반영합니다.
         * **[New] 구조대(Rescue) 모드:** 손실률이 10% 이상일 경우, 기준을 '평단가'에서 '현재가'로 자동 전환하여 현실적인 탈출 목표(+15%)와 추가 방어선(-5%)을 제시합니다.
         * **[UI] 3단계 상태 시각화:** 일반(Red) / 오버드라이브(Gold/Purple) / 구조대(Blue) 모드로 직관적인 상태 구분.
         """)
@@ -1746,7 +1782,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.9 (Rescue Mode)\n\n"
+            msg = f"💎 Quant Sniper V50.0 (DART Integration)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
