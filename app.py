@@ -19,6 +19,7 @@ import numpy as np
 from io import StringIO
 import random
 import OpenDartReader
+import yfinance as yf # [New] 글로벌 데이터
 
 # ==============================================================================
 # [보안 설정] Streamlit Secrets에서 키 가져오기
@@ -37,7 +38,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.3 (Golden Balance)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.4 (Global Insight)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -132,8 +133,9 @@ st.markdown("""
     .action-badge-strong { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; box-shadow: 0 2px 6px rgba(118, 75, 162, 0.4); animation: pulse 2s infinite; }
     .action-badge-rescue { background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; }
 
-    /* DART Badge */
+    /* Badges */
     .dart-badge { background-color: #FFF0F6; color: #C2255C; border: 1px solid #FCC2D7; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-right: 4px; }
+    .global-badge { background-color: #F3F0FF; color: #7048E8; border: 1px solid #E5DBFF; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-right: 4px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -584,7 +586,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.3)",
+            "message": "Update data via Streamlit App (V50.4)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -987,6 +989,32 @@ def get_dart_disclosure_summary(code):
     except Exception as e:
         return f"DART 데이터 조회 실패 ({str(e)})"
 
+# [NEW] Hankyung News RSS Crawler
+@st.cache_data(ttl=1800)
+def get_hankyung_news_rss():
+    news_list = []
+    try:
+        rss_url = "https://rss.hankyung.com/feed/market"
+        feed = feedparser.parse(rss_url)
+        for entry in feed.entries[:5]:
+            news_list.append(f"[한경] {entry.title}")
+    except: pass
+    return news_list
+
+# [NEW] Yahoo Finance Global News
+@st.cache_data(ttl=1800)
+def get_yahoo_global_news(keyword="Stock"):
+    news_list = []
+    try:
+        # Related Tickers for Context (e.g. Samsung -> Micron, SK Hynix -> Nvidia)
+        # This is a general market fetch
+        ticker = yf.Ticker("SPY") # S&P 500 as proxy for global sentiment
+        news = ticker.news
+        for n in news[:3]:
+            news_list.append(f"[Global/Yahoo] {n['title']}")
+    except: pass
+    return news_list
+
 def get_ai_recommended_stocks(keyword):
     prompt = f"""
     당신은 한국 주식 전문가입니다.
@@ -1052,25 +1080,36 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
     news_titles = []; news_data = []
     
+    # 1. Google News
     try:
         query = f"{company_name} 주가"
         encoded_query = urllib.parse.quote(query)
         base_url = "https://news.google.com/rss/search"
         rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
         feed = feedparser.parse(rss_url)
-        for entry in feed.entries[:5]:
+        for entry in feed.entries[:3]:
             date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else ""
             news_data.append({"title": entry.title, "link": entry.link, "date": date_str})
             news_titles.append(entry.title)
     except: pass
 
     code = stock_data_context.get('code', '')
+    
+    # 2. Naver Finance News
     if code:
         naver_fin_titles = get_naver_finance_news(code)
         news_titles.extend(naver_fin_titles)
     
+    # 3. Naver Search News
     naver_search_titles = get_naver_search_news(company_name)
     news_titles.extend(naver_search_titles)
+
+    # 4. [New] Economic & Global News (Context Injection)
+    econ_news = get_hankyung_news_rss()
+    global_news = get_yahoo_global_news()
+    
+    # Add to prompt context, but not to 'raw_news' display to keep UI clean
+    macro_context = "\n".join(econ_news[:3] + global_news[:2])
 
     news_titles = list(set(news_titles))
 
@@ -1105,34 +1144,33 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         
         hint_str = "\n".join(supply_analysis_hint) if supply_analysis_hint else "특이사항 없음"
 
-        # [V50.3] Prompt Logic Update: Balanced Mode (종합적 판단)
         if is_holding:
             role_prompt = f"""
-            당신은 '균형 잡힌 시각'을 가진 20년 경력의 헤지펀드 매니저입니다.
+            당신은 '글로벌 거시 경제와 로컬 이슈를 통섭'하는 20년 경력의 헤지펀드 매니저입니다.
             사용자는 현재 이 주식을 보유 중이며, 수익률은 {profit_rate:.2f}% 입니다.
             
             [지시사항]
-            1. **DART 공시, 뉴스(시장 재료), 기술적 추세**를 종합적으로 고려하세요.
-            2. '치명적인 악재 공시'(횡령, 부도, 대규모 유상증자 등)가 있다면 1순위로 경고하세요.
-            3. 그렇지 않다면, 공시에만 매몰되지 말고 시장의 관심(뉴스)과 차트 흐름을 중요하게 반영하세요.
+            1. **DART 공시(Fact), 뉴스(Issue), 글로벌/거시 경제(Macro)**를 입체적으로 분석하세요.
+            2. 한국경제(한경)와 야후파이낸스(Global) 뉴스에서 시장의 큰 흐름을 읽고, 개별 종목에 미칠 영향을 판단하세요.
+            3. 공시 리스크가 있다면 최우선으로 경고하되, 없다면 시장 트렌드에 편승할지 여부를 결정하세요.
             """
             output_guideline = """
             "opinion": "🚨 홀딩 / 💰 부분 익절 / 🛡️ 전량 익절 / 💧 버티기 / ✂️ 손절매",
-            "summary": "공시와 뉴스를 종합한 현실적인 행동 가이드 (한 문장)",
+            "summary": "거시 경제와 개별 이슈를 종합한 통찰력 있는 한 문장 가이드",
             """
         else:
             role_prompt = f"""
-            당신은 '팩트와 트렌드'를 모두 읽는 글로벌 투자 전략가입니다.
+            당신은 '숲(거시경제)과 나무(개별종목)'를 모두 보는 글로벌 투자 전략가입니다.
             신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
             현재 주가는 {current_price:,}원입니다.
             
             [지시사항]
-            1. DART 공시는 '리스크 체크' 용도로 먼저 확인하세요.
-            2. 특별한 공시 리스크가 없다면, 뉴스(성장성)와 수급(기술적 위치)에 더 가중치를 두고 공격적으로 판단하세요.
+            1. 단순히 개별 뉴스만 보지 말고, 함께 제공된 'Global/Macro 뉴스'를 통해 시장 분위기를 파악하세요.
+            2. 시장이 하락세(Global News 부정적)라면 개별 호재가 있어도 보수적으로, 상승장이라면 적극적으로 조언하세요.
             """
             output_guideline = """
             "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
-            "summary": "재료(뉴스)와 리스크(공시)를 균형 있게 요약한 코멘트",
+            "summary": "시장 상황(Macro)과 종목 매력도(Micro)를 결합한 핵심 요약",
             """
 
         prompt = f"""
@@ -1149,8 +1187,11 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         [데이터 2: DART 공식 공시]
         {dart_summary}
 
-        [데이터 3: 뉴스 헤드라인]
+        [데이터 3: 개별 종목 뉴스]
         {str(news_titles)}
+
+        [데이터 4: 🌍 글로벌 & 거시 경제 뉴스 (시장 분위기 파악용)]
+        {macro_context}
 
         [출력 형식 (JSON Only)]
         {{
@@ -1407,16 +1448,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.3 (Golden Balance)")
+    st.title("💎 Quant Sniper V50.4 (Global Insight)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.3 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.4 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[AI Logic] 분석 밸런스 조정:** 공시 정보에 과도하게 치우치지 않고, 뉴스(재료)와 기술적 추세를 종합적으로 고려하도록 AI 판단 로직을 개선했습니다.
-        * **[Visual] DART 공시 시각화:** 분석에 사용된 최근 3개월치 주요 공시를 UI에서 직접 확인할 수 있습니다.
-        * **[Fix]** 데이터 로딩 안정성 및 에러 처리 강화.
+        * **[New] 글로벌 & 경제 뉴스 통합:** '야후 파이낸스'와 '한국경제 RSS'를 연동하여 AI가 미국 증시와 거시 경제 흐름을 분석에 반영합니다.
+        * **[AI] 입체적 분석 강화:** 개별 종목의 호재/악재뿐만 아니라 시장의 분위기(Macro)까지 고려하여 매수/매도 의견을 제시합니다.
+        * **[DART]** 공시 기반 팩트 체크 기능 유지.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1755,7 +1796,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.3 (Golden Balance)\n\n"
+            msg = f"💎 Quant Sniper V50.4 (Global Insight)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
