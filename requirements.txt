@@ -9,3 +9,4 @@ lxml
 feedparser
 setuptools
 google-generativeai
+opendartreader
