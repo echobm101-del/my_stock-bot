@@ -38,7 +38,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.9 (Exception Handling)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.10 (Score Fixed)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -662,7 +662,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.9)",
+            "message": "Update data via Streamlit App (V50.10)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1486,14 +1486,20 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
             if curr['Close'] >= val: pass_cnt += 1; ma_status.append({"label": label, "ok": True})
             else: ma_status.append({"label": label, "ok": False})
             
-        if pass_cnt >= 3: trend_txt = "강력한 상승 추세 (정배열)"
-        elif pass_cnt >= 2: trend_txt = "상승세 유지 (양호)"
+        # [V50.10] Trend Bonus Logic Added here
+        trend_bonus = 0
+        if pass_cnt >= 3: 
+            trend_txt = "강력한 상승 추세 (정배열)"
+            trend_bonus = 20 # 정배열 시 강력한 보너스
+        elif pass_cnt >= 2: 
+            trend_txt = "상승세 유지 (양호)"
+            trend_bonus = 10
         else: trend_txt = "조정 또는 하락세"
         
         result_dict['ma_status'] = ma_status
         result_dict['trend_txt'] = trend_txt
-        tech_score = score 
-    except: tech_score = 0
+        tech_score = score # Original Sniper Score
+    except: tech_score = 0; trend_bonus = 0
 
     try: fund_score, _, fund_data = get_company_guide_score(code); result_dict['fund_data'] = fund_data
     except: fund_score = 0; fund_data = {}
@@ -1514,13 +1520,18 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         if not result_dict['investor_trend'].empty: bonus += 5
         if not result_dict['fin_history'].empty: bonus += 5
         
-        temp_score = int((tech_score * 0.5) + fund_score + bonus)
+        # [V50.10] Apply Trend Bonus
+        temp_score = int((tech_score * 0.5) + fund_score + bonus + trend_bonus)
         
         atr = curr.get('ATR', curr['Close'] * 0.03)
         current_price = curr['Close']
         
         quant_signal = "중립"
         if my_buy_price:
+            # [V50.10] Holding Profit Bonus
+            if profit_rate > 10.0: temp_score += 20 # Big profit bonus
+            elif profit_rate > 0: temp_score += 10
+            
             if profit_rate > 0:
                 if temp_score >= 50: quant_signal = "보유 권장 (상승 추세)"
                 else: quant_signal = "차익 실현 권장 (과열/탄력 둔화)"
@@ -1648,16 +1659,15 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.9 (Exception Handling)")
+    st.title("💎 Quant Sniper V50.10 (Score Fixed)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.9 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.10 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[Safety] 예외 상황 처리:** 데이터 부족 등으로 분석이 불가능한 경우, 억지로 값을 계산하지 않고 '판단 유보' 상태로 명확히 안내합니다.
-        * **[UI] 보유 종목 요약:** '상세 분석 펼치기' 버튼에 AI의 요약 코멘트를 바로 표시하여 직관성을 높였습니다.
-        * **[Date] 30일 시계열 분석:** 뉴스를 '최신(1주)'과 '과거(1달)'로 분리하여 AI가 흐름(Trend)을 읽습니다.
+        * **[Score] AI 점수 로직 개선:** 기존 저점 매수 중심에서 '추세 추종(Trend Following)' 보너스를 추가하여, 잘 오르고 있는 종목의 점수를 정상화했습니다.
+        * **[Port] 보유 효과 반영:** 이미 수익이 나고 있는 보유 종목에는 가산점을 부여하여 '강력 홀딩' 의견과 점수가 일치하도록 수정했습니다.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -2009,7 +2019,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.9 (Exception Handling)\n\n"
+            msg = f"💎 Quant Sniper V50.10 (Score Fixed)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
