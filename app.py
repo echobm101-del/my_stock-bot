@@ -38,7 +38,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.5 (Date Fixed)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.6 (Time-Series Fixed)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -586,7 +586,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.5)",
+            "message": "Update data via Streamlit App (V50.6)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1052,10 +1052,11 @@ def get_ai_recommended_stocks(keyword):
 # ==============================================================================
 def parse_relative_date(date_text):
     """
-    '1시간 전', '3일 전', '2023.05.20' 등의 텍스트를 datetime 객체로 변환
+    '1시간 전', '3일 전', '2023.05.20', '2023-05-20' 등의 텍스트를 datetime 객체로 변환
+    **중요 변경**: 파싱 실패 시 현재가 아닌 '1년 전'으로 처리하여 필터링되게 함
     """
     now = datetime.datetime.now()
-    date_text = date_text.strip()
+    date_text = str(date_text).strip()
     
     try:
         if "분 전" in date_text:
@@ -1070,11 +1071,16 @@ def parse_relative_date(date_text):
         elif "어제" in date_text:
             return now - datetime.timedelta(days=1)
         else:
-            # 날짜 형식이 '2024.01.05' 또는 '2024.01.05.' 인 경우 처리
+            # 1. 날짜 문자열 정제 (점과 하이픈 통일)
+            # 예: '2025.09.20' -> '2025-09-20', '2025-09-20' -> 유지
             clean_date = date_text.replace('.', '-').rstrip('-')
+            
+            # 2. 날짜만 있는 경우 (YYYY-MM-DD) 처리
             return pd.to_datetime(clean_date)
     except:
-        return now - datetime.timedelta(days=365) # 파싱 실패시 아주 과거로 처리
+        # [수정됨] 파싱 에러나면 '현재'가 아니라 '아주 옛날'로 리턴해서
+        # 최신 뉴스 필터링에서 탈락되도록 함 (안전장치 수정)
+        return now - datetime.timedelta(days=365)
 
 # [V50.5] Refactored: get_naver_finance_news (날짜 추출 포함)
 def get_naver_finance_news(code):
@@ -1093,10 +1099,8 @@ def get_naver_finance_news(code):
             link = "https://finance.naver.com" + t.select_one('a')['href']
             date_text = d.get_text().strip()
             
-            try:
-                parsed_date = pd.to_datetime(date_text)
-            except:
-                parsed_date = datetime.datetime.now()
+            # 파싱 (개선된 함수 사용)
+            parsed_date = parse_relative_date(date_text)
                 
             news_data.append({
                 "title": title_text,
@@ -1142,7 +1146,7 @@ def get_naver_search_news(keyword):
         pass
     return news_data
 
-# [V50.5] Refactored: get_news_sentiment_llm (정렬 및 필터링 로직 강화)
+# [V50.5] Refactored: get_news_sentiment_llm (30일 흐름 분석 + 기간 분리)
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
@@ -1156,8 +1160,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         base_url = "https://news.google.com/rss/search"
         rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
         feed = feedparser.parse(rss_url)
-        for entry in feed.entries[:3]:
-            # Convert struct_time to datetime
+        for entry in feed.entries[:5]: # 수집 개수 소폭 상향
             dt = datetime.datetime.fromtimestamp(time.mktime(entry.published_parsed)) if entry.published_parsed else datetime.datetime.now()
             full_news_list.append({
                 "title": entry.title,
@@ -1178,7 +1181,6 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
     full_news_list.extend(get_naver_search_news(company_name))
 
     # [중요] 필터링 및 정렬 로직 적용
-    # 1) 중복 제거 (제목 기준)
     seen_titles = set()
     unique_news = []
     for n in full_news_list:
@@ -1186,91 +1188,106 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             seen_titles.add(n['title'])
             unique_news.append(n)
     
-    # 2) 날짜순 정렬 (최신순)
+    # 날짜순 정렬 (최신순)
     unique_news.sort(key=lambda x: x.get('datetime', datetime.datetime.min), reverse=True)
     
-    # 3) 너무 오래된 뉴스 필터링 (7일 이전 제외)
-    cutoff_date = datetime.datetime.now() - datetime.timedelta(days=7)
-    recent_news = [n for n in unique_news if n.get('datetime', datetime.datetime.now()) > cutoff_date]
+    # ==================================================================
+    # [Logic Upgrade] 30일 데이터 수집하되, '최신'과 '과거'를 분리
+    # ==================================================================
+    now = datetime.datetime.now()
+    cutoff_7days = now - datetime.timedelta(days=7)
+    cutoff_30days = now - datetime.timedelta(days=30)
     
-    # 4) AI용 텍스트 및 UI용 데이터 준비
+    recent_news = [] # 1주일 이내
+    past_news = []   # 1주일 ~ 1달 사이
+    
+    for n in unique_news:
+        n_date = n.get('datetime', datetime.datetime.min)
+        if n_date > cutoff_7days:
+            recent_news.append(n)
+        elif n_date > cutoff_30days:
+            past_news.append(n)
+            
+    # AI에게 보낼 텍스트 구성 (섹션 분리)
     ai_news_context = []
-    display_news_data = [] 
     
-    target_news = recent_news[:7] if recent_news else unique_news[:3] # 최근 뉴스가 없으면 전체 중 최신 3개라도 사용
+    # 1) 최신 이슈 (가중치 높음)
+    if recent_news:
+        ai_news_context.append("### 🔥 [최신 이슈: 최근 1주일]")
+        for n in recent_news[:5]: # 최신 최대 5개
+            ai_news_context.append(f"- [{n['date']}] {n['title']}")
+    else:
+        ai_news_context.append("### 🔥 [최신 이슈: 최근 1주일]\n- 특이사항 없음 (잠잠함)")
 
-    for n in target_news:
-        date_str = n['date']
-        ai_news_context.append(f"[{date_str}] {n['title']}")
-        display_news_data.append(n)
+    # 2) 지난 흐름 (맥락 파악용)
+    if past_news:
+        ai_news_context.append("\n### 📜 [지난 흐름: 1개월간 빌드업]")
+        for n in past_news[:5]: # 과거 최대 5개
+            ai_news_context.append(f"- [{n['date']}] {n['title']}")
+    
+    # UI 표시용 데이터 (최신순 통합)
+    display_news_data = recent_news + past_news
 
-    # 4. [New] Economic & Global News (Context Injection)
+    # 4. Global & Macro
     econ_news = get_hankyung_news_rss()
     global_news = get_yahoo_global_news()
-    
     macro_context = "\n".join(econ_news[:3] + global_news[:2])
 
     dart_summary = "공시 정보 없음"
     if code and USER_DART_KEY:
          dart_summary = get_dart_disclosure_summary(code)
 
-    if not display_news_data: 
-        if dart_summary == "공시 정보 없음":
-             return {"score": 0, "headline": "관련 뉴스 및 공시 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0, "dart_text": ""}
+    # 뉴스도 없고 공시도 없으면 리턴
+    if not display_news_data and dart_summary == "공시 정보 없음":
+         return {"score": 0, "headline": "최근 1개월 내 주요 뉴스 및 공시 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0, "dart_text": ""}
 
     try:
         if not USER_GOOGLE_API_KEY: raise Exception("API Key가 설정되지 않았습니다.")
         
+        # ... (기존 변수 바인딩 유지) ...
         trend = stock_data_context.get('trend', '분석중')
         cycle = stock_data_context.get('cycle', '정보없음')
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
-        quant_signal = stock_data_context.get('quant_signal', '중립')
         current_price = stock_data_context.get('current_price', 0)
         
+        # ... (수급 힌트 로직 유지) ...
         supply_analysis_hint = []
         usd_krw_change = stock_data_context.get('usd_krw_change', 0.0)
-        if usd_krw_change > 0.5: supply_analysis_hint.append(f"원/달러 환율 급등(+{usd_krw_change:.2f}%)으로 인한 외국인 환차손 회피 매물 가능성")
-        elif usd_krw_change < -0.5: supply_analysis_hint.append("환율 하락으로 인한 외국인 수급 개선 기대")
+        if usd_krw_change > 0.5: supply_analysis_hint.append(f"원/달러 환율 급등(+{usd_krw_change:.2f}%)으로 외국인 매도 가능성")
+        elif usd_krw_change < -0.5: supply_analysis_hint.append("환율 하락으로 외국인 수급 개선 기대")
         
         price_surge = stock_data_context.get('price_surge', 0.0)
-        if price_surge > 15: supply_analysis_hint.append(f"단기 급등(+{price_surge:.1f}%)에 따른 기관/외인의 차익 실현 욕구 증가")
+        if price_surge > 15: supply_analysis_hint.append(f"단기 급등(+{price_surge:.1f}%)에 따른 차익 실현 주의")
         
         round_fig_msg = stock_data_context.get('round_figure_msg', "")
         if round_fig_msg: supply_analysis_hint.append(round_fig_msg)
         
         hint_str = "\n".join(supply_analysis_hint) if supply_analysis_hint else "특이사항 없음"
 
+        # [프롬프트 강화: 시계열 분석 요청]
+        common_instruction = """
+        [중요 분석 지침]
+        1. **시계열 분석 필수:** 제공된 뉴스는 '최신 이슈(1주)'와 '지난 흐름(1달)'으로 구분되어 있습니다.
+        2. **맥락 파악:** '지난 흐름'에서 발생한 이슈가 현재 주가에 반영되었는지, 혹은 여전히 유효한 모멘텀인지 판단하세요.
+        3. **최신성 가중치:** '최신 이슈'가 없다면 현재 시장의 관심에서 멀어진 소외주 일 수 있음을 고려하세요.
+        4. **과거 뉴스 주의:** 날짜가 1주일 이상 지난 뉴스를 근거로 '긴급 대응'을 주문하지 마십시오.
+        """
+
         if is_holding:
             role_prompt = f"""
-            당신은 '글로벌 거시 경제와 로컬 이슈를 통섭'하는 20년 경력의 헤지펀드 매니저입니다.
-            사용자는 현재 이 주식을 보유 중이며, 수익률은 {profit_rate:.2f}% 입니다.
-            
-            [지시사항]
-            1. **DART 공시(Fact), 뉴스(Issue), 글로벌/거시 경제(Macro)**를 입체적으로 분석하세요.
-            2. 한국경제(한경)와 야후파이낸스(Global) 뉴스에서 시장의 큰 흐름을 읽고, 개별 종목에 미칠 영향을 판단하세요.
-            3. 공시 리스크가 있다면 최우선으로 경고하되, 없다면 시장 트렌드에 편승할지 여부를 결정하세요.
-            4. **뉴스 날짜를 확인하세요.** 7일 이상 지난 뉴스는 현재 주가에 이미 반영되었을 가능성이 높으므로 가중치를 낮추세요.
+            당신은 20년 경력의 헤지펀드 매니저입니다. 보유 종목 수익률은 {profit_rate:.2f}%입니다.
+            {common_instruction}
+            현재 시점(Now)에서 홀딩이 유리한지, 아니면 재료 소멸로 보고 익절해야 할지 판단하세요.
             """
-            output_guideline = """
-            "opinion": "🚨 홀딩 / 💰 부분 익절 / 🛡️ 전량 익절 / 💧 버티기 / ✂️ 손절매",
-            "summary": "거시 경제와 개별 이슈를 종합한 통찰력 있는 한 문장 가이드",
-            """
+            output_guideline = '"opinion": "🚨 홀딩 / 💰 부분 익절 / 🛡️ 전량 익절 / 💧 버티기 / ✂️ 손절매",'
         else:
             role_prompt = f"""
-            당신은 '숲(거시경제)과 나무(개별종목)'를 모두 보는 글로벌 투자 전략가입니다.
-            신규 진입을 고려하는 투자자에게 매수/매도 전략을 수립하세요.
-            현재 주가는 {current_price:,}원입니다.
-            
-            [지시사항]
-            1. 단순히 개별 뉴스만 보지 말고, 함께 제공된 'Global/Macro 뉴스'를 통해 시장 분위기를 파악하세요.
-            2. 시장이 하락세(Global News 부정적)라면 개별 호재가 있어도 보수적으로, 상승장이라면 적극적으로 조언하세요.
-            3. **뉴스 날짜를 반드시 확인하세요.** 최신 뉴스가 호재인지 악재인지 판단하세요.
+            당신은 글로벌 투자 전략가입니다. 현재 주가는 {current_price:,}원입니다.
+            {common_instruction}
+            지난 한 달간의 흐름(History)을 보고, 지금이 진입 적기(Timing)인지 판단하세요.
             """
-            output_guideline = """
-            "opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",
-            "summary": "시장 상황(Macro)과 종목 매력도(Micro)를 결합한 핵심 요약",
-            """
+            output_guideline = '"opinion": "강력매수 / 매수 / 관망 / 비중축소 / 매도",'
 
         prompt = f"""
         {role_prompt}
@@ -1278,18 +1295,16 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         [종목 정보]
         - 종목명: {company_name} ({code})
         - 현재 주가: {current_price:,}원
-
-        [데이터 1: 기술적/수급]
-        - 추세: {trend}
+        - 기술적 추세: {trend}
         - 수급 특이사항: {hint_str}
         
-        [데이터 2: DART 공식 공시]
+        [데이터 1: DART 공식 공시]
         {dart_summary}
 
-        [데이터 3: 개별 종목 뉴스 (최신순 정렬됨)]
-        {str(ai_news_context)}
+        [데이터 2: 뉴스 타임라인 (Time-Series)]
+        {chr(10).join(ai_news_context)}
 
-        [데이터 4: 🌍 글로벌 & 거시 경제 뉴스 (시장 분위기 파악용)]
+        [데이터 3: Global & Macro (시장 분위기)]
         {macro_context}
 
         [출력 형식 (JSON Only)]
@@ -1297,6 +1312,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             "score": (정수 -10 ~ 10),
             "supply_score": (정수 -5 ~ 5),
             {output_guideline}
+            "summary": "1개월 흐름과 최신 이슈를 종합한 한 줄 요약",
             "catalyst": "주가 핵심 재료 (5단어 이내)",
             "risk": "잠재적 리스크 (1문장)"
         }}
@@ -1547,16 +1563,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.5 (Date Fixed)")
+    st.title("💎 Quant Sniper V50.6 (Time-Series Fixed)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.5 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.6 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 뉴스 날짜 분석:** 최신 뉴스만 필터링하여 AI에게 전달합니다. 과거(7일 이전) 뉴스는 분석에서 제외됩니다.
-        * **[New] 정확도 향상:** 네이버 검색 및 뉴스 페이지에서 날짜 정보를 정확히 파싱합니다.
-        * **[AI] 입체적 분석:** 시장 흐름(Macro)과 개별 종목 이슈를 시계열에 맞춰 분석합니다.
+        * **[New] 30일 시계열 분석:** 뉴스를 '최신(1주)'과 '과거(1달)'로 분리하여 AI가 흐름(Trend)을 읽습니다.
+        * **[Fixed] 날짜 오류 수정:** 뉴스 날짜 파싱 실패 시 '현재'가 아닌 '과거'로 처리하여 뒷북 분석을 방지합니다.
+        * **[AI] 맥락 이해:** 과거 재료가 소멸되었는지, 여전히 유효한지 판단하여 더 정확한 조언을 제공합니다.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1895,7 +1911,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.5 (Date Fixed)\n\n"
+            msg = f"💎 Quant Sniper V50.6 (Time-Series Fixed)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
