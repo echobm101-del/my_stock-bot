@@ -38,21 +38,58 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.6 (Time-Series Fixed)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.7 (Mobile Opt)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
-    .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
-    .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
+    /* 기본 폰트 및 배경 설정 */
+    .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; }
     
-    .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
+    /* 카드 디자인 (반응형 적용) */
+    .toss-card { 
+        background: #FFFFFF; 
+        border-radius: 24px; 
+        padding: 24px; 
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); 
+        border: 1px solid #F2F4F6; 
+        margin-bottom: 16px; 
+        transition: all 0.3s ease;
+    }
+    
+    /* 펀더멘털 그리드 */
+    .fund-grid-v2 { 
+        display: grid; 
+        grid-template-columns: 1fr 1fr 1fr; 
+        gap: 15px; 
+        margin-top: 10px; 
+        background-color: #F9FAFB; 
+        padding: 15px; 
+        border-radius: 12px; 
+    }
     .fund-item-v2 { text-align: center; }
     .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
     .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
     .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
     
-    .tech-status-box { display: flex; gap: 10px; margin-bottom: 10px; }
-    .status-badge { flex: 1; padding: 12px 10px; border-radius: 12px; text-align: center; font-size: 13px; font-weight: 700; color: #4E5968; background: #F2F4F6; border: 1px solid #E5E8EB; }
+    /* 기술적 지표 배지 박스 (Flex Wrap 적용으로 모바일 대응) */
+    .tech-status-box { 
+        display: flex; 
+        gap: 10px; 
+        margin-bottom: 10px; 
+        flex-wrap: wrap; /* 모바일에서 줄바꿈 허용 */
+    }
+    .status-badge { 
+        flex: 1; 
+        min-width: 120px; /* 너무 작아지지 않도록 최소 너비 설정 */
+        padding: 12px 10px; 
+        border-radius: 12px; 
+        text-align: center; 
+        font-size: 13px; 
+        font-weight: 700; 
+        color: #4E5968; 
+        background: #F2F4F6; 
+        border: 1px solid #E5E8EB; 
+    }
     .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; }
     .status-badge.sell { background-color: #FFF1F1; color: #F04452; border-color: #F04452; }
     .status-badge.vol { background-color: #FFF8E1; color: #D9480F; border-color: #FFD8A8; }
@@ -73,7 +110,7 @@ st.markdown("""
     .news-fallback { background: #FFF4E6; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #FFD8A8; color: #D9480F; font-weight: 600; }
     
     .news-scroll-box { max-height: 200px; overflow-y: auto; border: 1px solid #F2F4F6; border-radius: 8px; padding: 10px; margin-top:5px; }
-    .news-box { padding: 8px 0; border-bottom: 1px solid #F2F4F6; font-size: 13px; }
+    .news-box { padding: 10px 0; border-bottom: 1px solid #F2F4F6; font-size: 13px; line-height: 1.4; }
     .news-link { color: #333; text-decoration: none; font-weight: 500; display: block; margin-bottom: 2px;}
     .news-link:hover { color: #3182F6; text-decoration: underline; }
     .news-date { font-size: 11px; color: #999; }
@@ -89,7 +126,7 @@ st.markdown("""
     .tag-pull { background: #E6FCF5; color: #087F5B; border: 1px solid #B2F2BB; }
     
     .fin-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; margin-bottom: 10px; border: 1px solid #E5E8EB; }
-    .fin-table th { background-color: #F9FAFB; padding: 8px; border-bottom: 1px solid #E5E8EB; color: #4E5968; font-weight: 600; }
+    .fin-table th { background-color: #F9FAFB; padding: 8px; border-bottom: 1px solid #E5E8EB; color: #4E5968; font-weight: 600; white-space: nowrap; }
     .fin-table td { padding: 8px; border-bottom: 1px solid #F2F4F6; color: #333; font-weight: 500; }
     .text-red { color: #F04452; font-weight: 700; }
     .text-blue { color: #3182F6; font-weight: 700; }
@@ -100,31 +137,23 @@ st.markdown("""
     
     .relation-badge { background-color:#F3F0FF; color:#7950F2; padding:3px 6px; border-radius:4px; font-size:10px; font-weight:700; border:1px solid #E5DBFF; margin-left:6px; vertical-align: middle; }
     
-    .investor-table-container { margin-top: 10px; border: 1px solid #F2F4F6; border-radius: 8px; overflow: hidden; }
-    .investor-table { width: 100%; font-size: 11px; text-align: center; border-collapse: collapse; }
-    .investor-table th { background-color: #F9FAFB; padding: 6px; color: #666; font-weight: 600; border-bottom: 1px solid #E5E8EB; }
+    .investor-table-container { margin-top: 10px; border: 1px solid #F2F4F6; border-radius: 8px; overflow: hidden; overflow-x: auto; }
+    .investor-table { width: 100%; font-size: 11px; text-align: center; border-collapse: collapse; min-width: 300px; }
+    .investor-table th { background-color: #F9FAFB; padding: 6px; color: #666; font-weight: 600; border-bottom: 1px solid #E5E8EB; white-space: nowrap; }
     .investor-table td { padding: 6px; border-bottom: 1px solid #F2F4F6; color: #333; }
     
     .profit-positive { color: #F04452; font-weight: 800; font-size: 20px; }
     .profit-negative { color: #3182F6; font-weight: 800; font-size: 20px; }
     .port-label { font-size: 11px; color: #888; margin-top: 4px; }
     
-    /* V49.9 Dynamic Strategy Styles */
+    /* Strategy Styles */
     .strategy-container { background-color: #F9FAFB; border-radius: 12px; padding: 12px; margin-top: 12px; border: 1px solid #E5E8EB; }
     .strategy-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .strategy-title { font-size: 12px; font-weight: 700; color: #4E5968; }
-    
     .progress-bg { background-color: #E0E0E0; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 8px; }
-    
-    /* Mode 1: Normal (Red) */
     .progress-fill { background: linear-gradient(90deg, #ff9a9e 0%, #ff5e62 100%); height: 100%; transition: width 0.5s ease; }
-    
-    /* Mode 2: Overdrive (Gold/Purple) */
     .progress-fill.overdrive { background: linear-gradient(90deg, #FFD700 0%, #FDBB2D 50%, #8A2BE2 100%); }
-    
-    /* Mode 3: Rescue/Loss (Blue) */
     .progress-fill.rescue { background: linear-gradient(90deg, #a1c4fd 0%, #c2e9fb 100%); }
-    
     .price-guide { display: flex; justify-content: space-between; font-size: 11px; color: #666; font-weight: 500; }
     .price-guide strong { color: #333; }
     
@@ -136,6 +165,46 @@ st.markdown("""
     /* Badges */
     .dart-badge { background-color: #FFF0F6; color: #C2255C; border: 1px solid #FCC2D7; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-right: 4px; }
     .global-badge { background-color: #F3F0FF; color: #7048E8; border: 1px solid #E5DBFF; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-right: 4px; }
+
+    /* ================================================================= */
+    /* 📱 MOBILE OPTIMIZATION (Max Width 768px) */
+    /* ================================================================= */
+    @media screen and (max-width: 768px) {
+        .toss-card { padding: 16px; border-radius: 20px; }
+        .stock-name { font-size: 18px; }
+        .big-price { font-size: 20px; }
+        
+        /* 펀더멘털 그리드 간격 조정 */
+        .fund-grid-v2 { gap: 8px; padding: 10px; }
+        .fund-value-v2 { font-size: 15px; }
+        
+        /* 기술적 지표 박스 세로 배치보다는 랩핑 */
+        .tech-status-box { gap: 8px; }
+        .status-badge { padding: 10px 8px; font-size: 12px; }
+        
+        /* 테이블 스크롤 가능하게 */
+        .fin-table { font-size: 11px; }
+        .fin-table th, .fin-table td { padding: 6px 4px; }
+        
+        /* 3분할 전략 가이드 (진입/목표/손절) 폰트 축소 */
+        .toss-card > div:nth-child(2) { 
+            gap: 4px !important; 
+        }
+        .toss-card > div:nth-child(2) > div {
+            font-size: 11px !important;
+            padding: 6px 2px !important;
+        }
+        
+        /* 매크로 지표 박스 */
+        .metric-box { padding: 10px; margin-bottom: 5px; }
+        .metric-value { font-size: 14px; }
+        
+        /* 탭 메뉴 폰트 */
+        .stTabs [data-baseweb="tab"] {
+            font-size: 14px;
+            padding: 10px;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -586,7 +655,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.6)",
+            "message": "Update data via Streamlit App (V50.7)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1563,16 +1632,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.6 (Time-Series Fixed)")
+    st.title("💎 Quant Sniper V50.7 (Mobile Opt)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.6 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.7 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 30일 시계열 분석:** 뉴스를 '최신(1주)'과 '과거(1달)'로 분리하여 AI가 흐름(Trend)을 읽습니다.
+        * **[New] 모바일 최적화 (V50.7):** 스마트폰에서도 화면이 깨지지 않고 쾌적하게 보이도록 반응형 디자인을 적용했습니다.
+        * **[Date] 30일 시계열 분석:** 뉴스를 '최신(1주)'과 '과거(1달)'로 분리하여 AI가 흐름(Trend)을 읽습니다.
         * **[Fixed] 날짜 오류 수정:** 뉴스 날짜 파싱 실패 시 '현재'가 아닌 '과거'로 처리하여 뒷북 분석을 방지합니다.
-        * **[AI] 맥락 이해:** 과거 재료가 소멸되었는지, 여전히 유효한지 판단하여 더 정확한 조언을 제공합니다.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1911,7 +1980,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.6 (Time-Series Fixed)\n\n"
+            msg = f"💎 Quant Sniper V50.7 (Mobile Opt)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
