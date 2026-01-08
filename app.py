@@ -38,7 +38,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.7 (Mobile Opt)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.8 (Port UI)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -655,7 +655,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.7)",
+            "message": "Update data via Streamlit App (V50.8)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1632,14 +1632,14 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.7 (Mobile Opt)")
+    st.title("💎 Quant Sniper V50.8 (Port UI)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.7 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.8 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 모바일 최적화 (V50.7):** 스마트폰에서도 화면이 깨지지 않고 쾌적하게 보이도록 반응형 디자인을 적용했습니다.
+        * **[UI] 보유 종목 UI 개선:** '상세 분석 펼치기' 버튼에 AI의 요약 코멘트를 바로 표시하여 직관성을 높였습니다.
         * **[Date] 30일 시계열 분석:** 뉴스를 '최신(1주)'과 '과거(1달)'로 분리하여 AI가 흐름(Trend)을 읽습니다.
         * **[Fixed] 날짜 오류 수정:** 뉴스 날짜 파싱 실패 시 '현재'가 아닌 '과거'로 처리하여 뒷북 분석을 방지합니다.
         """)
@@ -1756,7 +1756,20 @@ with tab2:
         for res in port_results:
             st.markdown(create_portfolio_card_html(res), unsafe_allow_html=True)
             
-            with st.expander(f"📊 {res['name']} 상세 분석 펼치기"):
+            # [V50.8] Portfolio Expander Header Dynamic Update
+            ai_summary_txt = res['news'].get('headline', '분석 대기 중...')
+            if len(ai_summary_txt) > 35: ai_summary_txt = ai_summary_txt[:35] + "..."
+            
+            opinion = res['news'].get('opinion', '')
+            # Portfolio specific icons
+            if "익절" in opinion: icon = "💰"
+            elif "손절" in opinion: icon = "✂️"
+            elif "홀딩" in opinion or "매수" in opinion: icon = "🔥"
+            else: icon = "🤖"
+                
+            expander_label = f"{icon} AI 요약: {ai_summary_txt} (▼ 상세 분석 펼치기)"
+
+            with st.expander(expander_label):
                 col_btn, col_rest = st.columns([0.2, 0.8])
                 with col_btn:
                     if st.button(f"🗑️ 삭제", key=f"del_port_{res['code']}"):
@@ -1980,7 +1993,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.7 (Mobile Opt)\n\n"
+            msg = f"💎 Quant Sniper V50.8 (Port UI)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
