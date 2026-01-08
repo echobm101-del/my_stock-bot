@@ -38,7 +38,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.8 (Port UI)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.9 (Exception Handling)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -219,6 +219,13 @@ def create_watchlist_card_html(res):
     buy_basis = strategy.get('buy_basis', '20일선')
     action_txt = strategy.get('action', '분석 중')
     
+    # [V50.9] 예외 처리된 경우 배경색 변경 (회색)
+    badge_bg = f"{score_col}20"
+    badge_fg = score_col
+    if "유보" in action_txt or "데이터 부족" in action_txt:
+        badge_bg = "#F2F4F6"
+        badge_fg = "#4E5968"
+    
     chg = res.get('change_rate', 0.0)
     if chg > 0: 
         chg_color = "#F04452"
@@ -249,7 +256,7 @@ def create_watchlist_card_html(res):
     html += f"      </div>"
     html += f"      <div style='text-align:right;'>"
     html += f"          <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>"
-    html += f"          <div class='badge-clean' style='background-color:{score_col}20; color:{score_col}; font-weight:700;'>{action_txt}</div>"
+    html += f"          <div class='badge-clean' style='background-color:{badge_bg}; color:{badge_fg}; font-weight:700;'>{action_txt}</div>"
     html += f"      </div>"
     html += f"  </div>"
     html += f"  <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>"
@@ -655,7 +662,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.8)",
+            "message": "Update data via Streamlit App (V50.9)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1568,6 +1575,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
     except: pass 
 
+    # [V50.9] Exception Handling for Strategy Calculation
     try:
         ai_news_score = result_dict['news'].get('score', 0)
         ai_cycle_score = result_dict['news'].get('supply_score', 0) * 2
@@ -1619,7 +1627,15 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
             "stop": stop_price,
             "action": action_txt
         }
-    except: pass
+    except Exception as e:
+        # [V50.9] Calculation Error Handling
+        result_dict['strategy'] = {
+            "buy": 0,
+            "buy_basis": "데이터 부족",
+            "target": 0,
+            "stop": 0,
+            "action": "⚠️ 판단 유보 (데이터 부족)"
+        }
 
     return result_dict
 
@@ -1632,16 +1648,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.8 (Port UI)")
+    st.title("💎 Quant Sniper V50.9 (Exception Handling)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.8 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.9 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[UI] 보유 종목 UI 개선:** '상세 분석 펼치기' 버튼에 AI의 요약 코멘트를 바로 표시하여 직관성을 높였습니다.
+        * **[Safety] 예외 상황 처리:** 데이터 부족 등으로 분석이 불가능한 경우, 억지로 값을 계산하지 않고 '판단 유보' 상태로 명확히 안내합니다.
+        * **[UI] 보유 종목 요약:** '상세 분석 펼치기' 버튼에 AI의 요약 코멘트를 바로 표시하여 직관성을 높였습니다.
         * **[Date] 30일 시계열 분석:** 뉴스를 '최신(1주)'과 '과거(1달)'로 분리하여 AI가 흐름(Trend)을 읽습니다.
-        * **[Fixed] 날짜 오류 수정:** 뉴스 날짜 파싱 실패 시 '현재'가 아닌 '과거'로 처리하여 뒷북 분석을 방지합니다.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1993,7 +2009,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.8 (Port UI)\n\n"
+            msg = f"💎 Quant Sniper V50.9 (Exception Handling)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
