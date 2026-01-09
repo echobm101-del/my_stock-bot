@@ -236,8 +236,10 @@ def get_yahoo_global_news():
     return news
 
 def call_gemini_dynamic(prompt):
+    # [중요] config.py에서 API 키를 확실하게 가져옵니다.
     api_key = config.USER_GOOGLE_API_KEY
     if not api_key: return None, "NO_KEY"
+    
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
     try:
         res = requests.post(
@@ -260,8 +262,7 @@ def get_news_sentiment_llm(name, stock_context={}):
     unique_news = []
     seen = set()
     for n in news_list:
-        if n['title'] not in seen:
-            seen.add(n['title']); unique_news.append(n)
+        if n['title'] not in seen: seen.add(n['title']); unique_news.append(n)
     
     news_titles = [f"- {n['date']} {n['title']}" for n in unique_news[:5]]
     dart = get_dart_disclosure_summary(stock_context.get('code',''))
