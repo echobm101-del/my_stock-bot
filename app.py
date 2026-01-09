@@ -52,9 +52,9 @@ with tab1:
     if st.session_state.get('preview_list'):
         st.markdown(f"### 🔍 '{st.session_state.get('current_theme_name','')}' 심층 분석")
         
-        # [수정됨] RuntimeError 방지를 위해 순차 처리로 변경
+        # [수정] 병렬 처리 제거 -> 순차 처리 (에러 방지)
         preview_results = []
-        with st.spinner("🚀 AI 분석 엔진 가동 중..."):
+        with st.spinner("🚀 고속 AI 분석 엔진 & 백테스팅 가동 중..."):
             for item in st.session_state['preview_list']:
                 res = dl.analyze_pro(item['code'], item['name'], item.get('relation_tag'))
                 if res: preview_results.append(res)
@@ -108,7 +108,6 @@ with tab2:
     portfolio = st.session_state['data_store'].get('portfolio', {})
     if not portfolio: st.info("보유 종목이 없습니다.")
     else:
-        # [수정됨] RuntimeError 방지를 위해 순차 처리로 변경
         with st.spinner("보유 종목 분석 중..."):
             port_results = []
             for name, info in portfolio.items():
@@ -143,7 +142,6 @@ with tab3:
     watchlist = st.session_state['data_store'].get('watchlist', {})
     if not watchlist: st.info("관심 종목이 없습니다.")
     else:
-        # [수정됨] RuntimeError 방지를 위해 순차 처리로 변경
         with st.spinner("관심 종목 분석 중..."):
             wl_results = []
             for name, info in watchlist.items():
