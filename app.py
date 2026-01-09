@@ -38,7 +38,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.10 (Score Fixed)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.11 (Auto-Sim)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -662,7 +662,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.10)",
+            "message": "Update data via Streamlit App (V50.11)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1650,6 +1650,71 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
 
     return result_dict
 
+# ==============================================================================
+# [V50.11] NEW FEATURE: Auto-Trading Simulation (Backtest)
+# ==============================================================================
+def run_simulation_on_watchlist(watchlist_items):
+    """
+    관심 종목 리스트를 받아 과거 3개월(90일) 시뮬레이션 수행
+    """
+    results = []
+    
+    for name, info in watchlist_items:
+        code = info['code']
+        try:
+            # 1. 과거 데이터 로드 (90일 + 지표 계산용 여유분 60일)
+            df = fdr.DataReader(code, datetime.datetime.now() - datetime.timedelta(days=150))
+            if len(df) < 60: continue
+            
+            # 2. 지표 계산
+            df['MA20'] = df['Close'].rolling(20).mean()
+            df['RSI'] = calculate_rsi(df['Close'])
+            
+            # 3. 시뮬레이션 로직 (최근 90일만)
+            sim_period = df.tail(90)
+            initial_balance = 1000000 # 100만원 시작 가정
+            balance = initial_balance
+            shares = 0
+            buy_price = 0
+            trade_count = 0
+            wins = 0
+            
+            for date, row in sim_period.iterrows():
+                price = row['Close']
+                
+                # 매수 조건: RSI < 40 (과매도) AND 주가 > 20일선 (상승 추세 눌림목)
+                if shares == 0:
+                    if row['RSI'] < 40 and price > row['MA20']:
+                        shares = int(balance / price)
+                        balance -= shares * price
+                        buy_price = price
+                        trade_count += 1
+                
+                # 매도 조건: +5% 익절 OR -3% 손절
+                elif shares > 0:
+                    profit_pct = (price - buy_price) / buy_price
+                    if profit_pct >= 0.05 or profit_pct <= -0.03:
+                        balance += shares * price
+                        if profit_pct > 0: wins += 1
+                        shares = 0
+                        buy_price = 0
+            
+            # 마지막 보유분 청산 가치 계산
+            final_asset = balance + (shares * sim_period.iloc[-1]['Close'])
+            total_return = (final_asset - initial_balance) / initial_balance * 100
+            win_rate = (wins / trade_count * 100) if trade_count > 0 else 0
+            
+            results.append({
+                "종목명": name,
+                "수익률": total_return,
+                "승률": win_rate,
+                "매매횟수": trade_count
+            })
+            
+        except: continue
+        
+    return pd.DataFrame(results)
+
 def send_telegram_msg(token, chat_id, msg):
     try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
     except: pass
@@ -1659,15 +1724,16 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.10 (Score Fixed)")
+    st.title("💎 Quant Sniper V50.11 (Auto-Sim)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.10 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.11 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[Score] AI 점수 로직 개선:** 기존 저점 매수 중심에서 '추세 추종(Trend Following)' 보너스를 추가하여, 잘 오르고 있는 종목의 점수를 정상화했습니다.
-        * **[Port] 보유 효과 반영:** 이미 수익이 나고 있는 보유 종목에는 가산점을 부여하여 '강력 홀딩' 의견과 점수가 일치하도록 수정했습니다.
+        * **[New] 자동매매 시뮬레이션:** 관심 종목들을 대상으로 지난 3개월간 봇이 자동으로 매매했다면 수익이 났을지 검증하는 기능을 탑재했습니다. (관심종목 탭 하단)
+        * **[UI] 보유 종목 요약:** '상세 분석 펼치기' 버튼에 AI의 요약 코멘트를 바로 표시하여 직관성을 높였습니다.
+        * **[Date] 30일 시계열 분석:** 뉴스를 '최신(1주)'과 '과거(1달)'로 분리하여 AI가 흐름(Trend)을 읽습니다.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -1952,6 +2018,30 @@ with tab3:
                     </div>
                     """, unsafe_allow_html=True)
 
+        # [V50.11] Auto-Simulation Button
+        st.markdown("---")
+        st.write("### 🤖 자동매매 시뮬레이션 (Beta)")
+        if st.button("🚀 관심 종목 시뮬레이션 돌리기 (지난 3개월)"):
+            with st.spinner("⏳ 타임머신 가동 중... (90일치 데이터 분석)"):
+                sim_result_df = run_simulation_on_watchlist(watchlist_items)
+                
+                if not sim_result_df.empty:
+                    st.success("✅ 시뮬레이션 완료!")
+                    
+                    # 요약 통계
+                    avg_return = sim_result_df['수익률'].mean()
+                    total_trades = sim_result_df['매매횟수'].sum()
+                    
+                    col_a, col_b = st.columns(2)
+                    with col_a:
+                        st.metric("평균 기대 수익률", f"{avg_return:.2f}%")
+                    with col_b:
+                        st.metric("총 매매 기회", f"{total_trades}회")
+                        
+                    st.dataframe(sim_result_df.style.format({"수익률": "{:.2f}%", "승률": "{:.1f}%"}))
+                else:
+                    st.warning("데이터 부족으로 시뮬레이션 결과가 없습니다.")
+
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
@@ -2019,7 +2109,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.10 (Score Fixed)\n\n"
+            msg = f"💎 Quant Sniper V50.11 (Auto-Sim)\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
