@@ -243,6 +243,7 @@ with st.sidebar:
             if cands:
                 st.session_state['preview_list'] = cands
                 st.rerun()
+            else: st.warning("조건 만족 종목 없음")
     
     st.markdown("---")
     with st.expander("➕ 수동 추가"):
