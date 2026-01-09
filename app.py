@@ -60,13 +60,5 @@ with st.sidebar:
                 time.sleep(1)
                 st.rerun()
             else:
-                st.error("저장 실패 (config.py 토큰 확인 필요)")ㅍ
-if st.button("관심종목 추가"):
-        if name and code:
-            st.session_state['data_store']['watchlist'][name] = {"code": code}
-            if utils.update_github_file(st.session_state['data_store']):
-                st.success("저장 완료!")
-                time.sleep(1)
-                st.rerun()
-            else:
                 st.error("저장 실패 (config.py 토큰 확인 필요)")
+
