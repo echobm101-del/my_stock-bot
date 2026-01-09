@@ -255,6 +255,7 @@ def call_gemini_dynamic(prompt):
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(name, stock_context={}):
+    # 1. 뉴스 통합 수집
     news_list = []
     if stock_context.get('code'): news_list.extend(get_naver_finance_news(stock_context['code']))
     news_list.extend(get_naver_search_news(name))
@@ -262,7 +263,8 @@ def get_news_sentiment_llm(name, stock_context={}):
     unique_news = []
     seen = set()
     for n in news_list:
-        if n['title'] not in seen: seen.add(n['title']); unique_news.append(n)
+        if n['title'] not in seen:
+            seen.add(n['title']); unique_news.append(n)
     
     news_titles = [f"- {n['date']} {n['title']}" for n in unique_news[:5]]
     dart = get_dart_disclosure_summary(stock_context.get('code',''))
