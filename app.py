@@ -125,7 +125,22 @@ with tab2:
                     del st.session_state['data_store']['portfolio'][res['name']]
                     utils.update_github_file(st.session_state['data_store'])
                     st.rerun()
-                ui.render_investor_chart(res['investor_trend'])
+                
+                # [복구됨] 누락되었던 상세 분석 UI 호출
+                col1, col2 = st.columns(2)
+                with col1:
+                    ui.render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    st.markdown(ui.render_chart_legend(), unsafe_allow_html=True)
+                    st.altair_chart(ui.create_chart_clean(res['history']), use_container_width=True)
+                with col2:
+                    ui.render_investor_chart(res['investor_trend'])
+                
+                # AI 분석 섹션
+                st.markdown("---")
+                st.write("###### 📰 AI 분석 리포트")
+                badge_cls = "ai-opinion-buy" if "매수" in res['news']['opinion'] else "ai-opinion-hold"
+                st.markdown(f"""<div class='news-ai'><span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span> <b>{res['news']['headline']}</b><br><br>⚠️ Risk: {res['news']['risk']}</div>""", unsafe_allow_html=True)
+
 
 # [탭 3] 관심 종목
 with tab3:
@@ -157,6 +172,34 @@ with tab3:
                         del st.session_state['data_store']['watchlist'][res['name']]
                         utils.update_github_file(st.session_state['data_store'])
                         st.rerun()
+                
+                # [복구됨] 누락되었던 상세 분석 UI 호출
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write("###### 📈 기술적 분석")
+                    ui.render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    ui.render_signal_lights(res['history'].iloc[-1]['RSI'], res['history'].iloc[-1]['MACD'], res['history'].iloc[-1]['MACD_Signal'])
+                    ui.render_ma_status(res['ma_status'])
+                    st.markdown(ui.render_chart_legend(), unsafe_allow_html=True)
+                    st.altair_chart(ui.create_chart_clean(res['history']), use_container_width=True)
+                with col2:
+                    st.write("###### 🏢 재무 펀더멘탈")
+                    ui.render_fund_scorecard(res['fund_data'])
+                    ui.render_financial_table(res['fin_history'])
+                
+                st.write("###### 🧠 수급 동향")
+                ui.render_investor_chart(res['investor_trend'])
+                
+                # AI 분석 섹션
+                st.write("###### 📰 AI 분석 리포트")
+                badge_cls = "ai-opinion-buy" if "매수" in res['news']['opinion'] else "ai-opinion-hold"
+                st.markdown(f"""<div class='news-ai'><span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span> <b>{res['news']['headline']}</b><br><br>⚠️ Risk: {res['news']['risk']}</div>""", unsafe_allow_html=True)
+                
+                # 시뮬레이션 버튼
+                if st.button(f"🧪 3개월 백테스팅 실행", key=f"sim_wl_{res['code']}"):
+                    sim = dl.run_single_stock_simulation(res['history'])
+                    if sim: st.success(f"수익률: {sim['return']:.1f}% / 승률: {sim['win_rate']:.1f}% (총 {sim['trades']}회 매매)")
+                    else: st.warning("데이터 부족")
 
 # 4. 사이드바
 with st.sidebar:
@@ -195,12 +238,11 @@ with st.sidebar:
         if st.button("🛰️ 스캔"):
             mkt = "KOSPI" if "KOSPI" in mode else "KOSDAQ"
             df = dl.get_krx_list_safe()
-            # 간단히 상위 50개만 스캔
+            # 간단히 상위 50개만
             cands = dl.scan_market_candidates(df.head(50), st.progress(0), st.empty())
             if cands:
                 st.session_state['preview_list'] = cands
                 st.rerun()
-            else: st.warning("조건 만족 종목 없음")
     
     st.markdown("---")
     with st.expander("➕ 수동 추가"):
