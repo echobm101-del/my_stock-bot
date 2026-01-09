@@ -38,7 +38,7 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.12 (On-Demand Sim)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.14 (Universal Radar)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
@@ -662,7 +662,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.12)",
+            "message": "Update data via Streamlit App (V50.14)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -1715,6 +1715,52 @@ def run_single_stock_simulation(df):
     except:
         return None
 
+# ==============================================================================
+# [V50.13] Market Scanner Function
+# ==============================================================================
+def scan_market_candidates(target_df, progress_bar, status_text):
+    """
+    넘겨받은 종목 리스트(target_df) 중에서 RSI < 45 & 20일선 위인 종목 발굴
+    """
+    candidates = []
+    total = len(target_df)
+    
+    # 너무 오래 걸리지 않게 최대 50개까지만 스캔 (데모용)
+    scan_limit = min(total, 50) 
+    
+    for i in range(scan_limit):
+        try:
+            row = target_df.iloc[i]
+            code = row['Code']
+            name = row['Name']
+            
+            # 진행률 표시
+            progress = (i + 1) / scan_limit
+            progress_bar.progress(progress)
+            status_text.text(f"📡 레이더 가동 중... ({i+1}/{scan_limit}): {name}")
+            
+            # 데이터 수집 (최근 100일)
+            df = fdr.DataReader(code, datetime.datetime.now() - datetime.timedelta(days=100))
+            if len(df) < 60: continue
+            
+            # 지표 계산
+            ma20 = df['Close'].rolling(20).mean().iloc[-1]
+            rsi = calculate_rsi(df['Close']).iloc[-1]
+            curr_price = df['Close'].iloc[-1]
+            
+            # 🎯 스나이퍼 조건: RSI < 45 (과매도) AND 주가 > 20일선 (상승 추세)
+            if rsi < 45 and curr_price > ma20: 
+                candidates.append({
+                    "name": name,
+                    "code": code,
+                    "price": curr_price,
+                    "rsi": round(rsi, 1),
+                    "score": "조건 만족"
+                })
+        except: continue
+        
+    return candidates
+
 def send_telegram_msg(token, chat_id, msg):
     try: requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
     except: pass
@@ -1724,16 +1770,15 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.12 (On-Demand Sim)")
+    st.title("💎 Quant Sniper V50.14 (Universal Radar)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.12 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.14 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] 개별 종목 시뮬레이션:** 이제 각 종목 카드 안에서 버튼을 눌러 해당 종목만의 3개월 매매 성과(수익률, 승률)를 즉시 확인할 수 있습니다.
-        * **[UI] 보유 종목 요약:** '상세 분석 펼치기' 버튼에 AI의 요약 코멘트를 바로 표시하여 직관성을 높였습니다.
-        * **[Date] 30일 시계열 분석:** 뉴스를 '최신(1주)'과 '과거(1달)'로 분리하여 AI가 흐름(Trend)을 읽습니다.
+        * **[Radar] 만능 레이더 탑재:** 시가총액 상위뿐만 아니라, **인기 테마**와 **키워드 검색** 결과 내에서도 '조건 만족 종목'을 찾아낼 수 있습니다.
+        * **[New] 개별 종목 시뮬레이션:** 각 종목 카드 안에서 버튼을 눌러 해당 종목만의 3개월 매매 성과를 즉시 확인하세요.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 & 공급망 대시보드 (Click to Open)", expanded=False):
@@ -2018,7 +2063,7 @@ with tab3:
                     st.write("###### 🏢 재무 펀더멘탈")
                     render_fund_scorecard(res['fund_data'])
                     render_financial_table(res['fin_history'])
-                st.write("###### 🧠 수급 동향")
+                st.write("###### 🧠 큰손 투자 동향")
                 render_investor_chart(res['investor_trend'])
                 st.write("###### 📰 AI 분석")
                 if res['news']['method'] == "ai": 
@@ -2061,18 +2106,23 @@ with tab3:
                     st.markdown(f"<div class='news-box'><a href='{news['link']}' target='_blank' class='news-link'>📄 {news['title']}</a><span class='news-date'>{news['date']}</span></div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
+# ==============================================================================
+# [V50.14] Enhanced Sidebar (Universal Radar)
+# ==============================================================================
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
-    with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
+    
+    # 1. 지능형 테마/주도주 찾기 (Old but Good)
+    with st.expander("🔍 종목 개별 분석 (AI 추천)", expanded=True):
         THEME_KEYWORDS = { "직접 입력": None, "반도체": "반도체", "2차전지": "2차전지", "HBM": "HBM", "AI/인공지능": "지능형로봇", "로봇": "로봇", "제약바이오": "제약업체", "자동차/부품": "자동차", "방위산업": "방위산업", "원자력발전": "원자력발전", "초전도체": "초전도체", "저PBR": "은행" }
-        selected_preset = st.selectbox("⚡ 인기 테마 선택", list(THEME_KEYWORDS.keys()))
+        selected_preset = st.selectbox("⚡ 분석할 테마/종목", list(THEME_KEYWORDS.keys()))
         
         with st.form(key="search_form"):
             user_input = ""
             if selected_preset == "직접 입력": 
-                user_input = st.text_input("검색할 테마/종목명/키워드", placeholder="예: 비만치료제, 저출산, 초전도체")
+                user_input = st.text_input("종목명 또는 키워드", placeholder="예: 삼성전자, 비만치료제")
             else: st.info(f"✅ 선택된 테마: **{THEME_KEYWORDS[selected_preset]}**")
-            submit_btn = st.form_submit_button("지능형 분석 시작")
+            submit_btn = st.form_submit_button("🚀 AI 정밀 분석 시작")
         
         if submit_btn:
             if selected_preset == "직접 입력": target_keyword = user_input.strip()
@@ -2094,7 +2144,7 @@ with st.sidebar:
                     try: target_code = krx_df[krx_df['Name'] == target_keyword].iloc[0]['Code']
                     except: pass
 
-                if target_code:
+                if target_code: # Case 1: Specific Stock
                     try:
                         st.info(f"🔎 '{target_keyword}' 분석 중...")
                         res = analyze_pro(target_code, target_keyword)
@@ -2104,7 +2154,7 @@ with st.sidebar:
                             is_stock_found = True; st.rerun()
                     except Exception as e: st.error(f"오류: {str(e)}")
 
-                if not is_stock_found:
+                if not is_stock_found: # Case 2: Theme/Keyword Group Analysis
                     try:
                         with st.spinner(f"🤖 AI가 '{target_keyword}' 관련주를 생각 중입니다..."):
                             ai_stocks, msg = get_ai_recommended_stocks(target_keyword)
@@ -2124,11 +2174,74 @@ with st.sidebar:
                                 else: st.error(f"❌ '{target_keyword}'에 대한 결과를 찾을 수 없습니다.")
                     except Exception as e: st.error(f"오류: {str(e)}")
 
+    # 2. Universal Radar (NEW)
+    st.markdown("---")
+    st.write("### 📡 스나이퍼 레이더 (발굴)")
+    
+    with st.expander("조건 만족 종목 스캔하기"):
+        radar_mode = st.radio("스캔 모드 선택", ["🏢 시가총액 상위", "⚡ 인기 테마", "🔍 키워드 검색"])
+        
+        target_df_for_scan = pd.DataFrame()
+        
+        if radar_mode == "🏢 시가총액 상위":
+            market_type = st.selectbox("시장 선택", ["KOSPI", "KOSDAQ"])
+            if st.button("🛰️ 시총 상위 스캔 시작"):
+                with st.spinner("데이터 준비 중..."):
+                    target_df_for_scan = fdr.StockListing(market_type).head(50)
+
+        elif radar_mode == "⚡ 인기 테마":
+            theme_key = st.selectbox("테마 선택", list(THEME_KEYWORDS.keys())[1:]) # '직접 입력' 제외
+            if st.button("🛰️ 테마 스캔 시작"):
+                real_keyword = THEME_KEYWORDS[theme_key]
+                with st.spinner(f"'{real_keyword}' 테마주 수집 중..."):
+                    stocks, msg = get_naver_theme_stocks(real_keyword)
+                    if stocks:
+                        target_df_for_scan = pd.DataFrame(stocks).rename(columns={'code':'Code', 'name':'Name'})
+                    else: st.error("테마 종목을 찾을 수 없습니다.")
+
+        elif radar_mode == "🔍 키워드 검색":
+            user_kwd = st.text_input("검색할 키워드 (예: 비만치료제)")
+            if st.button("🛰️ 키워드 스캔 시작"):
+                if user_kwd:
+                    with st.spinner(f"'{user_kwd}' 관련주 수집 중..."):
+                        stocks, msg = get_naver_theme_stocks(user_kwd)
+                        if stocks:
+                            target_df_for_scan = pd.DataFrame(stocks).rename(columns={'code':'Code', 'name':'Name'})
+                        else: st.error("관련 종목을 찾을 수 없습니다.")
+
+        # Common Scanning Logic
+        if not target_df_for_scan.empty:
+            scan_area = st.empty()
+            prog_bar = scan_area.progress(0)
+            stat_txt = st.empty()
+            
+            # Run Scanner
+            results = scan_market_candidates(target_df_for_scan, prog_bar, stat_txt)
+            
+            # Cleanup
+            prog_bar.empty()
+            stat_txt.empty()
+            
+            if results:
+                st.success(f"🎯 포착된 종목: {len(results)}개")
+                for item in results:
+                    col_res, col_act = st.columns([0.7, 0.3])
+                    with col_res:
+                        st.write(f"**{item['name']}** (RSI: {item['rsi']})")
+                    with col_act:
+                        if st.button("추가", key=f"add_scan_{item['code']}"):
+                            st.session_state['data_store']['watchlist'][item['name']] = {'code': item['code']}
+                            update_github_file(st.session_state['data_store'])
+                            st.rerun()
+            else:
+                st.warning("조건(RSI<45 & 20일선 위)을 만족하는 종목이 없습니다.")
+
+    # 3. Utility
     if st.button("🚀 텔레그램 리포트 전송"):
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.12 (On-Demand Sim)\n\n"
+            msg = f"💎 Quant Sniper V50.14\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
