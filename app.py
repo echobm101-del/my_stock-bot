@@ -47,12 +47,15 @@ tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portf
 # [탭 1] 발굴 & 테마 분석
 with tab1:
     if st.button("🔄 화면 정리"):
+        st.session_state['preview_list'] = []
         st.rerun()
         
     if st.session_state.get('preview_list'):
         st.markdown(f"### 🔍 '{st.session_state.get('current_theme_name','')}' 심층 분석")
+        
+        # [수정됨] RuntimeError 해결을 위해 executor를 여기서 생성
+        preview_results = []
         with st.spinner("🚀 고속 AI 분석 엔진 & 백테스팅 가동 중..."):
-            preview_results = []
             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                 futures = [executor.submit(dl.analyze_pro, item['code'], item['name'], item.get('relation_tag')) for item in st.session_state['preview_list']]
                 for f in concurrent.futures.as_completed(futures):
@@ -65,7 +68,7 @@ with tab1:
             ai_txt = res['news'].get('headline', '분석 대기 중...')
             icon = "🔥" if "매수" in res['news'].get('opinion','') else "🤖"
             
-            with st.expander(f"{icon} AI 요약: {ai_summary_txt[:40]}... (▼ 상세)"):
+            with st.expander(f"{icon} AI 요약: {ai_txt[:40]}... (▼ 상세)"):
                 c1, c2 = st.columns([1, 5])
                 with c1:
                     if st.button(f"📌 관심등록", key=f"add_{res['code']}"):
@@ -99,7 +102,7 @@ with tab1:
                 # 시뮬레이션 버튼
                 if st.button(f"🧪 3개월 백테스팅 실행", key=f"sim_{res['code']}"):
                     sim = dl.run_single_stock_simulation(res['history'])
-                    if sim: st.success(f"수익률: {sim['return']:.1f}% / 승률: {sim['win_rate']:.1f}%")
+                    if sim: st.success(f"수익률: {sim['return']:.1f}% / 승률: {sim['win_rate']:.1f}% (총 {sim['trades']}회 매매)")
                     else: st.warning("데이터 부족")
 
 # [탭 2] 내 잔고
@@ -107,31 +110,35 @@ with tab2:
     portfolio = st.session_state['data_store'].get('portfolio', {})
     if not portfolio: st.info("보유 종목이 없습니다.")
     else:
-        with st.spinner("분석 중..."):
-            futures = []
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                for name, info in portfolio.items():
-                    futures.append(executor.submit(dl.analyze_pro, info['code'], name, None, float(info.get('buy_price',0))))
+        # [수정됨] RuntimeError 해결
+        with st.spinner("보유 종목 분석 중..."):
+            port_results = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(dl.analyze_pro, info['code'], name, None, float(info.get('buy_price',0))) for name, info in portfolio.items()]
+                for f in concurrent.futures.as_completed(futures):
+                    if f.result(): port_results.append(f.result())
             
-            for f in concurrent.futures.as_completed(futures):
-                res = f.result()
-                if res:
-                    st.markdown(ui.create_portfolio_card_html(res), unsafe_allow_html=True)
-                    with st.expander(f"상세 분석 ({res['name']})"):
-                        if st.button("삭제", key=f"del_p_{res['code']}"):
-                            del st.session_state['data_store']['portfolio'][res['name']]
-                            utils.update_github_file(st.session_state['data_store'])
-                            st.rerun()
-                        ui.render_investor_chart(res['investor_trend'])
+        for res in port_results:
+            st.markdown(ui.create_portfolio_card_html(res), unsafe_allow_html=True)
+            with st.expander(f"상세 분석 ({res['name']})"):
+                if st.button("삭제", key=f"del_p_{res['code']}"):
+                    del st.session_state['data_store']['portfolio'][res['name']]
+                    utils.update_github_file(st.session_state['data_store'])
+                    st.rerun()
+                ui.render_investor_chart(res['investor_trend'])
 
 # [탭 3] 관심 종목
 with tab3:
     watchlist = st.session_state['data_store'].get('watchlist', {})
     if not watchlist: st.info("관심 종목이 없습니다.")
     else:
-        with st.spinner("분석 중..."):
-            futures = [executor.submit(dl.analyze_pro, info['code'], name) for name, info in watchlist.items()]
-            wl_results = [f.result() for f in concurrent.futures.as_completed(futures) if f.result()]
+        # [수정됨] RuntimeError 해결
+        with st.spinner("관심 종목 분석 중..."):
+            wl_results = []
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(dl.analyze_pro, info['code'], name) for name, info in watchlist.items()]
+                for f in concurrent.futures.as_completed(futures):
+                    if f.result(): wl_results.append(f.result())
             wl_results.sort(key=lambda x: x['score'], reverse=True)
             
         for res in wl_results:
@@ -188,11 +195,12 @@ with st.sidebar:
         if st.button("🛰️ 스캔"):
             mkt = "KOSPI" if "KOSPI" in mode else "KOSDAQ"
             df = dl.get_krx_list_safe()
-            # 간단히 상위 50개만
+            # 간단히 상위 50개만 스캔
             cands = dl.scan_market_candidates(df.head(50), st.progress(0), st.empty())
             if cands:
                 st.session_state['preview_list'] = cands
                 st.rerun()
+            else: st.warning("조건 만족 종목 없음")
     
     st.markdown("---")
     with st.expander("➕ 수동 추가"):
