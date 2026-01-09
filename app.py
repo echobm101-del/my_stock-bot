@@ -19,7 +19,7 @@ import numpy as np
 from io import StringIO
 import random
 import OpenDartReader
-import yfinance as yf
+import yfinance as yf # [New] 글로벌 데이터
 
 # ==============================================================================
 # [보안 설정] Streamlit Secrets에서 키 가져오기
@@ -38,21 +38,58 @@ except Exception as e:
     USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
-st.set_page_config(page_title="Quant Sniper V50.15 (Flexible)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.14 (Universal Radar)", page_icon="💎", layout="wide")
 
 st.markdown("""
 <style>
-    .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
-    .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
+    /* 기본 폰트 및 배경 설정 */
+    .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif; }
     
-    .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
+    /* 카드 디자인 (반응형 적용) */
+    .toss-card { 
+        background: #FFFFFF; 
+        border-radius: 24px; 
+        padding: 24px; 
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); 
+        border: 1px solid #F2F4F6; 
+        margin-bottom: 16px; 
+        transition: all 0.3s ease;
+    }
+    
+    /* 펀더멘털 그리드 */
+    .fund-grid-v2 { 
+        display: grid; 
+        grid-template-columns: 1fr 1fr 1fr; 
+        gap: 15px; 
+        margin-top: 10px; 
+        background-color: #F9FAFB; 
+        padding: 15px; 
+        border-radius: 12px; 
+    }
     .fund-item-v2 { text-align: center; }
     .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
     .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
     .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
     
-    .tech-status-box { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-    .status-badge { flex: 1; min-width: 100px; padding: 12px 10px; border-radius: 12px; text-align: center; font-size: 13px; font-weight: 700; color: #4E5968; background: #F2F4F6; border: 1px solid #E5E8EB; }
+    /* 기술적 지표 배지 박스 (Flex Wrap 적용으로 모바일 대응) */
+    .tech-status-box { 
+        display: flex; 
+        gap: 10px; 
+        margin-bottom: 10px; 
+        flex-wrap: wrap; /* 모바일에서 줄바꿈 허용 */
+    }
+    .status-badge { 
+        flex: 1; 
+        min-width: 120px; /* 너무 작아지지 않도록 최소 너비 설정 */
+        padding: 12px 10px; 
+        border-radius: 12px; 
+        text-align: center; 
+        font-size: 13px; 
+        font-weight: 700; 
+        color: #4E5968; 
+        background: #F2F4F6; 
+        border: 1px solid #E5E8EB; 
+    }
     .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; }
     .status-badge.sell { background-color: #FFF1F1; color: #F04452; border-color: #F04452; }
     .status-badge.vol { background-color: #FFF8E1; color: #D9480F; border-color: #FFD8A8; }
@@ -128,28 +165,45 @@ st.markdown("""
     /* Badges */
     .dart-badge { background-color: #FFF0F6; color: #C2255C; border: 1px solid #FCC2D7; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-right: 4px; }
     .global-badge { background-color: #F3F0FF; color: #7048E8; border: 1px solid #E5DBFF; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; margin-right: 4px; }
-    
+
+    /* ================================================================= */
+    /* 📱 MOBILE OPTIMIZATION (Max Width 768px) */
+    /* ================================================================= */
     @media screen and (max-width: 768px) {
         .toss-card { padding: 16px; border-radius: 20px; }
         .stock-name { font-size: 18px; }
         .big-price { font-size: 20px; }
         
+        /* 펀더멘털 그리드 간격 조정 */
         .fund-grid-v2 { gap: 8px; padding: 10px; }
         .fund-value-v2 { font-size: 15px; }
         
+        /* 기술적 지표 박스 세로 배치보다는 랩핑 */
         .tech-status-box { gap: 8px; }
         .status-badge { padding: 10px 8px; font-size: 12px; }
         
+        /* 테이블 스크롤 가능하게 */
         .fin-table { font-size: 11px; }
         .fin-table th, .fin-table td { padding: 6px 4px; }
         
-        .toss-card > div:nth-child(2) { gap: 4px !important; }
-        .toss-card > div:nth-child(2) > div { font-size: 11px !important; padding: 6px 2px !important; }
+        /* 3분할 전략 가이드 (진입/목표/손절) 폰트 축소 */
+        .toss-card > div:nth-child(2) { 
+            gap: 4px !important; 
+        }
+        .toss-card > div:nth-child(2) > div {
+            font-size: 11px !important;
+            padding: 6px 2px !important;
+        }
         
+        /* 매크로 지표 박스 */
         .metric-box { padding: 10px; margin-bottom: 5px; }
         .metric-value { font-size: 14px; }
         
-        .stTabs [data-baseweb="tab"] { font-size: 14px; padding: 10px; }
+        /* 탭 메뉴 폰트 */
+        .stTabs [data-baseweb="tab"] {
+            font-size: 14px;
+            padding: 10px;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
@@ -608,7 +662,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.15)",
+            "message": "Update data via Streamlit App (V50.14)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -657,6 +711,417 @@ def get_naver_theme_stocks(keyword):
                 stocks.append({"code": code, "name": name, "price": price})
         return stocks, f"'{keyword}' 관련 테마 발견: {len(stocks)}개 종목"
     except Exception as e: return [], f"크롤링 오류: {str(e)}"
+
+def get_investor_trend_from_naver(code):
+    try:
+        url = f"https://finance.naver.com/item/frgn.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        try: dfs = pd.read_html(StringIO(res.text), match='날짜', header=0, encoding='euc-kr')
+        except: dfs = pd.read_html(StringIO(res.text), header=0, encoding='euc-kr')
+        target_df = None
+        for df in dfs:
+            cols_str = " ".join([str(c) for c in df.columns])
+            if '기관' in cols_str and '외국인' in cols_str: target_df = df; break
+        if target_df is None and len(dfs) > 1: target_df = dfs[1]
+        if target_df is not None:
+            df = target_df.dropna().copy()
+            first_col = df.columns[0]
+            try:
+                df[first_col] = pd.to_datetime(df[first_col], format='%Y.%m.%d', errors='coerce')
+                df = df.dropna(subset=[first_col])
+            except: return pd.DataFrame()
+            df = df.rename(columns={first_col: '날짜'})
+            inst_col = [c for c in df.columns if '기관' in str(c)][0]
+            frgn_col = [c for c in df.columns if '외국인' in str(c)][0]
+            df = df.iloc[:20].copy().sort_values('날짜')
+            df['기관'] = df[inst_col].astype(str).str.replace(',', '').astype(float)
+            df['외국인'] = df[frgn_col].astype(str).str.replace(',', '').astype(float)
+            df['개인'] = -(df['기관'] + df['외국인'])
+            df['Cum_Individual'] = df['개인'].cumsum()
+            df['Cum_Foreigner'] = df['외국인'].cumsum()
+            df['Cum_Institution'] = df['기관'].cumsum()
+            df['Cum_Pension'] = 0 
+            return df
+    except: pass
+    return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
+def get_investor_trend(code):
+    try:
+        end_d = datetime.datetime.now().strftime("%Y%m%d")
+        start_d = (datetime.datetime.now() - datetime.timedelta(days=100)).strftime("%Y%m%d")
+        df = stock.get_market_investor_net_purchase_by_date(start_d, end_d, code)
+        if not df.empty:
+            df = df.tail(60).copy()
+            df['Cum_Individual'] = df['개인'].cumsum()
+            df['Cum_Foreigner'] = df['외국인'].cumsum()
+            df['Cum_Institution'] = df['기관합계'].cumsum()
+            df['Cum_Pension'] = df['연기금'].cumsum()
+            return df
+    except: pass
+    return get_investor_trend_from_naver(code)
+
+@st.cache_data(ttl=3600)
+def get_financial_history(code):
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        df_list = pd.read_html(StringIO(res.text), encoding='euc-kr')
+        for df in df_list:
+            if '최근 연간 실적' in str(df.columns) or '매출액' in str(df.iloc[:,0].values):
+                df = df.set_index(df.columns[0])
+                fin_data = []
+                cols = df.columns[-5:-1]
+                for col in cols:
+                    try:
+                        col_name = col[1] if isinstance(col, tuple) else col
+                        val_sales = df.loc['매출액', col] if '매출액' in df.index else 0
+                        val_op = df.loc['영업이익', col] if '영업이익' in df.index else 0
+                        val_net = df.loc['당기순이익', col] if '당기순이익' in df.index else 0
+                        fin_data.append({
+                            "Date": str(col_name).strip(),
+                            "매출액": float(val_sales) if val_sales != '-' and pd.notnull(val_sales) else 0,
+                            "영업이익": float(val_op) if val_op != '-' and pd.notnull(val_op) else 0,
+                            "당기순이익": float(val_net) if val_net != '-' and pd.notnull(val_net) else 0
+                        })
+                    except: continue
+                return pd.DataFrame(fin_data)
+        return pd.DataFrame()
+    except: return pd.DataFrame()
+
+def calculate_rsi(data, window=14):
+    delta = data.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
+
+def calculate_macd(data, short=12, long=26, signal=9):
+    short_ema = data.ewm(span=short, adjust=False).mean()
+    long_ema = data.ewm(span=long, adjust=False).mean()
+    macd = short_ema - long_ema
+    signal_line = macd.ewm(span=signal, adjust=False).mean()
+    return macd, signal_line
+
+def calculate_atr(data, window=14):
+    try:
+        high = data['High']
+        low = data['Low']
+        close = data['Close']
+        prev_close = close.shift(1)
+        tr1 = high - low
+        tr2 = (high - prev_close).abs()
+        tr3 = (low - prev_close).abs()
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = tr.rolling(window=window).mean()
+        return atr
+    except: return pd.Series(0, index=data.index)
+
+def backtest_strategy(df):
+    try:
+        sim_df = df.copy()
+        sim_df['Signal'] = (sim_df['Close'] > sim_df['MA20']) & (sim_df['RSI'] < 40)
+        signals = sim_df[sim_df['Signal']].index
+        wins = 0
+        total = 0
+        for date in signals:
+            try:
+                idx = sim_df.index.get_loc(date)
+                future = sim_df.iloc[idx+1:idx+11]
+                if len(future) < 1: continue
+                buy_price = sim_df.loc[date, 'Close']
+                max_price = future['High'].max()
+                if max_price >= buy_price * 1.03: 
+                    wins += 1
+                total += 1
+            except: continue
+        win_rate = int((wins / total) * 100) if total > 0 else 0
+        return win_rate
+    except: return 0
+
+@st.cache_data(ttl=1800)
+def get_market_cycle_status(code):
+    try:
+        kospi = fdr.DataReader('KS11', datetime.datetime.now()-datetime.timedelta(days=400))
+        ma120 = kospi['Close'].rolling(120).mean().iloc[-1]
+        curr = kospi['Close'].iloc[-1]
+        if curr > ma120: return "📈 시장 상승세 (공격적 매수 유효)"
+        else: return "📉 시장 하락세 (보수적 접근 필요)"
+    except: return "시장 분석 중"
+
+def calculate_sniper_score(code):
+    try:
+        df = fdr.DataReader(code, datetime.datetime.now() - datetime.timedelta(days=365))
+        if df.empty or len(df) < 60: return 0, [], 0, 0, 0, pd.DataFrame(), ""
+        
+        df['MA20'] = df['Close'].rolling(20).mean()
+        df['MA60'] = df['Close'].rolling(60).mean()
+        df['MA120'] = df['Close'].rolling(120).mean()
+        df['MA240'] = df['Close'].rolling(240).mean()
+        df['MA5'] = df['Close'].rolling(5).mean()
+        df['RSI'] = calculate_rsi(df['Close'])
+        df['ATR'] = calculate_atr(df)
+        df['MACD'], df['MACD_Signal'] = calculate_macd(df['Close'])
+        df['BB_Upper'] = df['MA20'] + (df['Close'].rolling(20).std() * 2)
+        df['BB_Lower'] = df['MA20'] - (df['Close'].rolling(20).std() * 2)
+        
+        curr = df.iloc[-1]
+        prev = df.iloc[-2]
+        vol_avg = df['Volume'].rolling(20).mean().iloc[-1]
+        
+        score = 0; tags = []
+        vol_ratio = curr['Volume'] / vol_avg if vol_avg > 0 else 0
+        
+        price_chg = (curr['Close'] - prev['Close']) / prev['Close'] * 100
+        is_bullish = curr['Close'] >= curr['Open']
+
+        main_reason = "관망 필요"
+
+        if vol_ratio >= 3.0: 
+            if price_chg > 0 or is_bullish:
+                score += 40
+                tags.append("🔥 거래량폭발(매수)")
+                main_reason = "큰손 쓸어담는 중"
+            else:
+                score -= 50 
+                tags.append("😱 투매폭탄(위험)")
+                main_reason = "세력 이탈 경고"
+        elif vol_ratio >= 1.5:
+            if price_chg > 0 or is_bullish:
+                score += 20
+                tags.append("📈 거래량증가")
+            else:
+                score -= 10
+                tags.append("📉 매도세출현")
+        
+        if curr['Close'] > curr['MA20']: 
+            score += 20
+        if curr['RSI'] < 30: 
+            score += 10; tags.append("💎 과매도(기회)")
+            if main_reason == "관망 필요": main_reason = "바닥 잡을 찬스"
+        if curr['MACD'] > curr['MACD_Signal']: 
+            score += 10; tags.append("🌊 추세전환")
+            if main_reason == "관망 필요": main_reason = "상승 파도타기"
+        
+        change = (curr['Close'] - df.iloc[-2]['Close']) / df.iloc[-2]['Close'] * 100
+        
+        win_rate = backtest_strategy(df)
+        if win_rate >= 70: 
+            score += 10; tags.append(f"👑 승률{win_rate}%")
+            if main_reason == "관망 필요": main_reason = "승률 높은 구간"
+
+        if score < 60: main_reason = "힘 모으는 중"
+
+        return score, tags, vol_ratio, change, win_rate, df, main_reason
+    except: return 0, [], 0, 0, 0, pd.DataFrame(), ""
+
+@st.cache_data(ttl=3600)
+def get_macro_data():
+    results = {}
+    tickers = {
+        "KOSPI": "KS11", "KOSDAQ": "KQ11", "S&P500": "US500", "USD/KRW": "USD/KRW", 
+        "US_10Y": "US10YT", "WTI": "CL=F", "구리": "HG=F" 
+    }
+    for name, code in tickers.items():
+        try:
+            df = fdr.DataReader(code, datetime.datetime.now()-datetime.timedelta(days=14))
+            if not df.empty:
+                curr = df.iloc[-1]
+                results[name] = {"val": curr['Close'], "change": (curr['Close'] - curr['Open']) / curr['Open'] * 100}
+            else: results[name] = {"val": 0.0, "change": 0.0}
+        except: results[name] = {"val": 0.0, "change": 0.0}
+    if all(v['val'] == 0.0 for v in results.values()): return None
+    return results
+
+@st.cache_data(ttl=1200)
+def get_company_guide_score(code):
+    per, pbr, div = 0.0, 0.0, 0.0
+    try:
+        url = f"https://finance.naver.com/item/main.naver?code={code}"
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        res = requests.get(url, headers=headers)
+        if res.status_code == 200:
+            soup = BeautifulSoup(res.text, 'html.parser')
+            def get_val_by_id(id_name):
+                tag = soup.select_one(f"#{id_name}")
+                if tag:
+                    txt = tag.text.replace(',', '').replace('%', '').replace('배', '').strip()
+                    try: return float(txt)
+                    except: return 0.0
+                return 0.0
+            per = get_val_by_id("_per")
+            pbr = get_val_by_id("_pbr")
+            div = get_val_by_id("_dvr")
+    except: pass
+    if per == 0 and pbr == 0:
+        if not krx_df.empty and code in krx_df['Code'].values:
+            try:
+                row = krx_df[krx_df['Code'] == code].iloc[0]
+                per = float(row.get('PER', 0)) if pd.notnull(row.get('PER')) else 0
+                pbr = float(row.get('PBR', 0)) if pd.notnull(row.get('PBR')) else 0
+                div = float(row.get('DividendYield', 0)) if pd.notnull(row.get('DividendYield')) else 0
+            except: pass
+    if per == 0 and pbr == 0:
+        try:
+            end_str = datetime.datetime.now().strftime("%Y%m%d")
+            start_str = (datetime.datetime.now() - datetime.timedelta(days=40)).strftime("%Y%m%d")
+            df = stock.get_market_fundamental_by_date(start_str, end_str, code)
+            if not df.empty:
+                recent = df.iloc[-1]
+                per = float(recent.get('PER', 0))
+                pbr = float(recent.get('PBR', 0))
+                div = float(recent.get('DIV', 0))
+        except: pass
+    pbr_stat = "good" if 0 < pbr < 1.0 else ("neu" if 1.0 <= pbr < 2.5 else "bad")
+    pbr_txt = "저평가(좋음)" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가/정보없음")
+    per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
+    per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자/정보없음")
+    div_stat = "good" if div > 3.0 else "neu"
+    div_txt = "고배당" if div > 3.0 else "일반"
+    score = 20
+    if pbr_stat=="good": score+=15
+    if per_stat=="good": score+=10
+    if div_stat=="good": score+=5
+    fund_data = {"per": {"val": per, "stat": per_stat, "txt": per_txt}, "pbr": {"val": pbr, "stat": pbr_stat, "txt": pbr_txt}, "div": {"val": div, "stat": div_stat, "txt": div_txt}}
+    return min(score, 50), "분석완료", fund_data
+
+def analyze_news_by_keywords(news_titles):
+    pos_words = ["상승", "급등", "최고", "호재", "개선", "성장", "흑자", "수주", "돌파", "기대", "매수"]
+    neg_words = ["하락", "급락", "최저", "악재", "우려", "감소", "적자", "이탈", "매도", "공매도"]
+    sc_pos = ["공급 안정", "수율 개선", "장기 계약", "원가 절감", "공장 가동"]
+    sc_neg = ["공급난", "품귀", "물류 대란", "원자재 상승", "지연", "숏티지", "부족"]
+
+    score = 0; found_keywords = []
+    sc_detected = False
+    
+    for title in news_titles:
+        for w in pos_words:
+            if w in title: score += 1; found_keywords.append(w)
+        for w in neg_words:
+            if w in title: score -= 1; found_keywords.append(w)
+        for w in sc_pos:
+            if w in title: score += 2; found_keywords.append(w); sc_detected=True
+        for w in sc_neg:
+            if w in title: score -= 2; found_keywords.append(w); sc_detected=True
+            
+    final_score = min(max(score, -10), 10)
+    summary = f"긍정 키워드 {len([w for w in found_keywords if w in pos_words or w in sc_pos])}개, 부정 키워드 {len([w for w in found_keywords if w in neg_words or w in sc_neg])}개 감지."
+    if sc_detected: summary += " [공급망 이슈 감지]"
+    return final_score, summary, "키워드 분석", ""
+
+def get_valid_model_name(api_key):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            models = response.json().get('models', [])
+            chat_models = [m['name'] for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
+            preferences = ['models/gemini-1.5-flash', 'models/gemini-1.5-pro', 'models/gemini-pro']
+            for pref in preferences:
+                if pref in chat_models: return pref
+            if chat_models: return chat_models[0]
+    except: pass
+    return "models/gemini-pro"
+
+def call_gemini_dynamic(prompt):
+    api_key = USER_GOOGLE_API_KEY
+    if not api_key: return None, "NO_KEY"
+    
+    model_name = get_valid_model_name(api_key)
+    clean_model_name = model_name.replace("models/", "")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model_name}:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.0}
+    }
+    
+    try:
+        res = requests.post(url, headers=headers, json=payload, timeout=30)
+        if res.status_code == 200: return res.json(), None
+        elif res.status_code == 429: time.sleep(1); return None, "Rate Limit"
+        else: return None, f"HTTP {res.status_code}: {res.text}"
+    except Exception as e: return None, f"Connection Error: {str(e)}"
+
+@st.cache_data(ttl=3600)
+def get_dart_disclosure_summary(code):
+    if not USER_DART_KEY:
+        return "DART API 키 미설정"
+    try:
+        dart = OpenDartReader(USER_DART_KEY)
+        end_d = datetime.datetime.now().strftime("%Y%m%d")
+        start_d = (datetime.datetime.now() - datetime.timedelta(days=90)).strftime("%Y%m%d")
+        df = dart.list(code, start=start_d, end=end_d)
+        if df is None or df.empty:
+            return "최근 3개월 내 특이 공시 없음"
+        df = df.sort_values('rcept_dt', ascending=False).head(5)
+        summary_list = []
+        for index, row in df.iterrows():
+            summary_list.append(f"[{row['rcept_dt']}] {row['report_nm']}")
+        return "\n".join(summary_list)
+    except Exception as e:
+        return f"DART 데이터 조회 실패 ({str(e)})"
+
+# [NEW] Hankyung News RSS Crawler
+@st.cache_data(ttl=1800)
+def get_hankyung_news_rss():
+    news_list = []
+    try:
+        rss_url = "https://rss.hankyung.com/feed/market"
+        feed = feedparser.parse(rss_url)
+        for entry in feed.entries[:5]:
+            news_list.append(f"[한경] {entry.title}")
+    except: pass
+    return news_list
+
+# [NEW] Yahoo Finance Global News
+@st.cache_data(ttl=1800)
+def get_yahoo_global_news(keyword="Stock"):
+    news_list = []
+    try:
+        # Related Tickers for Context (e.g. Samsung -> Micron, SK Hynix -> Nvidia)
+        # This is a general market fetch
+        ticker = yf.Ticker("SPY") # S&P 500 as proxy for global sentiment
+        news = ticker.news
+        for n in news[:3]:
+            news_list.append(f"[Global/Yahoo] {n['title']}")
+    except: pass
+    return news_list
+
+def get_ai_recommended_stocks(keyword):
+    prompt = f"""
+    당신은 한국 주식 전문가입니다.
+    사용자가 입력한 검색어 '{keyword}'와 가장 관련성이 높은 한국(KOSPI/KOSDAQ) 상장 주식 5개를 추천해주세요.
+    
+    [핵심 규칙]
+    1. 각 종목이 검색어와 어떤 관계인지 5글자 이내의 '핵심 태그(relation)'를 반드시 포함하세요. (예: 대장주, 지분보유, 경쟁사, 납품사)
+    2. JSON 형식으로만 출력하세요.
+    
+    [출력 예시]
+    [
+        {{"name": "삼성전자", "code": "005930", "relation": "HBM 대장주"}}, 
+        {{"name": "한미반도체", "code": "042700", "relation": "장비 납품"}}
+    ]
+    """
+    
+    res_data, error = call_gemini_dynamic(prompt)
+    if res_data and 'candidates' in res_data:
+        try:
+            raw = res_data['candidates'][0]['content']['parts'][0]['text']
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            stock_list = json.loads(raw)
+            valid_list = []
+            for item in stock_list:
+                if 'name' in item and 'code' in item:
+                    tag = item.get('relation', '관련주')
+                    valid_list.append({"name": item['name'], "code": item['code'], "price": 0, "relation_tag": tag})
+            return valid_list, f"🤖 AI가 '{keyword}' 관련주와 핵심 관계를 파악했습니다!"
+        except:
+            return [], "AI 응답 해석 실패"
+    return [], "AI 연결 실패"
 
 # ==============================================================================
 # [V50.5] 날짜 처리 개선 함수 (NEW)
@@ -1251,11 +1716,11 @@ def run_single_stock_simulation(df):
         return None
 
 # ==============================================================================
-# [V50.15] Flexible Market Scanner Function
+# [V50.13] Market Scanner Function
 # ==============================================================================
-def scan_market_candidates(target_df, progress_bar, status_text, rsi_limit=45, use_ma_filter=True):
+def scan_market_candidates(target_df, progress_bar, status_text):
     """
-    rsi_limit, use_ma_filter 인자를 통해 검색 조건 유연화
+    넘겨받은 종목 리스트(target_df) 중에서 RSI < 45 & 20일선 위인 종목 발굴
     """
     candidates = []
     total = len(target_df)
@@ -1283,11 +1748,8 @@ def scan_market_candidates(target_df, progress_bar, status_text, rsi_limit=45, u
             rsi = calculate_rsi(df['Close']).iloc[-1]
             curr_price = df['Close'].iloc[-1]
             
-            # [V50.15] Dynamic Filtering
-            cond_rsi = rsi < rsi_limit
-            cond_ma = (curr_price > ma20) if use_ma_filter else True
-            
-            if cond_rsi and cond_ma: 
+            # 🎯 스나이퍼 조건: RSI < 45 (과매도) AND 주가 > 20일선 (상승 추세)
+            if rsi < 45 and curr_price > ma20: 
                 candidates.append({
                     "name": name,
                     "code": code,
@@ -1308,15 +1770,14 @@ def send_telegram_msg(token, chat_id, msg):
 col_title, col_guide = st.columns([0.7, 0.3])
 
 with col_title:
-    st.title("💎 Quant Sniper V50.15 (Flexible)")
+    st.title("💎 Quant Sniper V50.14 (Universal Radar)")
 
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.15 업데이트 노트", expanded=False):
+    with st.expander("📘 V50.14 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[Radar] 만능 레이더 업그레이드:** 시총 상위, 인기 테마, 키워드 검색 등 다양한 방식으로 종목을 발굴합니다.
-        * **[Flex] 유연한 검색:** 너무 빡빡한 조건 때문에 종목이 안 나온다면, RSI 기준을 완화하거나 추세 필터를 끄고 검색해보세요.
+        * **[Radar] 만능 레이더 탑재:** 시가총액 상위뿐만 아니라, **인기 테마**와 **키워드 검색** 결과 내에서도 '조건 만족 종목'을 찾아낼 수 있습니다.
         * **[New] 개별 종목 시뮬레이션:** 각 종목 카드 안에서 버튼을 눌러 해당 종목만의 3개월 매매 성과를 즉시 확인하세요.
         """)
 
@@ -1525,25 +1986,6 @@ with tab2:
                     </div>
                     """, unsafe_allow_html=True)
 
-                # [V50.12] On-Demand Simulation
-                if st.button(f"🧪 이 종목 백테스팅(3개월)", key=f"sim_port_{res['code']}"):
-                    sim_result = run_single_stock_simulation(res['history'])
-                    if sim_result:
-                        if sim_result['trades'] > 0:
-                            ret_color = "red" if sim_result['return'] > 0 else "blue"
-                            st.markdown(f"""
-                            <div style='padding:10px; background:#f8f9fa; border-radius:8px; margin-top:10px;'>
-                                <div style='font-weight:bold; font-size:14px;'>🧬 시뮬레이션 결과 (AI 봇 매매)</div>
-                                <div>수익률: <span style='color:{ret_color}; font-weight:bold;'>{sim_result['return']:.2f}%</span></div>
-                                <div>승률: {sim_result['win_rate']:.1f}% (총 {sim_result['trades']}회 매매)</div>
-                                <div style='font-size:11px; color:#666; margin-top:4px;'>* 조건: RSI<40 & 20일선 위 (눌림목)</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        else:
-                            st.info("지난 3개월간 AI 매매 조건(눌림목)이 발생하지 않았습니다.")
-                    else:
-                        st.warning("데이터 부족으로 시뮬레이션 불가")
-
                 if res['news'].get('raw_news'):
                     st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
                     for news in res['news']['raw_news']:
@@ -1621,7 +2063,7 @@ with tab3:
                     st.write("###### 🏢 재무 펀더멘탈")
                     render_fund_scorecard(res['fund_data'])
                     render_financial_table(res['fin_history'])
-                st.write("###### 🧠 수급 동향")
+                st.write("###### 🧠 큰손 투자 동향")
                 render_investor_chart(res['investor_trend'])
                 st.write("###### 📰 AI 분석")
                 if res['news']['method'] == "ai": 
@@ -1665,7 +2107,7 @@ with tab3:
                 st.markdown("</div>", unsafe_allow_html=True)
 
 # ==============================================================================
-# [V50.14] Enhanced Sidebar (Universal Radar + Flexibility)
+# [V50.14] Enhanced Sidebar (Universal Radar)
 # ==============================================================================
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
@@ -1739,11 +2181,6 @@ with st.sidebar:
     with st.expander("조건 만족 종목 스캔하기"):
         radar_mode = st.radio("스캔 모드 선택", ["🏢 시가총액 상위", "⚡ 인기 테마", "🔍 키워드 검색"])
         
-        # [V50.15] Sensitivity Settings (Flexibility)
-        st.caption("🎚️ 검색 감도 설정")
-        rsi_limit_val = st.slider("RSI 기준 (이하)", 30, 70, 55, help="높을수록 더 많은 종목이 검색됩니다.") 
-        use_ma_filter = st.checkbox("20일선 위 (상승추세) 필수", value=True, help="체크 해제 시 하락 추세 종목도 RSI가 낮으면 검색됩니다.")
-        
         target_df_for_scan = pd.DataFrame()
         
         if radar_mode == "🏢 시가총액 상위":
@@ -1778,8 +2215,8 @@ with st.sidebar:
             prog_bar = scan_area.progress(0)
             stat_txt = st.empty()
             
-            # Run Scanner with Flexible Params
-            results = scan_market_candidates(target_df_for_scan, prog_bar, stat_txt, rsi_limit=rsi_limit_val, use_ma_filter=use_ma_filter)
+            # Run Scanner
+            results = scan_market_candidates(target_df_for_scan, prog_bar, stat_txt)
             
             # Cleanup
             prog_bar.empty()
@@ -1797,15 +2234,14 @@ with st.sidebar:
                             update_github_file(st.session_state['data_store'])
                             st.rerun()
             else:
-                cond_msg = f"RSI < {rsi_limit_val}" + (" & 20일선 위" if use_ma_filter else "")
-                st.warning(f"조건({cond_msg})을 만족하는 종목이 없습니다.")
+                st.warning("조건(RSI<45 & 20일선 위)을 만족하는 종목이 없습니다.")
 
     # 3. Utility
     if st.button("🚀 텔레그램 리포트 전송"):
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V50.15\n\n"
+            msg = f"💎 Quant Sniper V50.14\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
