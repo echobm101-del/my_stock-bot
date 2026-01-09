@@ -13,6 +13,8 @@ import feedparser
 import OpenDartReader
 import yfinance as yf
 import re
+
+# [핵심] 설정 파일 import 수정
 import config
 import utils
 
@@ -90,9 +92,9 @@ def get_investor_trend_from_naver(code):
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
     try:
-        end = datetime.datetime.now().strftime("%Y%m%d")
-        start = (datetime.datetime.now() - datetime.timedelta(days=60)).strftime("%Y%m%d")
-        df = stock.get_market_investor_net_purchase_by_date(start, end, code)
+        end_d = datetime.datetime.now().strftime("%Y%m%d")
+        start_d = (datetime.datetime.now() - datetime.timedelta(days=60)).strftime("%Y%m%d")
+        df = stock.get_market_investor_net_purchase_by_date(start_d, end_d, code)
         if not df.empty:
             df['Cum_Individual'] = df['개인'].cumsum()
             df['Cum_Foreigner'] = df['외국인'].cumsum()
@@ -236,7 +238,7 @@ def get_yahoo_global_news():
     return news
 
 def call_gemini_dynamic(prompt):
-    # [중요] config.py에서 API 키를 가져옵니다.
+    # [수정됨] config.py에서 API 키를 확실하게 가져옵니다.
     api_key = config.USER_GOOGLE_API_KEY
     if not api_key: return None, "NO_KEY"
     
@@ -255,7 +257,6 @@ def call_gemini_dynamic(prompt):
 
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(name, stock_context={}):
-    # 1. 뉴스 통합 수집
     news_list = []
     if stock_context.get('code'): news_list.extend(get_naver_finance_news(stock_context['code']))
     news_list.extend(get_naver_search_news(name))
@@ -263,18 +264,15 @@ def get_news_sentiment_llm(name, stock_context={}):
     unique_news = []
     seen = set()
     for n in news_list:
-        if n['title'] not in seen:
-            seen.add(n['title']); unique_news.append(n)
+        if n['title'] not in seen: seen.add(n['title']); unique_news.append(n)
     
     news_titles = [f"- {n['date']} {n['title']}" for n in unique_news[:5]]
-    
     dart = get_dart_disclosure_summary(stock_context.get('code',''))
     macro = "\n".join(get_hankyung_news_rss()[:3] + get_yahoo_global_news()[:2])
     
     if not news_titles and "공시 없음" in dart:
          return {"score": 0, "headline": "최근 특이 뉴스 없음", "opinion": "중립", "risk": "", "catalyst": "", "raw_news": unique_news, "method": "none", "dart_text": dart}
 
-    # AI 프롬프트 (원본 복원)
     prompt = f"""
     당신은 주식 투자 전문가입니다. 아래 정보를 바탕으로 투자 의견을 JSON 형식으로 주세요.
     
@@ -305,7 +303,6 @@ def get_news_sentiment_llm(name, stock_context={}):
             js = json.loads(match.group() if match else txt)
             return {"score": js.get('score', 0), "supply_score": js.get('supply_score', 0), "headline": js.get('summary', "분석 결과 없음"), "opinion": js.get('opinion', "중립"), "risk": js.get('risk', "특이사항 없음"), "catalyst": js.get('catalyst', ""), "raw_news": unique_news, "method": "ai", "dart_text": dart}
         except: pass
-        
     return {"score": 0, "headline": "AI 분석 실패 (키워드 대체)", "opinion": "관망", "risk": "API 오류", "catalyst": "키워드", "raw_news": unique_news, "method": "keyword", "dart_text": dart}
 
 def get_ai_recommended_stocks(keyword):
