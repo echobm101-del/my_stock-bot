@@ -1,1 +1,235 @@
+import streamlit as st
+import altair as alt
+import pandas as pd
 
+def get_css_style():
+    return """
+<style>
+    .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
+    .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; }
+    .stock-name { font-size: 20px; font-weight: 800; color: #333; margin-right: 6px; }
+    .stock-code { font-size: 14px; color: #8B95A1; }
+    .big-price { font-size: 24px; font-weight: 800; color: #333; margin-top: 4px; }
+    
+    .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
+    .fund-item-v2 { text-align: center; }
+    .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
+    .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
+    .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
+    
+    .tech-status-box { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+    .status-badge { flex: 1; min-width: 120px; padding: 12px 10px; border-radius: 12px; text-align: center; font-size: 13px; font-weight: 700; color: #4E5968; background: #F2F4F6; border: 1px solid #E5E8EB; }
+    .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; }
+    .status-badge.sell { background-color: #FFF1F1; color: #F04452; border-color: #F04452; }
+    .status-badge.vol { background-color: #FFF8E1; color: #D9480F; border-color: #FFD8A8; }
+    .status-badge.neu { background-color: #FFF9DB; color: #F08C00; border-color: #FFEC99; }
+    
+    .ma-status-container { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
+    .ma-status-badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #555; background-color: #F2F4F6; border: 1px solid #E5E8EB; }
+    .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; }
+    
+    .news-ai { background: #F3F9FE; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #D0EBFF; color: #333; }
+    .ai-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; margin-bottom: 6px; }
+    .ai-opinion-buy { background-color: #E8F3FF; color: #3182F6; border: 1px solid #3182F6; }
+    .ai-opinion-sell { background-color: #FFF1F1; color: #F04452; border: 1px solid #F04452; }
+    .ai-opinion-hold { background-color: #F2F4F6; color: #4E5968; border: 1px solid #4E5968; }
+    
+    .metric-box { background: #F9FAFB; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #E5E8EB; height: 100%; display: flex; flex-direction: column; justify-content: center; }
+    .metric-title { font-size: 12px; color: #666; margin-bottom: 4px; }
+    .metric-value { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 2px;}
+    .metric-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 700; display: inline-block; margin-top: 4px; }
+
+    .fin-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; margin-bottom: 10px; border: 1px solid #E5E8EB; }
+    .fin-table th { background-color: #F9FAFB; padding: 8px; border-bottom: 1px solid #E5E8EB; color: #4E5968; font-weight: 600; white-space: nowrap; }
+    .fin-table td { padding: 8px; border-bottom: 1px solid #F2F4F6; color: #333; font-weight: 500; }
+    .text-red { color: #F04452; font-weight: 700; }
+    .text-blue { color: #3182F6; font-weight: 700; }
+    
+    .investor-table { width: 100%; font-size: 11px; text-align: center; border-collapse: collapse; min-width: 300px; }
+    .investor-table th { background-color: #F9FAFB; padding: 6px; color: #666; font-weight: 600; border-bottom: 1px solid #E5E8EB; }
+    .investor-table td { padding: 6px; border-bottom: 1px solid #F2F4F6; color: #333; }
+    
+    .strategy-container { background-color: #F9FAFB; border-radius: 12px; padding: 12px; margin-top: 12px; border: 1px solid #E5E8EB; }
+    .progress-bg { background-color: #E0E0E0; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 8px; }
+    .progress-fill { background: linear-gradient(90deg, #ff9a9e 0%, #ff5e62 100%); height: 100%; transition: width 0.5s ease; }
+    .progress-fill.overdrive { background: linear-gradient(90deg, #FFD700 0%, #FDBB2D 50%, #8A2BE2 100%); }
+    .progress-fill.rescue { background: linear-gradient(90deg, #a1c4fd 0%, #c2e9fb 100%); }
+    
+    .action-badge-default { background-color:#eee; color:#333; padding:4px 10px; border-radius:12px; font-weight:700; font-size:12px; }
+    .action-badge-strong { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; box-shadow: 0 2px 6px rgba(118, 75, 162, 0.4); animation: pulse 2s infinite; }
+    .action-badge-rescue { background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; }
+
+    @media screen and (max-width: 768px) {
+        .toss-card { padding: 16px; border-radius: 20px; }
+        .stock-name { font-size: 18px; }
+        .big-price { font-size: 20px; }
+        .fund-grid-v2 { gap: 8px; padding: 10px; }
+        .fund-value-v2 { font-size: 15px; }
+        .tech-status-box { gap: 8px; }
+        .status-badge { padding: 10px 8px; font-size: 12px; }
+    }
+</style>
+"""
+
+def create_watchlist_card_html(res):
+    strategy = res.get('strategy', {})
+    score_col = "#F04452" if res['score'] >= 60 else "#3182F6"
+    buy_price = strategy.get('buy', 0)
+    target_price = strategy.get('target', 0)
+    stop_price = strategy.get('stop', 0)
+    action_txt = strategy.get('action', '분석 중')
+    
+    badge_bg = f"{score_col}20"
+    badge_fg = score_col
+    if "유보" in action_txt or "데이터 부족" in action_txt:
+        badge_bg = "#F2F4F6"; badge_fg = "#4E5968"
+    
+    chg = res.get('change_rate', 0.0)
+    if chg > 0: chg_color = "#F04452"; chg_txt = f"(+{chg:.2f}% ▲)"
+    elif chg < 0: chg_color = "#3182F6"; chg_txt = f"({chg:.2f}% ▼)"
+    else: chg_color = "#333333"; chg_txt = f"({chg:.2f}% -)"
+
+    relation_html = f"<span class='relation-badge'>🔗 {res['relation_tag']}</span>" if res.get('relation_tag') else ""
+    
+    return f"""
+<div class='toss-card' style='border-left: 5px solid {score_col};'>
+  <div style='display:flex; justify-content:space-between; align-items:center;'>
+      <div>
+          <span class='stock-name'>{res['name']}</span><span class='stock-code'>{res['code']}</span>{relation_html}
+          <div class='cycle-badge'>{res['cycle_txt']}</div>
+          <div class='big-price'>{res['price']:,}원 <span style='font-size:16px; color:{chg_color}; font-weight:600; margin-left:5px;'>{chg_txt}</span></div>
+      </div>
+      <div style='text-align:right;'>
+          <div style='font-size:28px; font-weight:800; color:{score_col};'>{res['score']}점</div>
+          <div class='badge-clean' style='background-color:{badge_bg}; color:{badge_fg}; font-weight:700;'>{action_txt}</div>
+      </div>
+  </div>
+  <div style='margin-top:15px; padding-top:10px; border-top:1px solid #F2F4F6; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:5px; font-size:12px; font-weight:700; text-align:center;'>
+      <div style='color:#3182F6; background-color:#E8F3FF; padding:6px; border-radius:6px;'>🛒 진입 {buy_price:,}</div>
+      <div style='color:#F04452; background-color:#FFF1F1; padding:6px; border-radius:6px;'>💰 목표 {target_price:,}</div>
+      <div style='color:#4E5968; background-color:#F2F4F6; padding:6px; border-radius:6px;'>🛡️ 손절 {stop_price:,}</div>
+  </div>
+</div>
+"""
+
+def create_portfolio_card_html(res):
+    buy_price = res.get('my_buy_price', 0)
+    curr_price = res['price']
+    profit_rate = (curr_price - buy_price) / buy_price * 100 if buy_price > 0 else 0
+    profit_val = curr_price - buy_price
+    
+    profit_color = "#F04452" if profit_rate > 0 else ("#3182F6" if profit_rate < 0 else "#333")
+    profit_sign = "+" if profit_rate > 0 else ""
+    
+    return f"""
+<div class='toss-card' style='border: 2px solid {profit_color}40; background-color: {profit_color}05;'>
+  <div style='display:flex; justify-content:space-between;'>
+      <div>
+          <span class='stock-name'>{res['name']}</span>
+          <div style='font-size:14px; color:#555;'>현재 {curr_price:,}원</div>
+      </div>
+      <div style='text-align:right;'>
+          <div class='profit-positive' style='color:{profit_color}; font-size:20px; font-weight:800;'>{profit_sign}{profit_rate:.2f}%</div>
+          <div style='font-size:12px; font-weight:600; color:{profit_color};'>{profit_sign}{profit_val:,}원</div>
+          <div style='font-size:11px; color:#888;'>평단 {buy_price:,}원</div>
+      </div>
+  </div>
+</div>
+"""
+
+def render_signal_lights(rsi, macd, macd_sig):
+    rsi_cls = "buy" if rsi <= 35 else ("sell" if rsi >= 70 else "neu")
+    rsi_icon = "🟢" if rsi <= 35 else ("🔴" if rsi >= 70 else "🟡")
+    
+    macd_cls = "buy" if macd > macd_sig else "sell"
+    macd_icon = "🟢" if macd > macd_sig else "🔴"
+
+    st.markdown(f"""
+    <div class='tech-status-box'>
+        <div class='status-badge {rsi_cls}'><div>📊 RSI ({rsi:.1f})</div><div style='font-size:15px; margin-top:4px;'>{rsi_icon}</div></div>
+        <div class='status-badge {macd_cls}'><div>🌊 MACD</div><div style='font-size:15px; margin-top:4px;'>{macd_icon}</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_tech_metrics(stoch, vol_ratio):
+    k = stoch['k']
+    stoch_cls = "buy" if k < 20 else ("sell" if k > 80 else "neu")
+    vol_cls = "vol" if vol_ratio >= 2.0 else ("buy" if vol_ratio >= 1.2 else "neu")
+    
+    st.markdown(f"""
+    <div class='tech-status-box'>
+        <div class='status-badge {stoch_cls}'><div>📉 스토캐스틱</div><div style='font-size:15px; margin-top:4px;'>{k:.1f}%</div></div>
+        <div class='status-badge {vol_cls}'><div>📢 거래강도</div><div style='font-size:15px; margin-top:4px;'>{vol_ratio*100:.0f}%</div></div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def render_ma_status(ma_list):
+    if not ma_list: return
+    html = "<div class='ma-status-container'>"
+    for item in ma_list:
+        cls = "on" if item['ok'] else "off"
+        icon = "🔴" if item['ok'] else "⚪"
+        html += f"<div class='ma-status-badge {cls}'>{icon} {item['label']}</div>"
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+
+def render_chart_legend():
+    st.markdown("""
+    <div style='display:flex; gap:12px; font-size:12px; color:#555; margin-bottom:8px; align-items:center; flex-wrap:wrap;'>
+       <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#FF4B4B; margin-right:4px;'></div>5일선</div>
+       <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#F2A529; margin-right:4px;'></div>20일선</div>
+       <div style='display:flex; align-items:center;'><div style='width:12px; height:2px; background:#3182F6; margin-right:4px;'></div>60일선</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+def create_chart_clean(df):
+    try:
+        chart_data = df.tail(120).copy().reset_index()
+        base = alt.Chart(chart_data).encode(x=alt.X('Date:T', axis=alt.Axis(format='%m-%d', title=None)))
+        line = base.mark_line(color='#000000').encode(y=alt.Y('Close:Q', scale=alt.Scale(zero=False)))
+        ma5 = base.mark_line(color='#FF4B4B', strokeWidth=1.5).encode(y='MA5:Q')
+        ma20 = base.mark_line(color='#F2A529', strokeWidth=1.5).encode(y='MA20:Q')
+        ma60 = base.mark_line(color='#3182F6', strokeWidth=1.5).encode(y='MA60:Q')
+        return (line + ma5 + ma20 + ma60).properties(height=250)
+    except: return alt.Chart(pd.DataFrame()).mark_text()
+
+def render_fund_scorecard(fund_data):
+    if not fund_data: return
+    per_col = "#F04452" if fund_data['per']['stat']=='good' else "#333"
+    pbr_col = "#F04452" if fund_data['pbr']['stat']=='good' else "#333"
+    div_col = "#F04452" if fund_data['div']['stat']=='good' else "#333"
+    
+    html = f"<div class='fund-grid-v2'>"
+    html += f"<div class='fund-item-v2'><div class='fund-title-v2'>PER</div><div class='fund-value-v2' style='color:{per_col}'>{fund_data['per']['val']:.1f}</div></div>"
+    html += f"<div class='fund-item-v2'><div class='fund-title-v2'>PBR</div><div class='fund-value-v2' style='color:{pbr_col}'>{fund_data['pbr']['val']:.1f}</div></div>"
+    html += f"<div class='fund-item-v2'><div class='fund-title-v2'>배당률</div><div class='fund-value-v2' style='color:{div_col}'>{fund_data['div']['val']:.1f}%</div></div>"
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+
+def render_financial_table(df):
+    if df.empty: return
+    html = "<table class='fin-table'><thead><tr><th>구분</th>"
+    for d in df['Date']: html += f"<th>{d}</th>"
+    html += "</tr></thead><tbody>"
+    for m in ['매출액', '영업이익', '당기순이익']:
+        html += f"<tr><td>{m}</td>"
+        for val in df[m]: html += f"<td>{int(val):,}</td>"
+        html += "</tr>"
+    html += "</tbody></table>"
+    st.markdown(html, unsafe_allow_html=True)
+
+def render_investor_chart(df):
+    if df.empty: return
+    df = df.reset_index().rename(columns={'index':'날짜'})
+    
+    # 1. 누적 차트
+    df_line = df.melt('날짜', value_vars=['Cum_Individual', 'Cum_Foreigner', 'Cum_Institution'], var_name='Key', value_name='Cumulative')
+    type_map = {'Cum_Individual': '개인', 'Cum_Foreigner': '외국인', 'Cum_Institution': '기관'}
+    df_line['Type'] = df_line['Key'].map(type_map)
+    
+    chart = alt.Chart(df_line).mark_line().encode(
+        x=alt.X('날짜:T', axis=None),
+        y=alt.Y('Cumulative:Q', title=None),
+        color=alt.Color('Type:N', legend=alt.Legend(orient="top"))
+    ).properties(height=200)
+    st.altair_chart(chart, use_container_width=True)
