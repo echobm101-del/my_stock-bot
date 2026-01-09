@@ -5,35 +5,20 @@ import pandas as pd
 def get_css_style():
     return """
 <style>
-    /* 기본 설정 */
     .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
-    
-    /* 카드 디자인 */
-    .toss-card { 
-        background: #FFFFFF; border-radius: 24px; padding: 24px; 
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; 
-        margin-bottom: 16px; transition: all 0.3s ease; 
-    }
-    
-    /* 텍스트 스타일 */
-    .stock-name { font-size: 20px; font-weight: 800; color: #333; margin-right: 6px; }
-    .stock-code { font-size: 14px; color: #8B95A1; }
-    .big-price { font-size: 24px; font-weight: 800; color: #333; margin-top: 4px; }
-    .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
-
-    /* 배지 스타일 */
-    .cycle-badge { background-color:#E6FCF5; color:#087F5B; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; border:1px solid #B2F2BB; display:inline-block; margin-top:4px; }
-    .cycle-badge.bear { background-color:#FFF5F5; color:#F04452; border-color:#FFD8A8; }
-    .relation-badge { background-color:#F3F0FF; color:#7950F2; padding:3px 6px; border-radius:4px; font-size:10px; font-weight:700; border:1px solid #E5DBFF; margin-left:6px; vertical-align: middle; }
-    
-    /* 기술적 지표 박스 */
+    .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; transition: all 0.3s ease; }
+    .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
+    .fund-item-v2 { text-align: center; }
+    .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
+    .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
+    .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
     .tech-status-box { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
     .status-badge { flex: 1; min-width: 120px; padding: 12px 10px; border-radius: 12px; text-align: center; font-size: 13px; font-weight: 700; color: #4E5968; background: #F2F4F6; border: 1px solid #E5E8EB; }
     .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; }
     .status-badge.sell { background-color: #FFF1F1; color: #F04452; border-color: #F04452; }
     .status-badge.vol { background-color: #FFF8E1; color: #D9480F; border-color: #FFD8A8; }
     .status-badge.neu { background-color: #FFF9DB; color: #F08C00; border-color: #FFEC99; }
-    
+    .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
     .ma-status-container { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
     .ma-status-badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #555; background-color: #F2F4F6; border: 1px solid #E5E8EB; }
     .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; } 
