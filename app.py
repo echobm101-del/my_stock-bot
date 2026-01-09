@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 import time
 
 # 모듈 불러오기
@@ -207,10 +208,8 @@ with st.sidebar:
             else:
                 with st.spinner("분석 중..."):
                     df_krx = dl.get_krx_list_safe()
-                    code = None
-                    if kwd in df_krx['Name'].values:
-                        code = df_krx[df_krx['Name']==kwd]['Code'].iloc[0]
-                    
+                    # 1. 종목명 일치 확인
+                    code = df_krx[df_krx['Name']==kwd]['Code'].iloc[0] if kwd in df_krx['Name'].values else None
                     if code:
                         res = dl.analyze_pro(code, kwd)
                         if res: 
@@ -218,6 +217,7 @@ with st.sidebar:
                             st.session_state['current_theme_name'] = kwd
                             st.rerun()
                     else:
+                        # 2. AI 추천 / 테마 검색
                         stocks, msg = dl.get_ai_recommended_stocks(kwd)
                         if not stocks: stocks, msg = dl.get_naver_theme_stocks(kwd)
                         
@@ -232,6 +232,7 @@ with st.sidebar:
         if st.button("🛰️ 스캔"):
             mkt = "KOSPI" if "KOSPI" in mode else "KOSDAQ"
             df = dl.get_krx_list_safe()
+            # 간단히 상위 50개만
             cands = dl.scan_market_candidates(df.head(50), st.progress(0), st.empty())
             if cands:
                 st.session_state['preview_list'] = cands
