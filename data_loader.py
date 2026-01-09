@@ -13,8 +13,6 @@ import feedparser
 import OpenDartReader
 import yfinance as yf
 import re
-
-# 설정 및 유틸 불러오기
 import config
 import utils
 
@@ -77,7 +75,6 @@ def get_investor_trend_from_naver(code):
             df.columns = [c[1] if isinstance(c, tuple) else c for c in df.columns]
             df.rename(columns={'날짜': 'Date'}, inplace=True)
             
-            # 컬럼 매핑 찾기
             inst_col = [c for c in df.columns if '기관' in str(c)][0]
             frgn_col = [c for c in df.columns if '외국인' in str(c)][0]
             
@@ -149,13 +146,10 @@ def get_company_guide_score(code):
         div = get_val("_dvr")
     except: pass
     
-    # 펀더멘털 점수 계산 로직 복원
     pbr_stat = "good" if 0 < pbr < 1.0 else ("neu" if 1.0 <= pbr < 2.5 else "bad")
-    pbr_txt = "저평가(좋음)" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가/정보없음")
-    
+    pbr_txt = "저평가(좋음)" if 0 < pbr < 1.0 else ("적정" if 1.0 <= pbr < 2.5 else "고평가")
     per_stat = "good" if 0 < per < 10 else ("neu" if 10 <= per < 20 else "bad")
-    per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가/적자/정보없음")
-    
+    per_txt = "실적우수" if 0 < per < 10 else ("보통" if 10 <= per < 20 else "고평가")
     div_stat = "good" if div > 3.0 else "neu"
     div_txt = "고배당" if div > 3.0 else "일반"
     
@@ -198,6 +192,22 @@ def get_supply_demand(code):
 # 2. 뉴스 및 AI 분석 (원본 복원)
 # ==========================================
 
+def get_naver_finance_news(code):
+    news_data = []
+    try:
+        url = f"https://finance.naver.com/item/news_news.naver?code={code}"
+        res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
+        soup = BeautifulSoup(res.text, 'html.parser')
+        for t, d in zip(soup.select('.title'), soup.select('.date')):
+            news_data.append({
+                "title": t.get_text().strip(),
+                "link": "https://finance.naver.com" + t.select_one('a')['href'],
+                "date": utils.parse_relative_date(d.get_text().strip()).strftime("%Y-%m-%d")
+            })
+            if len(news_data) >= 5: break
+    except: pass
+    return news_data
+
 def get_naver_search_news(keyword):
     news_data = []
     try:
@@ -206,13 +216,12 @@ def get_naver_search_news(keyword):
         soup = BeautifulSoup(res.text, 'html.parser')
         for item in soup.select('div.news_area')[:5]:
             title_tag = item.select_one('.news_tit')
+            date_tag = item.select_one('.info_group span.info')
             if title_tag:
-                title = title_tag.get_text().strip()
-                link = title_tag['href']
-                date_tag = item.select_one('.info_group span.info')
-                date_str = date_tag.text.strip() if date_tag else str(datetime.date.today())
+                date_str = date_tag.text.strip() if date_tag else ""
                 news_data.append({
-                    "title": title, "link": link, 
+                    "title": title_tag.get_text().strip(),
+                    "link": title_tag['href'],
                     "date": utils.parse_relative_date(date_str).strftime("%Y-%m-%d")
                 })
     except: pass
@@ -250,15 +259,25 @@ def call_gemini_dynamic(prompt):
 @st.cache_data(ttl=600)
 def get_news_sentiment_llm(name, stock_context={}):
     # 1. 뉴스 수집
-    news_list = get_naver_search_news(name)
-    news_titles = [f"- {n['date']} {n['title']}" for n in news_list]
+    news_list = []
+    if stock_context.get('code'): news_list.extend(get_naver_finance_news(stock_context['code']))
+    news_list.extend(get_naver_search_news(name))
+    
+    # 중복 제거
+    unique_news = []
+    seen = set()
+    for n in news_list:
+        if n['title'] not in seen:
+            seen.add(n['title']); unique_news.append(n)
+    
+    news_titles = [f"- {n['date']} {n['title']}" for n in unique_news[:5]]
     
     # 2. 추가 데이터
     dart = get_dart_disclosure_summary(stock_context.get('code',''))
     macro = "\n".join(get_hankyung_news_rss()[:3] + get_yahoo_global_news()[:2])
     
     if not news_titles and "공시 없음" in dart:
-         return {"score": 0, "headline": "최근 특이 뉴스 없음", "opinion": "중립", "risk": "", "catalyst": "", "raw_news": news_list, "method": "none", "dart_text": dart}
+         return {"score": 0, "headline": "최근 특이 뉴스 없음", "opinion": "중립", "risk": "", "catalyst": "", "raw_news": unique_news, "method": "none", "dart_text": dart}
 
     # 3. 프롬프트 작성 (원본 유지)
     prompt = f"""
@@ -295,7 +314,11 @@ def get_news_sentiment_llm(name, stock_context={}):
         try:
             txt = res_data['candidates'][0]['content']['parts'][0]['text']
             txt = txt.replace("```json", "").replace("```", "").strip()
-            js = json.loads(txt)
+            # JSON 파싱 보정
+            match = re.search(r'\{.*\}', txt, re.DOTALL)
+            if match: js = json.loads(match.group())
+            else: js = json.loads(txt)
+            
             return {
                 "score": js.get('score', 0), 
                 "supply_score": js.get('supply_score', 0),
@@ -303,13 +326,13 @@ def get_news_sentiment_llm(name, stock_context={}):
                 "opinion": js.get('opinion', "중립"), 
                 "risk": js.get('risk', "특이사항 없음"), 
                 "catalyst": js.get('catalyst', ""), 
-                "raw_news": news_list, 
+                "raw_news": unique_news, 
                 "method": "ai", 
                 "dart_text": dart
             }
         except: pass
         
-    return {"score": 0, "headline": "AI 분석 실패 (키워드 대체)", "opinion": "관망", "risk": "API 오류", "catalyst": "키워드", "raw_news": news_list, "method": "keyword", "dart_text": dart}
+    return {"score": 0, "headline": "AI 분석 실패 (키워드 대체)", "opinion": "관망", "risk": "API 오류", "catalyst": "키워드", "raw_news": unique_news, "method": "keyword", "dart_text": dart}
 
 def get_ai_recommended_stocks(keyword):
     prompt = f"""
@@ -323,7 +346,8 @@ def get_ai_recommended_stocks(keyword):
     res, err = call_gemini_dynamic(prompt)
     if res:
         try:
-            txt = res['candidates'][0]['content']['parts'][0]['text'].replace("```json", "").replace("```", "").strip()
+            txt = res['candidates'][0]['content']['parts'][0]['text']
+            txt = txt.replace("```json", "").replace("```", "").strip()
             return json.loads(txt), "AI 추천 완료"
         except: pass
     return [], "AI 추천 실패"
@@ -506,11 +530,21 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
     atr = curr.get('ATR', curr['Close']*0.03)
     current_price = int(curr['Close'])
     
+    quant_signal = "중립"
     if my_buy_price: # 보유 중일 때
+        profit_rate = (current_price - my_buy_price) / my_buy_price * 100
         action_txt = "보유"
         buy_price = my_buy_price
         target_price = int(buy_price * 1.10)
         stop_price = int(buy_price * 0.95)
+        
+        # 보유 시 점수 보너스
+        if profit_rate > 10: final_score += 20
+        elif profit_rate > 0: final_score += 10
+        
+        if profit_rate > 0: quant_signal = "보유 권장" if final_score >= 50 else "차익 실현"
+        else: quant_signal = "보유 권장" if final_score >= 50 else "손절 고려"
+        
     else: # 신규 진입
         if final_score >= 80:
             buy_price = current_price
@@ -539,7 +573,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
     
     context = {
         "code": code, "trend": trend_txt, "current_price": current_price,
-        "supply": supply_txt
+        "supply": supply_txt, "is_holding": bool(my_buy_price)
     }
     news_result = get_news_sentiment_llm(name, context)
     
@@ -547,6 +581,10 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
     final_score += news_result.get('score', 0)
     final_score += news_result.get('supply_score', 0) * 2
     final_score = min(max(final_score, 0), 100)
+    
+    # 전략 텍스트 최종 업데이트 (AI 의견 반영)
+    if my_buy_price:
+        action_txt = news_result.get('opinion', quant_signal)
     
     # 6. 최종 결과 반환
     return {
