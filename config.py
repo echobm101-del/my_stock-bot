@@ -1,7 +1,6 @@
 import streamlit as st
 
 # [보안 설정] Streamlit Secrets에서 키 가져오기
-# 에러가 나도 앱이 멈추지 않도록 빈 값으로 처리하는 안전장치입니다.
 try:
     USER_GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
     USER_TELEGRAM_TOKEN = st.secrets.get("TELEGRAM_TOKEN", "")
