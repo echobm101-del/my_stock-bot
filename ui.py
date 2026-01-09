@@ -78,6 +78,11 @@ def get_css_style():
         .status-badge { padding: 10px 8px; font-size: 12px; }
         .fin-table { font-size: 11px; }
         .fin-table th, .fin-table td { padding: 6px 4px; }
+        .toss-card > div:nth-child(2) { gap: 4px !important; }
+        .toss-card > div:nth-child(2) > div { font-size: 11px !important; padding: 6px 2px !important; }
+        .metric-box { padding: 10px; margin-bottom: 5px; }
+        .metric-value { font-size: 14px; }
+        .stTabs [data-baseweb="tab"] { font-size: 14px; padding: 10px; }
     }
 </style>
 """
@@ -147,11 +152,8 @@ def create_portfolio_card_html(res):
     status_msg = f"목표까지 {max(final_target - curr_price, 0):,}원 남음"
     stop_label = "🛡️ 손절가 (-5%)"
     target_label = "🚀 목표가 (+10%)"
-    stop_color = "#3182F6"
-    target_color = "#F04452"
-    
-    progress_cls = "progress-fill" 
-    action_btn_cls = "action-badge-default"
+    stop_color = "#3182F6"; target_color = "#F04452"
+    progress_cls = "progress-fill"; action_btn_cls = "action-badge-default"
     action_text = strategy.get('action', '분석 대기')
     strategy_bg = "#F9FAFB"
 
@@ -159,27 +161,19 @@ def create_portfolio_card_html(res):
         base_target_2nd = int(buy_price * 1.20)
         final_target = int(curr_price * 1.10) if curr_price >= base_target_2nd else base_target_2nd
         target_label = "🔥 무한 질주 (추세 추종)" if curr_price >= base_target_2nd else "🌟 2차 목표가 (+20%)"
-        final_stop = int(buy_price * 1.05) 
+        final_stop = int(buy_price * 1.05)
         status_msg = f"🎉 목표 초과 달성 중 (+{profit_rate:.2f}%)"
-        stop_label = "🔒 익절 보존선 (+5%)"
-        stop_color = "#7950F2"
-        progress_cls = "progress-fill overdrive"
-        action_btn_cls = "action-badge-strong"
-        action_text = "🔥 강력 홀딩 (수익 극대화)"
-        strategy_bg = "#F3F0FF"
-
+        stop_label = "🔒 익절 보존선 (+5%)"; stop_color = "#7950F2"
+        progress_cls = "progress-fill overdrive"; action_btn_cls = "action-badge-strong"
+        action_text = "🔥 강력 홀딩 (수익 극대화)"; strategy_bg = "#F3F0FF"
     elif is_rescue:
-        final_target = int(curr_price * 1.15) 
-        final_stop = int(curr_price * 0.95)   
+        final_target = int(curr_price * 1.15)
+        final_stop = int(curr_price * 0.95)
         status_msg = f"🚨 위기 관리: 단기 반등 목표 {final_target:,}원"
-        stop_label = "🛑 2차 방어선 (-5%)"
-        target_label = "📈 반등 목표 (+15%)"
-        stop_color = "#555" 
-        target_color = "#3182F6" 
-        progress_cls = "progress-fill rescue" 
-        action_btn_cls = "action-badge-rescue"
-        action_text = "⛑️ 리스크 관리 (반등 시 축소)"
-        strategy_bg = "#E8F3FF"
+        stop_label = "🛑 2차 방어선 (-5%)"; target_label = "📈 반등 목표 (+15%)"
+        stop_color = "#555"; target_color = "#3182F6"
+        progress_cls = "progress-fill rescue"; action_btn_cls = "action-badge-rescue"
+        action_text = "⛑️ 리스크 관리 (반등 시 축소)"; strategy_bg = "#E8F3FF"
 
     progress_pct = max(0, min(100, (curr_price - final_stop) / (final_target - final_stop) * 100)) if (final_target - final_stop) > 0 else 0
     profit_cls = "profit-positive" if profit_rate > 0 else ("profit-negative" if profit_rate < 0 else "")
@@ -226,12 +220,13 @@ def create_portfolio_card_html(res):
 """
 
 def render_signal_lights(rsi, macd, macd_sig):
-    if rsi <= 35: rsi_cls = "buy"; rsi_icon = "🟢"; rsi_msg = "저평가 (싸다!)"
-    elif rsi >= 70: rsi_cls = "sell"; rsi_icon = "🔴"; rsi_msg = "과열권 (비싸다!)"
-    else: rsi_cls = "neu"; rsi_icon = "🟡"; rsi_msg = "중립 (특이사항 없음)"
-
-    if macd > macd_sig: macd_cls = "buy"; macd_icon = "🟢"; macd_msg = "상승 추세 (골든크로스)"
-    else: macd_cls = "sell"; macd_icon = "🔴"; macd_msg = "하락 반전 (데드크로스)"
+    rsi_cls = "buy" if rsi <= 35 else ("sell" if rsi >= 70 else "neu")
+    rsi_icon = "🟢" if rsi <= 35 else ("🔴" if rsi >= 70 else "🟡")
+    rsi_msg = "저평가" if rsi <= 35 else ("과열권" if rsi >= 70 else "중립")
+    
+    macd_cls = "buy" if macd > macd_sig else "sell"
+    macd_icon = "🟢" if macd > macd_sig else "🔴"
+    macd_msg = "상승 추세" if macd > macd_sig else "하락 반전"
 
     st.markdown(f"""
     <div class='tech-status-box'>
@@ -242,18 +237,15 @@ def render_signal_lights(rsi, macd, macd_sig):
 
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
-    if k < 20: stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"; stoch_cls = "buy"
-    elif k > 80: stoch_txt = f"🔴 과열 구간 ({k:.1f}%)"; stoch_cls = "sell"
-    else: stoch_txt = f"⚪ 중립 구간 ({k:.1f}%)"; stoch_cls = "neu"
-
-    if vol_ratio >= 2.0: vol_txt = f"🔥 거래량 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
-    elif vol_ratio >= 1.2: vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
-    else: vol_txt = "☁️ 거래량 평이"; vol_cls = "neu"
-
+    stoch_cls = "buy" if k < 20 else ("sell" if k > 80 else "neu")
+    stoch_txt = f"🟢 침체" if k < 20 else (f"🔴 과열" if k > 80 else f"⚪ 중립")
+    vol_cls = "vol" if vol_ratio >= 2.0 else ("buy" if vol_ratio >= 1.2 else "neu")
+    vol_txt = f"🔥 폭발" if vol_ratio >= 2.0 else (f"📈 증가" if vol_ratio >= 1.2 else "☁️ 평이")
+    
     st.markdown(f"""
     <div class='tech-status-box'>
-        <div class='status-badge {stoch_cls}'><div>📉 스토캐스틱</div><div style='font-size:15px; margin-top:4px; font-weight:800;'>{stoch_txt}</div></div>
-        <div class='status-badge {vol_cls}'><div>📢 거래강도(전일비)</div><div style='font-size:15px; margin-top:4px; font-weight:800;'>{vol_txt}</div></div>
+        <div class='status-badge {stoch_cls}'><div>📉 스토캐스틱</div><div style='font-size:15px; margin-top:4px; font-weight:800;'>{stoch_txt} ({k:.0f}%)</div></div>
+        <div class='status-badge {vol_cls}'><div>📢 거래강도(전일비)</div><div style='font-size:15px; margin-top:4px; font-weight:800;'>{vol_txt} ({vol_ratio*100:.0f}%)</div></div>
     </div>
     """, unsafe_allow_html=True)
 
