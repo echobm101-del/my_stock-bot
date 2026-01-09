@@ -4,11 +4,10 @@ import base64
 import datetime
 import re
 import pandas as pd
-import streamlit as st
-import config  # 방금 만든 config.py를 불러옵니다
+import config  # config.py 불러오기
 
 def parse_relative_date(date_text):
-    """'1시간 전' 같은 텍스트를 날짜로 변환"""
+    """'1시간 전', '3일 전' 등의 텍스트를 datetime 객체로 변환"""
     now = datetime.datetime.now()
     date_text = str(date_text).strip()
     try:
@@ -40,14 +39,11 @@ def round_to_tick(price):
     else: return int(round(price, -3))
 
 def load_from_github():
-    """깃허브에서 데이터 불러오기"""
     try:
         token = config.USER_GITHUB_TOKEN
         if not token: return {"portfolio": {}, "watchlist": {}}
-        
         url = f"https://api.github.com/repos/{config.REPO_OWNER}/{config.REPO_NAME}/contents/{config.FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        
         r = requests.get(url, headers=headers)
         if r.status_code == 200:
             content = base64.b64decode(r.json()['content']).decode('utf-8')
@@ -56,30 +52,21 @@ def load_from_github():
                 return {"portfolio": {}, "watchlist": data}
             return data
         return {"portfolio": {}, "watchlist": {}}
-    except:
-        return {"portfolio": {}, "watchlist": {}}
+    except: return {"portfolio": {}, "watchlist": {}}
 
 def update_github_file(new_data):
-    """깃허브에 데이터 저장하기"""
     try:
         token = config.USER_GITHUB_TOKEN
         if not token: return False
-        
         url = f"https://api.github.com/repos/{config.REPO_OWNER}/{config.REPO_NAME}/contents/{config.FILE_PATH}"
         headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        
         r_get = requests.get(url, headers=headers)
         sha = r_get.json().get('sha') if r_get.status_code == 200 else None
         
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
-        
-        data = {
-            "message": "Update data via Streamlit App",
-            "content": b64_content
-        }
+        data = {"message": "Update data via Streamlit App (V50.14)", "content": b64_content}
         if sha: data["sha"] = sha
-        
         r_put = requests.put(url, headers=headers, json=data)
         return r_put.status_code in [200, 201]
     except Exception as e:
@@ -87,13 +74,9 @@ def update_github_file(new_data):
         return False
 
 def send_telegram_msg(msg):
-    """텔레그램 메시지 전송"""
     try:
         token = config.USER_TELEGRAM_TOKEN
         chat_id = config.USER_CHAT_ID
         if token and chat_id:
-            requests.post(
-                f"https://api.telegram.org/bot{token}/sendMessage", 
-                data={"chat_id": chat_id, "text": msg}
-            )
+            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
     except: pass
