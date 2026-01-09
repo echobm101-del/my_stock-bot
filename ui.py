@@ -5,57 +5,89 @@ import pandas as pd
 def get_css_style():
     return """
 <style>
+    /* 기본 설정 */
     .stApp { background-color: #FFFFFF; color: #191F28; font-family: 'Pretendard', sans-serif; }
-    .toss-card { background: #FFFFFF; border-radius: 24px; padding: 24px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; margin-bottom: 16px; transition: all 0.3s ease; }
-    .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
-    .fund-item-v2 { text-align: center; }
-    .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
-    .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
-    .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
+    
+    /* 카드 디자인 */
+    .toss-card { 
+        background: #FFFFFF; border-radius: 24px; padding: 24px; 
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05); border: 1px solid #F2F4F6; 
+        margin-bottom: 16px; transition: all 0.3s ease; 
+    }
+    
+    /* 텍스트 스타일 */
+    .stock-name { font-size: 20px; font-weight: 800; color: #333; margin-right: 6px; }
+    .stock-code { font-size: 14px; color: #8B95A1; }
+    .big-price { font-size: 24px; font-weight: 800; color: #333; margin-top: 4px; }
+    .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
+
+    /* 배지 스타일 */
+    .cycle-badge { background-color:#E6FCF5; color:#087F5B; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; border:1px solid #B2F2BB; display:inline-block; margin-top:4px; }
+    .cycle-badge.bear { background-color:#FFF5F5; color:#F04452; border-color:#FFD8A8; }
+    .relation-badge { background-color:#F3F0FF; color:#7950F2; padding:3px 6px; border-radius:4px; font-size:10px; font-weight:700; border:1px solid #E5DBFF; margin-left:6px; vertical-align: middle; }
+    
+    /* 기술적 지표 박스 */
     .tech-status-box { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
     .status-badge { flex: 1; min-width: 120px; padding: 12px 10px; border-radius: 12px; text-align: center; font-size: 13px; font-weight: 700; color: #4E5968; background: #F2F4F6; border: 1px solid #E5E8EB; }
     .status-badge.buy { background-color: #E8F3FF; color: #3182F6; border-color: #3182F6; }
     .status-badge.sell { background-color: #FFF1F1; color: #F04452; border-color: #F04452; }
     .status-badge.vol { background-color: #FFF8E1; color: #D9480F; border-color: #FFD8A8; }
     .status-badge.neu { background-color: #FFF9DB; color: #F08C00; border-color: #FFEC99; }
-    .tech-summary { background: #F2F4F6; padding: 10px; border-radius: 8px; font-size: 13px; color: #4E5968; margin-bottom: 10px; font-weight: 600; }
+    
     .ma-status-container { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
     .ma-status-badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #555; background-color: #F2F4F6; border: 1px solid #E5E8EB; }
-    .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; } 
+    .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; }
+
+    /* 재무 그리드 */
+    .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
+    .fund-item-v2 { text-align: center; }
+    .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
+    .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
+    .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
+
+    /* AI 뉴스 */
     .news-ai { background: #F3F9FE; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #D0EBFF; color: #333; }
     .ai-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; margin-bottom: 6px; }
     .ai-opinion-buy { background-color: #E8F3FF; color: #3182F6; border: 1px solid #3182F6; }
     .ai-opinion-sell { background-color: #FFF1F1; color: #F04452; border: 1px solid #F04452; }
     .ai-opinion-hold { background-color: #F2F4F6; color: #4E5968; border: 1px solid #4E5968; }
     .news-fallback { background: #FFF4E6; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #FFD8A8; color: #D9480F; font-weight: 600; }
+    
+    /* 뉴스 리스트 */
     .news-scroll-box { max-height: 200px; overflow-y: auto; border: 1px solid #F2F4F6; border-radius: 8px; padding: 10px; margin-top:5px; }
     .news-box { padding: 10px 0; border-bottom: 1px solid #F2F4F6; font-size: 13px; line-height: 1.4; }
     .news-link { color: #333; text-decoration: none; font-weight: 500; display: block; margin-bottom: 2px;}
     .news-link:hover { color: #3182F6; text-decoration: underline; }
     .news-date { font-size: 11px; color: #999; }
-    .metric-box { background: #F9FAFB; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #E5E8EB; height: 100%; display: flex; flex-direction: column; justify-content: center; }
-    .metric-title { font-size: 12px; color: #666; margin-bottom: 4px; }
-    .metric-value { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 2px;}
-    .metric-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 700; display: inline-block; margin-top: 4px; }
-    .stock-name { font-size: 20px; font-weight: 800; color: #333; margin-right: 6px; }
-    .stock-code { font-size: 14px; color: #8B95A1; }
-    .big-price { font-size: 24px; font-weight: 800; color: #333; margin-top: 4px; }
+
+    /* 전략 배지 */
+    .badge-clean { background-color:#F2F4F6; color:#4E5968; font-weight:700; padding:4px 8px; border-radius:6px; font-size:12px; display:inline-block; }
+
+    /* 수급 테이블 */
+    .investor-table-container { margin-top: 10px; border: 1px solid #F2F4F6; border-radius: 8px; overflow: hidden; overflow-x: auto; }
+    .investor-table { width: 100%; font-size: 11px; text-align: center; border-collapse: collapse; min-width: 300px; }
+    .investor-table th { background-color: #F9FAFB; padding: 6px; color: #666; font-weight: 600; border-bottom: 1px solid #E5E8EB; white-space: nowrap; }
+    .investor-table td { padding: 6px; border-bottom: 1px solid #F2F4F6; color: #333; }
+
+    /* 재무 테이블 */
     .fin-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; margin-bottom: 10px; border: 1px solid #E5E8EB; }
     .fin-table th { background-color: #F9FAFB; padding: 8px; border-bottom: 1px solid #E5E8EB; color: #4E5968; font-weight: 600; white-space: nowrap; }
     .fin-table td { padding: 8px; border-bottom: 1px solid #F2F4F6; color: #333; font-weight: 500; }
     .text-red { color: #F04452; font-weight: 700; }
     .text-blue { color: #3182F6; font-weight: 700; }
     .change-rate { font-size: 10px; color: #888; font-weight: 400; margin-left: 4px; }
-    .cycle-badge { background-color:#E6FCF5; color:#087F5B; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; border:1px solid #B2F2BB; display:inline-block; margin-top:4px; }
-    .cycle-badge.bear { background-color:#FFF5F5; color:#F04452; border-color:#FFD8A8; }
-    .relation-badge { background-color:#F3F0FF; color:#7950F2; padding:3px 6px; border-radius:4px; font-size:10px; font-weight:700; border:1px solid #E5DBFF; margin-left:6px; vertical-align: middle; }
-    .investor-table-container { margin-top: 10px; border: 1px solid #F2F4F6; border-radius: 8px; overflow: hidden; overflow-x: auto; }
-    .investor-table { width: 100%; font-size: 11px; text-align: center; border-collapse: collapse; min-width: 300px; }
-    .investor-table th { background-color: #F9FAFB; padding: 6px; color: #666; font-weight: 600; border-bottom: 1px solid #E5E8EB; white-space: nowrap; }
-    .investor-table td { padding: 6px; border-bottom: 1px solid #F2F4F6; color: #333; }
+
+    /* 매크로 지표 */
+    .metric-box { background: #F9FAFB; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #E5E8EB; height: 100%; display: flex; flex-direction: column; justify-content: center; }
+    .metric-title { font-size: 12px; color: #666; margin-bottom: 4px; }
+    .metric-value { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 2px;}
+    .metric-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 700; display: inline-block; margin-top: 4px; }
+
+    /* 포트폴리오 수익률 */
     .profit-positive { color: #F04452; font-weight: 800; font-size: 20px; }
     .profit-negative { color: #3182F6; font-weight: 800; font-size: 20px; }
-    .port-label { font-size: 11px; color: #888; margin-top: 4px; }
+
+    /* 전략 가이드 (오버드라이브 등) */
     .strategy-container { background-color: #F9FAFB; border-radius: 12px; padding: 12px; margin-top: 12px; border: 1px solid #E5E8EB; }
     .strategy-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .strategy-title { font-size: 12px; font-weight: 700; color: #4E5968; }
@@ -64,10 +96,10 @@ def get_css_style():
     .progress-fill.overdrive { background: linear-gradient(90deg, #FFD700 0%, #FDBB2D 50%, #8A2BE2 100%); }
     .progress-fill.rescue { background: linear-gradient(90deg, #a1c4fd 0%, #c2e9fb 100%); }
     .price-guide { display: flex; justify-content: space-between; font-size: 11px; color: #666; font-weight: 500; }
-    .price-guide strong { color: #333; }
     .action-badge-default { background-color:#eee; color:#333; padding:4px 10px; border-radius:12px; font-weight:700; font-size:12px; }
     .action-badge-strong { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; box-shadow: 0 2px 6px rgba(118, 75, 162, 0.4); animation: pulse 2s infinite; }
     .action-badge-rescue { background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; }
+
     @media screen and (max-width: 768px) {
         .toss-card { padding: 16px; border-radius: 20px; }
         .stock-name { font-size: 18px; }
@@ -78,11 +110,6 @@ def get_css_style():
         .status-badge { padding: 10px 8px; font-size: 12px; }
         .fin-table { font-size: 11px; }
         .fin-table th, .fin-table td { padding: 6px 4px; }
-        .toss-card > div:nth-child(2) { gap: 4px !important; }
-        .toss-card > div:nth-child(2) > div { font-size: 11px !important; padding: 6px 2px !important; }
-        .metric-box { padding: 10px; margin-bottom: 5px; }
-        .metric-value { font-size: 14px; }
-        .stTabs [data-baseweb="tab"] { font-size: 14px; padding: 10px; }
     }
 </style>
 """
@@ -220,13 +247,12 @@ def create_portfolio_card_html(res):
 """
 
 def render_signal_lights(rsi, macd, macd_sig):
-    rsi_cls = "buy" if rsi <= 35 else ("sell" if rsi >= 70 else "neu")
-    rsi_icon = "🟢" if rsi <= 35 else ("🔴" if rsi >= 70 else "🟡")
-    rsi_msg = "저평가" if rsi <= 35 else ("과열권" if rsi >= 70 else "중립")
-    
-    macd_cls = "buy" if macd > macd_sig else "sell"
-    macd_icon = "🟢" if macd > macd_sig else "🔴"
-    macd_msg = "상승 추세" if macd > macd_sig else "하락 반전"
+    if rsi <= 35: rsi_cls = "buy"; rsi_icon = "🟢"; rsi_msg = "저평가 (싸다!)"
+    elif rsi >= 70: rsi_cls = "sell"; rsi_icon = "🔴"; rsi_msg = "과열권 (비싸다!)"
+    else: rsi_cls = "neu"; rsi_icon = "🟡"; rsi_msg = "중립 (특이사항 없음)"
+
+    if macd > macd_sig: macd_cls = "buy"; macd_icon = "🟢"; macd_msg = "상승 추세 (골든크로스)"
+    else: macd_cls = "sell"; macd_icon = "🔴"; macd_msg = "하락 반전 (데드크로스)"
 
     st.markdown(f"""
     <div class='tech-status-box'>
@@ -237,15 +263,18 @@ def render_signal_lights(rsi, macd, macd_sig):
 
 def render_tech_metrics(stoch, vol_ratio):
     k = stoch['k']
-    stoch_cls = "buy" if k < 20 else ("sell" if k > 80 else "neu")
-    stoch_txt = f"🟢 침체" if k < 20 else (f"🔴 과열" if k > 80 else f"⚪ 중립")
-    vol_cls = "vol" if vol_ratio >= 2.0 else ("buy" if vol_ratio >= 1.2 else "neu")
-    vol_txt = f"🔥 폭발" if vol_ratio >= 2.0 else (f"📈 증가" if vol_ratio >= 1.2 else "☁️ 평이")
-    
+    if k < 20: stoch_txt = f"🟢 침체 구간 ({k:.1f}%)"; stoch_cls = "buy"
+    elif k > 80: stoch_txt = f"🔴 과열 구간 ({k:.1f}%)"; stoch_cls = "sell"
+    else: stoch_txt = f"⚪ 중립 구간 ({k:.1f}%)"; stoch_cls = "neu"
+
+    if vol_ratio >= 2.0: vol_txt = f"🔥 거래량 폭발 ({vol_ratio*100:.0f}%)"; vol_cls = "vol"
+    elif vol_ratio >= 1.2: vol_txt = f"📈 거래량 증가 ({vol_ratio*100:.0f}%)"; vol_cls = "buy"
+    else: vol_txt = "☁️ 거래량 평이"; vol_cls = "neu"
+
     st.markdown(f"""
     <div class='tech-status-box'>
-        <div class='status-badge {stoch_cls}'><div>📉 스토캐스틱</div><div style='font-size:15px; margin-top:4px; font-weight:800;'>{stoch_txt} ({k:.0f}%)</div></div>
-        <div class='status-badge {vol_cls}'><div>📢 거래강도(전일비)</div><div style='font-size:15px; margin-top:4px; font-weight:800;'>{vol_txt} ({vol_ratio*100:.0f}%)</div></div>
+        <div class='status-badge {stoch_cls}'><div>📉 스토캐스틱</div><div style='font-size:15px; margin-top:4px; font-weight:800;'>{stoch_txt}</div></div>
+        <div class='status-badge {vol_cls}'><div>📢 거래강도(전일비)</div><div style='font-size:15px; margin-top:4px; font-weight:800;'>{vol_txt}</div></div>
     </div>
     """, unsafe_allow_html=True)
 
