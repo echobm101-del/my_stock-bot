@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import time
-import concurrent.futures
 
 # 모듈 불러오기
 import config
@@ -53,13 +52,12 @@ with tab1:
     if st.session_state.get('preview_list'):
         st.markdown(f"### 🔍 '{st.session_state.get('current_theme_name','')}' 심층 분석")
         
-        # [수정됨] RuntimeError 해결을 위해 executor를 여기서 생성
+        # [수정됨] RuntimeError 방지를 위해 순차 처리로 변경
         preview_results = []
-        with st.spinner("🚀 고속 AI 분석 엔진 & 백테스팅 가동 중..."):
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(dl.analyze_pro, item['code'], item['name'], item.get('relation_tag')) for item in st.session_state['preview_list']]
-                for f in concurrent.futures.as_completed(futures):
-                    if f.result(): preview_results.append(f.result())
+        with st.spinner("🚀 AI 분석 엔진 가동 중..."):
+            for item in st.session_state['preview_list']:
+                res = dl.analyze_pro(item['code'], item['name'], item.get('relation_tag'))
+                if res: preview_results.append(res)
             preview_results.sort(key=lambda x: x['score'], reverse=True)
             
         for res in preview_results:
@@ -110,13 +108,12 @@ with tab2:
     portfolio = st.session_state['data_store'].get('portfolio', {})
     if not portfolio: st.info("보유 종목이 없습니다.")
     else:
-        # [수정됨] RuntimeError 해결
+        # [수정됨] RuntimeError 방지를 위해 순차 처리로 변경
         with st.spinner("보유 종목 분석 중..."):
             port_results = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(dl.analyze_pro, info['code'], name, None, float(info.get('buy_price',0))) for name, info in portfolio.items()]
-                for f in concurrent.futures.as_completed(futures):
-                    if f.result(): port_results.append(f.result())
+            for name, info in portfolio.items():
+                res = dl.analyze_pro(info['code'], name, None, float(info.get('buy_price',0)))
+                if res: port_results.append(res)
             
         for res in port_results:
             st.markdown(ui.create_portfolio_card_html(res), unsafe_allow_html=True)
@@ -126,7 +123,6 @@ with tab2:
                     utils.update_github_file(st.session_state['data_store'])
                     st.rerun()
                 
-                # [복구됨] 누락되었던 상세 분석 UI 호출
                 col1, col2 = st.columns(2)
                 with col1:
                     ui.render_tech_metrics(res['stoch'], res['vol_ratio'])
@@ -147,13 +143,12 @@ with tab3:
     watchlist = st.session_state['data_store'].get('watchlist', {})
     if not watchlist: st.info("관심 종목이 없습니다.")
     else:
-        # [수정됨] RuntimeError 해결
+        # [수정됨] RuntimeError 방지를 위해 순차 처리로 변경
         with st.spinner("관심 종목 분석 중..."):
             wl_results = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(dl.analyze_pro, info['code'], name) for name, info in watchlist.items()]
-                for f in concurrent.futures.as_completed(futures):
-                    if f.result(): wl_results.append(f.result())
+            for name, info in watchlist.items():
+                res = dl.analyze_pro(info['code'], name)
+                if res: wl_results.append(res)
             wl_results.sort(key=lambda x: x['score'], reverse=True)
             
         for res in wl_results:
@@ -173,7 +168,6 @@ with tab3:
                         utils.update_github_file(st.session_state['data_store'])
                         st.rerun()
                 
-                # [복구됨] 누락되었던 상세 분석 UI 호출
                 col1, col2 = st.columns(2)
                 with col1:
                     st.write("###### 📈 기술적 분석")
