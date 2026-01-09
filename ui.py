@@ -36,58 +36,41 @@ def get_css_style():
     
     .ma-status-container { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
     .ma-status-badge { font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700; color: #555; background-color: #F2F4F6; border: 1px solid #E5E8EB; }
-    .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; }
-
-    /* 재무 그리드 */
-    .fund-grid-v2 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; margin-top: 10px; background-color: #F9FAFB; padding: 15px; border-radius: 12px; }
-    .fund-item-v2 { text-align: center; }
-    .fund-title-v2 { font-size: 12px; color: #8B95A1; margin-bottom: 5px; }
-    .fund-value-v2 { font-size: 18px; font-weight: 800; color: #333D4B; }
-    .fund-desc-v2 { font-size: 11px; font-weight: 600; margin-top: 4px; display: inline-block; padding: 2px 6px; border-radius: 4px;}
-
-    /* AI 뉴스 */
+    .ma-status-badge.on { background-color: #FFF1F1; color: #F04452; border-color: #F04452; } 
     .news-ai { background: #F3F9FE; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #D0EBFF; color: #333; }
     .ai-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; margin-bottom: 6px; }
     .ai-opinion-buy { background-color: #E8F3FF; color: #3182F6; border: 1px solid #3182F6; }
     .ai-opinion-sell { background-color: #FFF1F1; color: #F04452; border: 1px solid #F04452; }
     .ai-opinion-hold { background-color: #F2F4F6; color: #4E5968; border: 1px solid #4E5968; }
     .news-fallback { background: #FFF4E6; padding: 15px; border-radius: 12px; margin-bottom: 10px; border: 1px solid #FFD8A8; color: #D9480F; font-weight: 600; }
-    
-    /* 뉴스 리스트 */
     .news-scroll-box { max-height: 200px; overflow-y: auto; border: 1px solid #F2F4F6; border-radius: 8px; padding: 10px; margin-top:5px; }
     .news-box { padding: 10px 0; border-bottom: 1px solid #F2F4F6; font-size: 13px; line-height: 1.4; }
     .news-link { color: #333; text-decoration: none; font-weight: 500; display: block; margin-bottom: 2px;}
     .news-link:hover { color: #3182F6; text-decoration: underline; }
     .news-date { font-size: 11px; color: #999; }
-
-    /* 전략 배지 */
-    .badge-clean { background-color:#F2F4F6; color:#4E5968; font-weight:700; padding:4px 8px; border-radius:6px; font-size:12px; display:inline-block; }
-
-    /* 수급 테이블 */
-    .investor-table-container { margin-top: 10px; border: 1px solid #F2F4F6; border-radius: 8px; overflow: hidden; overflow-x: auto; }
-    .investor-table { width: 100%; font-size: 11px; text-align: center; border-collapse: collapse; min-width: 300px; }
-    .investor-table th { background-color: #F9FAFB; padding: 6px; color: #666; font-weight: 600; border-bottom: 1px solid #E5E8EB; white-space: nowrap; }
-    .investor-table td { padding: 6px; border-bottom: 1px solid #F2F4F6; color: #333; }
-
-    /* 재무 테이블 */
+    .metric-box { background: #F9FAFB; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #E5E8EB; height: 100%; display: flex; flex-direction: column; justify-content: center; }
+    .metric-title { font-size: 12px; color: #666; margin-bottom: 4px; }
+    .metric-value { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 2px;}
+    .metric-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 700; display: inline-block; margin-top: 4px; }
+    .stock-name { font-size: 20px; font-weight: 800; color: #333; margin-right: 6px; }
+    .stock-code { font-size: 14px; color: #8B95A1; }
+    .big-price { font-size: 24px; font-weight: 800; color: #333; margin-top: 4px; }
     .fin-table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: center; margin-bottom: 10px; border: 1px solid #E5E8EB; }
     .fin-table th { background-color: #F9FAFB; padding: 8px; border-bottom: 1px solid #E5E8EB; color: #4E5968; font-weight: 600; white-space: nowrap; }
     .fin-table td { padding: 8px; border-bottom: 1px solid #F2F4F6; color: #333; font-weight: 500; }
     .text-red { color: #F04452; font-weight: 700; }
     .text-blue { color: #3182F6; font-weight: 700; }
     .change-rate { font-size: 10px; color: #888; font-weight: 400; margin-left: 4px; }
-
-    /* 매크로 지표 */
-    .metric-box { background: #F9FAFB; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #E5E8EB; height: 100%; display: flex; flex-direction: column; justify-content: center; }
-    .metric-title { font-size: 12px; color: #666; margin-bottom: 4px; }
-    .metric-value { font-size: 16px; font-weight: bold; color: #333; margin-bottom: 2px;}
-    .metric-badge { font-size: 11px; padding: 2px 6px; border-radius: 4px; font-weight: 700; display: inline-block; margin-top: 4px; }
-
-    /* 포트폴리오 수익률 */
+    .cycle-badge { background-color:#E6FCF5; color:#087F5B; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:bold; border:1px solid #B2F2BB; display:inline-block; margin-top:4px; }
+    .cycle-badge.bear { background-color:#FFF5F5; color:#F04452; border-color:#FFD8A8; }
+    .relation-badge { background-color:#F3F0FF; color:#7950F2; padding:3px 6px; border-radius:4px; font-size:10px; font-weight:700; border:1px solid #E5DBFF; margin-left:6px; vertical-align: middle; }
+    .investor-table-container { margin-top: 10px; border: 1px solid #F2F4F6; border-radius: 8px; overflow: hidden; overflow-x: auto; }
+    .investor-table { width: 100%; font-size: 11px; text-align: center; border-collapse: collapse; min-width: 300px; }
+    .investor-table th { background-color: #F9FAFB; padding: 6px; color: #666; font-weight: 600; border-bottom: 1px solid #E5E8EB; white-space: nowrap; }
+    .investor-table td { padding: 6px; border-bottom: 1px solid #F2F4F6; color: #333; }
     .profit-positive { color: #F04452; font-weight: 800; font-size: 20px; }
     .profit-negative { color: #3182F6; font-weight: 800; font-size: 20px; }
-
-    /* 전략 가이드 (오버드라이브 등) */
+    .port-label { font-size: 11px; color: #888; margin-top: 4px; }
     .strategy-container { background-color: #F9FAFB; border-radius: 12px; padding: 12px; margin-top: 12px; border: 1px solid #E5E8EB; }
     .strategy-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
     .strategy-title { font-size: 12px; font-weight: 700; color: #4E5968; }
@@ -96,10 +79,10 @@ def get_css_style():
     .progress-fill.overdrive { background: linear-gradient(90deg, #FFD700 0%, #FDBB2D 50%, #8A2BE2 100%); }
     .progress-fill.rescue { background: linear-gradient(90deg, #a1c4fd 0%, #c2e9fb 100%); }
     .price-guide { display: flex; justify-content: space-between; font-size: 11px; color: #666; font-weight: 500; }
+    .price-guide strong { color: #333; }
     .action-badge-default { background-color:#eee; color:#333; padding:4px 10px; border-radius:12px; font-weight:700; font-size:12px; }
     .action-badge-strong { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; box-shadow: 0 2px 6px rgba(118, 75, 162, 0.4); animation: pulse 2s infinite; }
     .action-badge-rescue { background: linear-gradient(135deg, #89f7fe 0%, #66a6ff 100%); color:#fff; padding:6px 14px; border-radius:16px; font-weight:800; font-size:12px; }
-
     @media screen and (max-width: 768px) {
         .toss-card { padding: 16px; border-radius: 20px; }
         .stock-name { font-size: 18px; }
