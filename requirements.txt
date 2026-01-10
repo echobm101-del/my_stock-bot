@@ -8,5 +8,3 @@ pykrx
 feedparser
 numpy
 setuptools
-gspread
-oauth2client
