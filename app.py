@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import requests
 import FinanceDataReader as fdr
 import time
-import data_loader as db  # 기존에 사용하시던 모듈 그대로 유지
+import google.generativeai as genai  # 👈 공식 라이브러리 사용
+import data_loader as db
 
 st.set_page_config(page_title="Quant Sniper (Final)", page_icon="🎯", layout="wide")
 
@@ -15,33 +15,30 @@ if 'data_store' not in st.session_state:
     except Exception as e:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
 
-# 2. AI 분석 함수 (모델 변경: gemini-1.5-flash)
-def get_ai_summary_http(name, price, trend):
+# 2. AI 분석 함수 (공식 SDK 사용 방식으로 변경)
+def get_ai_summary_genai(name, price, trend):
+    # API 키 확인
     if "GEMINI_API_KEY" not in st.secrets:
-        return "⚠️ API 키 없음: secrets에 GEMINI_API_KEY를 설정해주세요."
-    
-    api_key = st.secrets["GEMINI_API_KEY"]
-    
-    # 🔥 [핵심 수정 완료] gemini-pro -> gemini-1.5-flash
-    # 이제 404 에러가 뜨지 않을 것입니다.
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-    
-    headers = {'Content-Type': 'application/json'}
-    payload = {
-        "contents": [{
-            "parts": [{"text": f"주식 '{name}'(현재가 {price}원, 추세 {trend}) 3줄 투자 요약 (친절하게)"}]
-        }]
-    }
-    
+        return "⚠️ API 키가 설정되지 않았습니다."
+
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
-        if response.status_code == 200:
-            return response.json()['candidates'][0]['content']['parts'][0]['text']
-        else:
-            # 에러 발생 시 상세 메시지 출력
-            return f"❌ 구글 응답 ({response.status_code}): {response.text}"
+        # 라이브러리 설정
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        
+        # 모델 설정 (가장 최신 안정화 모델)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        
+        # 질문 작성
+        prompt = f"주식 '{name}'(현재가 {price}원, 추세 {trend})에 대해 투자 관점에서 3줄로 친절하게 요약해줘."
+        
+        # AI에게 질문 (HTTP 주소 신경 쓸 필요 없음)
+        response = model.generate_content(prompt)
+        
+        return response.text
+        
     except Exception as e:
-        return f"❌ 통신 실패: {str(e)}"
+        # 에러 발생 시 메시지 반환
+        return f"❌ AI 분석 실패: {str(e)}"
 
 # 3. 주식 데이터 분석
 @st.cache_data(ttl=3600)
@@ -104,13 +101,14 @@ if 'result' in st.session_state:
                 st.metric("AI 점수", f"{res['score']}점")
             
             st.info("🤖 AI 분석 결과")
-            # 여기서 AI 함수 호출
-            ai_msg = get_ai_summary_http(res['name'], res['price'], res['trend'])
+            
+            # 여기서 바뀐 함수 호출
+            ai_msg = get_ai_summary_genai(res['name'], res['price'], res['trend'])
             
             if "❌" in ai_msg:
-                st.error(ai_msg) 
+                st.error(ai_msg)
             else:
-                st.write(ai_msg) 
+                st.write(ai_msg)
 
             if st.button("📌 관심종목 추가"):
                 if db.add_stock_to_db("watchlist", res['name'], res['code']):
