@@ -3,9 +3,10 @@ import pandas as pd
 import datetime
 import FinanceDataReader as fdr
 import time
-import google.generativeai as genai  # 👈 공식 라이브러리 사용
-import data_loader as db
+import google.generativeai as genai
+import data_loader as db  # 기존에 사용하시던 모듈
 
+# 페이지 설정
 st.set_page_config(page_title="Quant Sniper (Final)", page_icon="🎯", layout="wide")
 
 # 1. 데이터 저장소 로드
@@ -15,9 +16,8 @@ if 'data_store' not in st.session_state:
     except Exception as e:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
 
-# 2. AI 분석 함수 (공식 SDK 사용 방식으로 변경)
-def get_ai_summary_genai(name, price, trend):
-    # API 키 확인
+# 2. AI 분석 함수 (안전장치 포함: Flash 실패 시 Pro로 자동 전환)
+def get_ai_summary_safe(name, price, trend):
     if "GEMINI_API_KEY" not in st.secrets:
         return "⚠️ API 키가 설정되지 않았습니다."
 
@@ -25,22 +25,28 @@ def get_ai_summary_genai(name, price, trend):
         # 라이브러리 설정
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        # 모델 설정 (가장 최신 안정화 모델)
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        
-        # 질문 작성
         prompt = f"주식 '{name}'(현재가 {price}원, 추세 {trend})에 대해 투자 관점에서 3줄로 친절하게 요약해줘."
-        
-        # AI에게 질문 (HTTP 주소 신경 쓸 필요 없음)
-        response = model.generate_content(prompt)
-        
-        return response.text
-        
-    except Exception as e:
-        # 에러 발생 시 메시지 반환
-        return f"❌ AI 분석 실패: {str(e)}"
 
-# 3. 주식 데이터 분석
+        # [1차 시도] 최신 모델 (1.5 Flash)
+        try:
+            model = genai.GenerativeModel("gemini-1.5-flash")
+            response = model.generate_content(prompt)
+            return response.text
+        
+        except Exception as e_flash:
+            # [2차 시도] 실패 시 구형 모델 (Gemini Pro) - 예비용
+            try:
+                model = genai.GenerativeModel("gemini-pro")
+                response = model.generate_content(prompt)
+                return f"{response.text}" 
+            except Exception as e_pro:
+                # 둘 다 안 될 경우
+                return f"❌ 분석 실패: 서버의 라이브러리 버전을 확인해주세요. ({str(e_flash)})"
+
+    except Exception as e:
+        return f"❌ 시스템 오류: {str(e)}"
+
+# 3. 주식 데이터 분석 함수
 @st.cache_data(ttl=3600)
 def get_stock_info(keyword):
     try:
@@ -48,6 +54,7 @@ def get_stock_info(keyword):
         code = None
         name = keyword
         
+        # 종목명/코드 찾기
         exact = df_list[df_list['Name'] == keyword]
         if not exact.empty:
             code = exact.iloc[0]['Code']
@@ -59,9 +66,11 @@ def get_stock_info(keyword):
         
         if not code: return "검색 실패: 종목을 찾을 수 없습니다."
 
+        # 데이터 수집
         df = fdr.DataReader(code, datetime.datetime.now() - datetime.timedelta(days=365))
         if df.empty: return "데이터 부족"
 
+        # 지표 계산
         df['MA20'] = df['Close'].rolling(20).mean()
         curr = df.iloc[-1]
         prev = df.iloc[-2]
@@ -76,14 +85,14 @@ def get_stock_info(keyword):
     except Exception as e:
         return f"시스템 오류: {str(e)}"
 
-# 4. 화면 구성
+# 4. 화면 구성 (UI)
 st.title("🎯 Quant Sniper (최종)")
 
 with st.sidebar:
     keyword = st.text_input("종목명", placeholder="삼성전자")
     if st.button("분석 시작"):
         if keyword:
-            with st.spinner("조회 중..."):
+            with st.spinner("데이터 조회 및 AI 분석 중..."):
                 st.session_state['result'] = get_stock_info(keyword)
 
 if 'result' in st.session_state:
@@ -102,8 +111,8 @@ if 'result' in st.session_state:
             
             st.info("🤖 AI 분석 결과")
             
-            # 여기서 바뀐 함수 호출
-            ai_msg = get_ai_summary_genai(res['name'], res['price'], res['trend'])
+            # 여기서 안전장치 함수 호출
+            ai_msg = get_ai_summary_safe(res['name'], res['price'], res['trend'])
             
             if "❌" in ai_msg:
                 st.error(ai_msg)
