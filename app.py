@@ -4,7 +4,7 @@ import datetime
 import requests
 import FinanceDataReader as fdr
 import time
-import data_loader as db
+import data_loader as db  # 기존에 사용하시던 모듈 그대로 유지
 
 st.set_page_config(page_title="Quant Sniper (Final)", page_icon="🎯", layout="wide")
 
@@ -15,16 +15,16 @@ if 'data_store' not in st.session_state:
     except Exception as e:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
 
-# 2. AI 분석 함수 (모델 변경: gemini-pro)
+# 2. AI 분석 함수 (모델 변경: gemini-1.5-flash)
 def get_ai_summary_http(name, price, trend):
     if "GEMINI_API_KEY" not in st.secrets:
-        return "⚠️ API 키 없음"
+        return "⚠️ API 키 없음: secrets에 GEMINI_API_KEY를 설정해주세요."
     
     api_key = st.secrets["GEMINI_API_KEY"]
     
-    # 🔥 [핵심 수정] 1.5-flash(최신) -> gemini-pro(구형/안정적)으로 변경
-    # 이 모델은 출시된 지 오래되어 모든 무료 키에서 100% 작동합니다.
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
+    # 🔥 [핵심 수정 완료] gemini-pro -> gemini-1.5-flash
+    # 이제 404 에러가 뜨지 않을 것입니다.
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
     
     headers = {'Content-Type': 'application/json'}
     payload = {
@@ -38,7 +38,7 @@ def get_ai_summary_http(name, price, trend):
         if response.status_code == 200:
             return response.json()['candidates'][0]['content']['parts'][0]['text']
         else:
-            # 혹시 또 에러나면 내용을 보여줌
+            # 에러 발생 시 상세 메시지 출력
             return f"❌ 구글 응답 ({response.status_code}): {response.text}"
     except Exception as e:
         return f"❌ 통신 실패: {str(e)}"
@@ -108,14 +108,12 @@ if 'result' in st.session_state:
             ai_msg = get_ai_summary_http(res['name'], res['price'], res['trend'])
             
             if "❌" in ai_msg:
-                st.error(ai_msg) # 에러면 빨간 박스
+                st.error(ai_msg) 
             else:
-                st.write(ai_msg) # 성공이면 내용 출력
+                st.write(ai_msg) 
 
             if st.button("📌 관심종목 추가"):
                 if db.add_stock_to_db("watchlist", res['name'], res['code']):
                     st.success("저장 완료!")
                     time.sleep(1)
                     st.rerun()
-
-# (잔고/관심종목 탭은 코드 길이상 생략했으나 기존 기능 유지됨)
