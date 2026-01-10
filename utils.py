@@ -1,82 +1,48 @@
+import FinanceDataReader as fdr
+import pandas as pd
+import datetime
 import requests
 import json
-import base64
-import datetime
-import re
-import pandas as pd
-import config  # config.py 불러오기
 
-def parse_relative_date(date_text):
-    """'1시간 전', '3일 전' 등의 텍스트를 datetime 객체로 변환"""
-    now = datetime.datetime.now()
-    date_text = str(date_text).strip()
+# 1. 기술적 분석 (기존 코드의 핵심 로직)
+def analyze_basic(code, name, my_buy_price=0):
     try:
-        if "분 전" in date_text:
-            minutes = int(re.search(r'(\d+)', date_text).group(1))
-            return now - datetime.timedelta(minutes=minutes)
-        elif "시간 전" in date_text:
-            hours = int(re.search(r'(\d+)', date_text).group(1))
-            return now - datetime.timedelta(hours=hours)
-        elif "일 전" in date_text:
-            days = int(re.search(r'(\d+)', date_text).group(1))
-            return now - datetime.timedelta(days=days)
-        elif "어제" in date_text:
-            return now - datetime.timedelta(days=1)
-        else:
-            clean_date = date_text.replace('.', '-').rstrip('-')
-            return pd.to_datetime(clean_date)
-    except:
-        return now - datetime.timedelta(days=365)
-
-def round_to_tick(price):
-    """주식 호가 단위 반올림"""
-    if price < 2000: return int(round(price, -1))
-    elif price < 5000: return int(round(price / 5) * 5)
-    elif price < 20000: return int(round(price, -1))
-    elif price < 50000: return int(round(price / 50) * 50)
-    elif price < 200000: return int(round(price, -2))
-    elif price < 500000: return int(round(price / 500) * 500)
-    else: return int(round(price, -3))
-
-def load_from_github():
-    try:
-        token = config.USER_GITHUB_TOKEN
-        if not token: return {"portfolio": {}, "watchlist": {}}
-        url = f"https://api.github.com/repos/{config.REPO_OWNER}/{config.REPO_NAME}/contents/{config.FILE_PATH}"
-        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        r = requests.get(url, headers=headers)
-        if r.status_code == 200:
-            content = base64.b64decode(r.json()['content']).decode('utf-8')
-            data = json.loads(content)
-            if "portfolio" not in data and "watchlist" not in data:
-                return {"portfolio": {}, "watchlist": data}
-            return data
-        return {"portfolio": {}, "watchlist": {}}
-    except: return {"portfolio": {}, "watchlist": {}}
-
-def update_github_file(new_data):
-    try:
-        token = config.USER_GITHUB_TOKEN
-        if not token: return False
-        url = f"https://api.github.com/repos/{config.REPO_OWNER}/{config.REPO_NAME}/contents/{config.FILE_PATH}"
-        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        r_get = requests.get(url, headers=headers)
-        sha = r_get.json().get('sha') if r_get.status_code == 200 else None
+        # 1년치 데이터 가져오기
+        df = fdr.DataReader(code, datetime.datetime.now() - datetime.timedelta(days=365))
+        if df.empty: return None
         
-        json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
-        b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
-        data = {"message": "Update data via Streamlit App (V50.14)", "content": b64_content}
-        if sha: data["sha"] = sha
-        r_put = requests.put(url, headers=headers, json=data)
-        return r_put.status_code in [200, 201]
+        curr = df.iloc[-1]
+        prev = df.iloc[-2]
+        
+        # 보조지표 계산 (간소화 버전)
+        ma20 = df['Close'].rolling(20).mean().iloc[-1]
+        
+        # 점수 계산 로직
+        score = 50
+        trend_txt = "관망세"
+        
+        if curr['Close'] > ma20:
+            score += 20
+            trend_txt = "상승 추세 (20일선 위)"
+        else:
+            score -= 10
+            trend_txt = "하락/조정세"
+            
+        change_rate = (curr['Close'] - prev['Close']) / prev['Close'] * 100
+        
+        return {
+            "code": code,
+            "name": name,
+            "price": int(curr['Close']),
+            "change_rate": change_rate,
+            "score": score,
+            "history": df, # 차트 그리기용
+            "trend_txt": trend_txt,
+            "strategy": {"action": "매수" if score >= 70 else "관망"},
+            "my_buy_price": float(my_buy_price) if my_buy_price else 0
+        }
     except Exception as e:
-        print(f"GitHub Save Error: {e}")
-        return False
+        print(f"Error analyzing {name}: {e}")
+        return None
 
-def send_telegram_msg(msg):
-    try:
-        token = config.USER_TELEGRAM_TOKEN
-        chat_id = config.USER_CHAT_ID
-        if token and chat_id:
-            requests.post(f"https://api.telegram.org/bot{token}/sendMessage", data={"chat_id": chat_id, "text": msg})
-    except: pass
+# 원래 있던 AI 뉴스 분석 함수 등은 여기에 계속 추가하면 됩니다.
