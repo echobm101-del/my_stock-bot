@@ -1,4 +1,3 @@
-import data_loader as db
 import streamlit as st
 import FinanceDataReader as fdr
 import pandas as pd
@@ -1779,4 +1778,5 @@ with st.sidebar:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
         st.session_state['preview_list'] = []
         st.rerun()
+
 
