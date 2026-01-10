@@ -11,7 +11,7 @@ import ui
 # 1. 페이지 설정
 st.set_page_config(page_title="Quant Sniper AI", page_icon="💎", layout="wide")
 
-# 스타일 적용 (여기서 HTML 렌더링 준비)
+# 스타일 적용
 try:
     st.markdown(ui.get_css(), unsafe_allow_html=True)
 except:
@@ -35,7 +35,6 @@ with st.sidebar:
     if submit and keyword:
         st.info(f"'{keyword}' 분석 중...")
         try:
-            # utils 함수 호출
             result = utils.analyze_basic(keyword, keyword)
             if result:
                 st.session_state['preview_list'] = [result]
@@ -58,7 +57,7 @@ with tab1:
     if st.session_state['preview_list']:
         st.markdown("### 🔎 분석 결과")
         for item in st.session_state['preview_list']:
-            # 🔥 [핵심 수정] HTML을 'unsafe_allow_html=True'로 그려줍니다!
+            # 🔥 [여기가 핵심!] unsafe_allow_html=True가 있어야 카드가 그려집니다.
             st.markdown(ui.create_watchlist_card_html(item), unsafe_allow_html=True)
             
             if st.button(f"📌 관심종목 등록 ({item['name']})", key=f"add_{item['code']}"):
