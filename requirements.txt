@@ -11,3 +11,5 @@ setuptools
 google-generativeai
 opendartreader
 yfinance
+gspread
+oauth2client
