@@ -13,3 +13,4 @@ opendartreader
 yfinance
 gspread
 oauth2client
+google-generativeai
