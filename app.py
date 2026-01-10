@@ -1,13 +1,13 @@
 import streamlit as st
 import pandas as pd
 import datetime
-import google.generativeai as genai
+import requests # <--- 라이브러리 대신 직접 요청을 보내는 도구
 import FinanceDataReader as fdr
 import time
 import data_loader as db
 
 # 1. 설정
-st.set_page_config(page_title="Quant Sniper", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Quant Sniper", page_icon="🎯", layout="wide")
 
 if 'data_store' not in st.session_state:
     try:
@@ -15,25 +15,41 @@ if 'data_store' not in st.session_state:
     except:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
 
-# 2. AI 및 분석 함수
-def get_ai_summary(name, price, trend):
+# 2. AI 분석 함수 (HTTP 직접 요청 방식 - 에러 확률 0% 도전)
+def get_ai_summary_http(name, price, trend):
+    # 키 확인
     if "GEMINI_API_KEY" not in st.secrets:
         return "⚠️ Secrets에 GEMINI_API_KEY가 없습니다."
     
+    api_key = st.secrets["GEMINI_API_KEY"]
+    
+    # 1.5 Flash 모델 URL (직접 타격)
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    
+    # 보낼 편지 내용
+    headers = {'Content-Type': 'application/json'}
+    payload = {
+        "contents": [{
+            "parts": [{"text": f"주식 종목 '{name}'(현재가 {price}원, 추세 {trend})에 대해 투자자에게 도움이 되는 3줄 요약 분석을 해줘. 말투는 친절하게."}]
+        }]
+    }
+    
     try:
-        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        # 최신 라이브러리(0.7.0 이상)에서는 이 모델이 가장 잘 돌아갑니다.
-        model = genai.GenerativeModel('gemini-1.5-flash') 
+        # 직접 전송
+        response = requests.post(url, headers=headers, json=payload)
         
-        prompt = f"""
-        주식 전문가로서 '{name}'(현재가 {price}원, 추세: {trend})을 분석해줘.
-        [조건] 3줄 요약. 1.현재상황 2.기술적분석 3.매수/관망 의견.
-        """
-        response = model.generate_content(prompt)
-        return response.text
+        # 결과 받기
+        if response.status_code == 200:
+            data = response.json()
+            return data['candidates'][0]['content']['parts'][0]['text']
+        else:
+            # 에러가 나면 진짜 에러 메시지를 보여줌 (숨기지 않음!)
+            return f"❌ 구글 연결 실패 ({response.status_code}):\n{response.text}"
+            
     except Exception as e:
-        return f"분석 대기 중... (잠시 후 다시 시도해주세요)"
+        return f"❌ 통신 오류: {str(e)}"
 
+# 3. 주식 데이터 분석 함수
 def analyze_stock(keyword):
     try:
         df_list = fdr.StockListing('KRX')
@@ -70,8 +86,8 @@ def analyze_stock(keyword):
     except:
         return None
 
-# 3. 화면 구성
-st.title("📈 Quant Sniper (Final)")
+# 4. 화면 구성
+st.title("🎯 Quant Sniper (HTTP 버전)")
 
 with st.sidebar:
     st.header("🔍 종목 검색")
@@ -93,8 +109,16 @@ with tab1:
             with c2:
                 st.metric("점수", f"{res['score']}점")
             
-            st.info("🤖 AI 분석 결과")
-            st.write(get_ai_summary(res['name'], res['price'], res['trend']))
+            # AI 분석 섹션
+            st.info("🤖 AI가 분석 중입니다... (직접 호출)")
+            # 여기서 위에서 만든 HTTP 함수를 부릅니다.
+            ai_msg = get_ai_summary_http(res['name'], res['price'], res['trend'])
+            
+            # 결과가 에러면 빨간색, 성공이면 일반 텍스트
+            if "❌" in ai_msg:
+                st.error(ai_msg)
+            else:
+                st.write(ai_msg)
 
             if st.button("📌 관심종목 추가"):
                 if db.add_stock_to_db("watchlist", res['name'], res['code']):
