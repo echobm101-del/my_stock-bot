@@ -7,3 +7,4 @@ altair
 pykrx
 feedparser
 numpy
+setuptools
