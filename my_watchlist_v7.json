@@ -28,14 +28,12 @@
             "buy_price": 77000,
             "ai_analysis": {
                 "score": 0,
-                "headline": "최근 2개월 내 관련 뉴스 없음",
-                "raw_news": [],
-                "method": "none",
-                "catalyst": "",
+                "headline": "최신 뉴스 없음 (기술적 분석 수행)",
+                "method": "tech_only",
                 "opinion": "중립",
-                "risk": "",
-                "supply_score": 0,
-                "timestamp": "2026-01-12 13:54"
+                "risk": "정보 부재",
+                "raw_news": [],
+                "timestamp": "2026-01-12 14:53"
             }
         },
         "카카오페이카오페이": {
