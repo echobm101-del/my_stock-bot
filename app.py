@@ -41,7 +41,7 @@ except ImportError:
     st.stop()
 
 # ==============================================================================
-# [보안 설정] Streamlit Secrets에서 키 가져오기 (절대 코드에 키를 적지 마세요!)
+# [보안 설정] Streamlit Secrets에서 키 가져오기
 # ==============================================================================
 try:
     USER_GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
@@ -60,7 +60,7 @@ st.set_page_config(page_title="Quant Sniper V49.9 (Rescue Mode)", page_icon="�
 # ui.py에서 가져온 함수로 디자인 적용!
 apply_custom_css()
 
-# --- [2. 데이터 로딩 및 분석 로직 (기존 기능 유지)] ---
+# --- [2. 데이터 로딩 및 분석 로직] ---
 REPO_OWNER = "echobm101-del"
 REPO_NAME = "my_stock-bot"
 FILE_PATH = "my_watchlist_v7.json"
@@ -256,6 +256,10 @@ def get_financial_history(code):
         return pd.DataFrame()
     except: return pd.DataFrame()
 
+# -----------------------------------------------------------
+# [보조지표 계산 함수 - 업그레이드됨!]
+# -----------------------------------------------------------
+
 def calculate_rsi(data, window=14):
     delta = data.diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
@@ -283,6 +287,108 @@ def calculate_atr(data, window=14):
         atr = tr.rolling(window=window).mean()
         return atr
     except: return pd.Series(0, index=data.index)
+
+def calculate_stochastic(data, n=14, m=3, t=3):
+    """스토캐스틱 슬로우 (Fast%K -> Fast%D(=Slow%K) -> Slow%D)"""
+    try:
+        low = data['Low']
+        high = data['High']
+        close = data['Close']
+        
+        # Fast %K 계산
+        fast_k = ((close - low.rolling(n).min()) / (high.rolling(n).max() - low.rolling(n).min())) * 100
+        # Slow %K (= Fast %D)
+        slow_k = fast_k.rolling(m).mean()
+        # Slow %D
+        slow_d = slow_k.rolling(t).mean()
+        
+        return slow_k, slow_d
+    except:
+        return pd.Series(0), pd.Series(0)
+
+def calculate_mfi(data, period=14):
+    """MFI (Money Flow Index) - 자금 흐름 지수"""
+    try:
+        typical_price = (data['High'] + data['Low'] + data['Close']) / 3
+        money_flow = typical_price * data['Volume']
+        
+        positive_flow = [0]
+        negative_flow = [0]
+        
+        # 전일 대비 상승/하락 분류 (반복문 최소화)
+        delta = typical_price.diff()
+        
+        # 긍정/부정 자금 흐름 계산
+        pos_mf = pd.Series(0.0, index=data.index)
+        neg_mf = pd.Series(0.0, index=data.index)
+        
+        pos_mf[delta > 0] = money_flow[delta > 0]
+        neg_mf[delta < 0] = money_flow[delta < 0]
+        
+        pos_mf_sum = pos_mf.rolling(window=period).sum()
+        neg_mf_sum = neg_mf.rolling(window=period).sum()
+        
+        mfi = 100 - (100 / (1 + (pos_mf_sum / neg_mf_sum)))
+        return mfi.fillna(50) # NaN은 중립(50)으로 대체
+    except:
+        return pd.Series(50, index=data.index)
+
+def calculate_sar(data, af_start=0.02, af_step=0.02, af_max=0.2):
+    """파라볼릭 SAR (Parabolic Stop And Reverse)"""
+    try:
+        high = data['High'].values
+        low = data['Low'].values
+        close = data['Close'].values
+        length = len(close)
+        
+        sar = np.zeros(length)
+        trend = np.zeros(length) # 1: 상승, -1: 하락
+        
+        if length == 0: return pd.Series(0), pd.Series(0)
+
+        # 초기값 설정
+        sar[0] = low[0]
+        trend[0] = 1
+        ep = high[0] # Extreme Point
+        af = af_start # Acceleration Factor
+        
+        for i in range(1, length):
+            prev_sar = sar[i-1]
+            prev_trend = trend[i-1]
+            
+            # SAR 계산
+            new_sar = prev_sar + af * (ep - prev_sar)
+            
+            # 추세 반전 로직
+            if prev_trend == 1: # 상승 추세 중
+                if low[i] < new_sar: # 저가가 SAR을 깸 -> 하락 반전
+                    trend[i] = -1
+                    sar[i] = ep # 이전 최고점이 새로운 SAR
+                    ep = low[i]
+                    af = af_start
+                else:
+                    trend[i] = 1
+                    sar[i] = new_sar
+                    if high[i] > ep: # 신고가 갱신
+                        ep = high[i]
+                        af = min(af + af_step, af_max)
+                        
+            else: # 하락 추세 중
+                if high[i] > new_sar: # 고가가 SAR을 돌파 -> 상승 반전
+                    trend[i] = 1
+                    sar[i] = ep # 이전 최저점이 새로운 SAR
+                    ep = high[i]
+                    af = af_start
+                else:
+                    trend[i] = -1
+                    sar[i] = new_sar
+                    if low[i] < ep: # 신저가 갱신
+                        ep = low[i]
+                        af = min(af + af_step, af_max)
+                        
+        return pd.Series(sar, index=data.index), pd.Series(trend, index=data.index)
+    except:
+        return pd.Series(0, index=data.index), pd.Series(0, index=data.index)
 
 def backtest_strategy(df):
     try:
@@ -316,21 +422,31 @@ def get_market_cycle_status(code):
         else: return "📉 시장 하락세 (보수적 접근 필요)"
     except: return "시장 분석 중"
 
+# -----------------------------------------------------------
+# [메인 분석 함수 - 로직 대폭 강화!]
+# -----------------------------------------------------------
 def calculate_sniper_score(code):
     try:
-        df = fdr.DataReader(code, datetime.datetime.now() - datetime.timedelta(days=365))
+        df = fdr.DataReader(code, datetime.datetime.now() - datetime.timedelta(days=400))
         if df.empty or len(df) < 60: return 0, [], 0, 0, 0, pd.DataFrame(), ""
         
+        # [기본 지표]
+        df['MA5'] = df['Close'].rolling(5).mean()
         df['MA20'] = df['Close'].rolling(20).mean()
         df['MA60'] = df['Close'].rolling(60).mean()
         df['MA120'] = df['Close'].rolling(120).mean()
         df['MA240'] = df['Close'].rolling(240).mean()
-        df['MA5'] = df['Close'].rolling(5).mean()
+        
         df['RSI'] = calculate_rsi(df['Close'])
         df['ATR'] = calculate_atr(df)
         df['MACD'], df['MACD_Signal'] = calculate_macd(df['Close'])
         df['BB_Upper'] = df['MA20'] + (df['Close'].rolling(20).std() * 2)
         df['BB_Lower'] = df['MA20'] - (df['Close'].rolling(20).std() * 2)
+
+        # [신규 지표 3종 적용!]
+        df['Stoch_K'], df['Stoch_D'] = calculate_stochastic(df)
+        df['MFI'] = calculate_mfi(df)
+        df['SAR'], df['SAR_Trend'] = calculate_sar(df) # SAR_Trend가 1이면 상승장, -1이면 하락장
         
         curr = df.iloc[-1]
         prev = df.iloc[-2]
@@ -338,48 +454,65 @@ def calculate_sniper_score(code):
         
         score = 0; tags = []
         vol_ratio = curr['Volume'] / vol_avg if vol_avg > 0 else 0
-        
         price_chg = (curr['Close'] - prev['Close']) / prev['Close'] * 100
         is_bullish = curr['Close'] >= curr['Open']
 
         main_reason = "관망 필요"
 
+        # 1. 거래량 분석 (MFI로 강화)
+        if curr['MFI'] > 80:
+             score += 10; tags.append("🔥 자금유입(MFI)")
+        elif curr['MFI'] < 20:
+             score += 10; tags.append("💧 바닥다지기(MFI)")
+
         if vol_ratio >= 3.0: 
             if price_chg > 0 or is_bullish:
-                score += 40
-                tags.append("🔥 거래량폭발(매수)")
-                main_reason = "큰손 쓸어담는 중"
+                score += 30
+                tags.append("💥 거래량폭발")
+                main_reason = "거래량 실린 장대양봉"
             else:
                 score -= 50 
                 tags.append("😱 투매폭탄(위험)")
                 main_reason = "세력 이탈 경고"
         elif vol_ratio >= 1.5:
             if price_chg > 0 or is_bullish:
-                score += 20
+                score += 10
                 tags.append("📈 거래량증가")
-            else:
-                score -= 10
-                tags.append("📉 매도세출현")
-        
-        if curr['Close'] > curr['MA20']: 
+
+        # 2. 추세 분석 (SAR 적용)
+        if curr['SAR_Trend'] == 1:
             score += 20
+            tags.append("📈 추세전환(SAR)")
+            if main_reason == "관망 필요": main_reason = "파라볼릭 상승 추세"
+        else:
+            score -= 10
+
+        if curr['Close'] > curr['MA20']: score += 10
+        if curr['MACD'] > curr['MACD_Signal']: score += 10; tags.append("🌊 MACD상승")
+
+        # 3. 모멘텀 (스토캐스틱 + RSI)
+        # 스토캐스틱 골든크로스
+        if prev['Stoch_K'] < prev['Stoch_D'] and curr['Stoch_K'] > curr['Stoch_D']:
+             if curr['Stoch_K'] < 40:
+                 score += 30; tags.append("⚡ 스토캐스틱GC")
+                 main_reason = "저점 매수 골든크로스"
+             else:
+                 score += 10
+
         if curr['RSI'] < 30: 
-            score += 10; tags.append("💎 과매도(기회)")
+            score += 10; tags.append("💎 RSI과매도")
             if main_reason == "관망 필요": main_reason = "바닥 잡을 찬스"
-        if curr['MACD'] > curr['MACD_Signal']: 
-            score += 10; tags.append("🌊 추세전환")
-            if main_reason == "관망 필요": main_reason = "상승 파도타기"
-        
-        change = (curr['Close'] - df.iloc[-2]['Close']) / df.iloc[-2]['Close'] * 100
-        
+
+        # 백테스팅 승률
         win_rate = backtest_strategy(df)
         if win_rate >= 70: 
             score += 10; tags.append(f"👑 승률{win_rate}%")
-            if main_reason == "관망 필요": main_reason = "승률 높은 구간"
 
-        if score < 60: main_reason = "힘 모으는 중"
+        change = (curr['Close'] - df.iloc[-2]['Close']) / df.iloc[-2]['Close'] * 100
 
-        return score, tags, vol_ratio, change, win_rate, df, main_reason
+        if score < 60 and main_reason == "관망 필요": main_reason = "힘 모으는 중"
+
+        return min(max(score, 0), 100), tags, vol_ratio, change, win_rate, df, main_reason
     except: return 0, [], 0, 0, 0, pd.DataFrame(), ""
 
 @st.cache_data(ttl=3600)
@@ -755,7 +888,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         "news": {"score":0, "supply_score":0, "headline":"로딩 실패", "raw_news":[], "method":"none", "opinion":"", "catalyst":"", "risk":""}, 
         "history": df, 
         "supply": {"f":0, "i":0},
-        "stoch": {"k": curr['RSI'], "d": 0}, 
+        "stoch": {"k": curr.get('Stoch_K', 50), "d": curr.get('Stoch_D', 50)}, # 스토캐스틱 사용
         "vol_ratio": vol_ratio,
         "investor_trend": pd.DataFrame(),
         "fin_history": pd.DataFrame(),
@@ -934,6 +1067,7 @@ with col_guide:
     st.write("") 
     with st.expander("📘 V49.9 업데이트 노트", expanded=False):
         st.markdown("""
+        * **[New] 강력한 보조지표 3종 추가:** 스토캐스틱, MFI, 파라볼릭 SAR 적용
         * **[New] 구조대(Rescue) 모드:** 손실률이 10% 이상일 경우, 기준을 '평단가'에서 '현재가'로 자동 전환하여 현실적인 탈출 목표(+15%)와 추가 방어선(-5%)을 제시합니다.
         * **[UI] 3단계 상태 시각화:** 일반(Red) / 오버드라이브(Gold/Purple) / 구조대(Blue) 모드로 직관적인 상태 구분.
         """)
