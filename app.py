@@ -20,7 +20,7 @@ from io import StringIO
 import random
 
 # ------------------------------------------------------------------------------
-# [모듈 연결] ui.py 확인
+# [모듈 연결] ui.py 기능 가져오기
 # ------------------------------------------------------------------------------
 try:
     from modules.ui import (
@@ -41,7 +41,7 @@ except ImportError:
     st.stop()
 
 # ==============================================================================
-# [보안 설정]
+# [보안 설정] Streamlit Secrets
 # ==============================================================================
 try:
     USER_GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
@@ -55,7 +55,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. 기본 설정 및 CSS 적용] ---
-st.set_page_config(page_title="Quant Sniper V49.9.5 (Smart Save)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.9.5 (Final)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -785,11 +785,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None, 
     except: quant_signal = "판단 불가"
 
     try:
-        supply_txt = "특이사항 없음"
-        # ... (기존 수급 로직 생략 - 그대로 유지) ...
-
         ai_news_score = result_dict['news'].get('score', 0)
-        # AI 점수가 없으면(0점) 기술적 점수만 사용
         final_score = temp_score + ai_news_score
         final_score = min(max(final_score, 0), 100)
         result_dict['score'] = final_score
@@ -850,14 +846,15 @@ def send_telegram_msg(token, chat_id, msg):
 
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V49.9.5 (Smart Save)")
+    st.title("💎 Quant Sniper V49.9.5 (Final)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.9.5 업데이트", expanded=False):
+    with st.expander("📘 업데이트 노트", expanded=False):
         st.markdown("""
         * **[New] AI 과금 방어:** 버튼을 누를 때만 AI 분석을 수행하고 저장합니다.
         * **[Logic] 3대 보조지표:** 스토캐스틱, MFI, SAR 적용 완료.
+        * **[UI]** 모든 범례 및 지표 차트 복구 완료.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 대시보드", expanded=False):
@@ -893,20 +890,27 @@ with tab1:
         for res in preview_results:
             st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
             
-            # [AI 분석 버튼 구현]
-            with st.expander(f"🤖 AI 심층 분석 & 차트 보기"):
+            with st.expander(f"🤖 AI 심층 분석 & 상세 차트 확인"):
                 col_chart, col_ai = st.columns([1, 1])
                 
                 with col_chart:
+                    st.write("###### 📈 기술적 지표")
                     st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    render_signal_lights(res['history'].iloc[-1]['RSI'], res['history'].iloc[-1]['MACD'], res['history'].iloc[-1]['MACD_Signal'])
+                    render_ma_status(res['ma_status'])
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
                 
                 with col_ai:
+                    st.write("###### 🏢 재무 & AI")
+                    render_fund_scorecard(res['fund_data'])
                     if st.button(f"✨ AI 분석 실행 (1 Credit)", key=f"ai_prev_{res['code']}"):
                         with st.spinner("AI 매니저가 분석 중입니다..."):
                             context = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price']}
                             ai_result = get_news_sentiment_llm(res['name'], context)
-                            st.write(ai_result) # 미리보기는 저장하지 않고 바로 보여줌
+                            
+                            st.markdown(f"**{ai_result.get('headline')}**")
+                            st.caption(f"의견: {ai_result.get('opinion')}")
                     else:
                         st.info("버튼을 누르면 AI 분석이 실행됩니다.")
 
@@ -924,13 +928,11 @@ with tab2:
     if not portfolio_items:
         st.info("보유 중인 종목이 없습니다.")
     else:
-        # 1. 기술적 분석 일괄 수행 (AI 제외)
         port_results = []
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = []
             for name, info in portfolio_items:
                 safe_buy_price = float(info.get('buy_price', 0))
-                # 저장된 AI 데이터가 있으면 함께 넘김
                 futures.append(executor.submit(analyze_pro, info['code'], name, None, safe_buy_price, info))
             for f in concurrent.futures.as_completed(futures):
                 if f.result(): port_results.append(f.result())
@@ -946,11 +948,12 @@ with tab2:
                     st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     render_signal_lights(res['history'].iloc[-1]['RSI'], res['history'].iloc[-1]['MACD'], res['history'].iloc[-1]['MACD_Signal'])
+                    render_ma_status(res['ma_status'])
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
 
                 with c2:
                     st.write("###### 🤖 AI 매니저 조언")
                     
-                    # [AI 데이터 확인]
                     ai_data = res['news']
                     has_ai_result = ai_data.get('method') == 'ai'
                     
@@ -977,7 +980,6 @@ with tab2:
                                 new_ai = get_news_sentiment_llm(res['name'], context)
                                 new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                                 
-                                # 데이터 업데이트 및 저장
                                 st.session_state['data_store']['portfolio'][res['name']]['ai_analysis'] = new_ai
                                 update_github_file(st.session_state['data_store'])
                                 st.rerun()
@@ -1010,7 +1012,6 @@ with tab3:
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = []
             for name, info in watchlist_items:
-                # 저장된 정보(info)를 함께 넘겨서 AI 분석 결과가 있으면 가져오게 함
                 futures.append(executor.submit(analyze_pro, info['code'], name, None, None, info))
             for f in concurrent.futures.as_completed(futures):
                 if f.result(): wl_results.append(f.result())
@@ -1025,6 +1026,9 @@ with tab3:
                 with c1:
                     st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    render_signal_lights(res['history'].iloc[-1]['RSI'], res['history'].iloc[-1]['MACD'], res['history'].iloc[-1]['MACD_Signal'])
+                    render_ma_status(res['ma_status'])
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
                 
                 with c2:
                     ai_data = res['news']
@@ -1061,7 +1065,7 @@ with tab3:
                     st.session_state['data_store']['portfolio'][res['name']] = {
                         "code": res['code'],
                         "buy_price": input_price,
-                        "ai_analysis": res['news'] # 기존 분석 정보도 같이 가져감
+                        "ai_analysis": res['news'] 
                     }
                     if res['name'] in st.session_state['data_store']['watchlist']:
                         del st.session_state['data_store']['watchlist'][res['name']]
@@ -1110,7 +1114,6 @@ with st.sidebar:
                 if target_code:
                     try:
                         st.info(f"🔎 '{target_keyword}' 분석 중...")
-                        # 테마 검색에서는 stored_data가 없으므로 None
                         res = analyze_pro(target_code, target_keyword)
                         if res:
                             st.session_state['preview_list'] = [res]
@@ -1141,8 +1144,15 @@ with st.sidebar:
     if st.button("🚀 텔레그램 리포트 전송"):
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
-        # ... (텔레그램 전송 로직 유지) ...
-        st.info("텔레그램 전송 기능은 유지됩니다.")
+        if token and chat_id and 'wl_results' in locals() and wl_results:
+            msg = f"💎 Quant Sniper V49.9.5\n\n"
+            if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
+            for i, r in enumerate(wl_results[:3]): 
+                rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
+                msg += f"{i+1}. {r['name']} {rel_txt}({r['score']}점)\n   가격: {r['price']:,}원\n   목표: {r['strategy']['target']:,}\n   손절: {r['strategy']['stop']:,}\n   요약: {r['news']['headline'][:50]}...\n\n"
+            send_telegram_msg(token, chat_id, msg)
+            st.success("전송 완료!")
+        else: st.warning("설정 확인 필요")
 
     with st.expander("개별 종목 추가"):
         name = st.text_input("이름"); code = st.text_input("코드")
