@@ -14,7 +14,43 @@
         },
         "삼성전": {
             "code": "005930",
-            "buy_price": 77000
+            "buy_price": 77000,
+            "ai_analysis": {
+                "headline": "삼성전자는 실적 호조와 상승 추세로 고점을 경신했으나, 장기적 하락 전망과 고점 부담이 공존하여 신중한 접근이 필요합니다.",
+                "catalyst": "실적개선, 상승추세, 시장낙관론",
+                "risk": "고점부담, 경기침체, 장기하락전망",
+                "opinion": "익절",
+                "score": -6,
+                "raw_news": [
+                    {
+                        "title": "[경제읽기] 삼성전자 분기 영업이익 '역대 최대'…증시 영향은? - 연합뉴스",
+                        "link": "https://news.google.com/rss/articles/CBMiYEFVX3lxTE9zNTNCME1aUERHRFNvT0hiQ3Fhd0sySGpsbWJ0bDUzVDVZNlFaN0xmVlA0Q0xJa0tUQVlJZldEelJ3a2NnZnlBS2owZGczUGVqREhadkMxaTNoWXdsT3I0c9IBYEFVX3lxTE9zNTNCME1aUERHRFNvT0hiQ3Fhd0sySGpsbWJ0bDUzVDVZNlFaN0xmVlA0Q0xJa0tUQVlJZldEelJ3a2NnZnlBS2owZGczUGVqREhadkMxaTNoWXdsT3I0cw?oc=5",
+                        "date": "2026-01-08"
+                    },
+                    {
+                        "title": "닥터둠 김영익 “내년 코스피 3500, 삼성전자 주가 9만원 밑으로 떨어질 것” - 조선일보",
+                        "link": "https://news.google.com/rss/articles/CBMigAFBVV95cUxPWUlBaFB4a0J3dUxWaVNoeTQ2TXowSkJobzBhU1Bmc19nQ2N3OUlzbWlhUExJdEl4X3BaQ19aMS1BWEs5ZXVGdEJBRGRIbWpmT3EtMlA0T1d0LWJHcTM4d2tseDNmcW1pLVNPRTQyU3JIajFsNmNISVh0cHBGYm1pV9IBlAFBVV95cUxPQ2dZSlNNMXFkMXVwUEx1YzBfcWZnY3FVZ1FaVFNnMXdKbklXMG1COXVCYk8xRmlqSnA5Yi02b0wwNlJISi1YOXY3M25tNmswWV9Gd2hKUDB4MnRMZ0RXc3ZLTE1TT3FkZVhsNXJUaTE2c3VNOS0yWV9EaW1oY0ZocUNZd2M4VHJjbGxBYVNjS1UxOXVK?oc=5",
+                        "date": "2025-12-29"
+                    },
+                    {
+                        "title": "삼성전자 주가 ‘또 속냐’ vs ‘이번엔 달라’···‘10만전자’ 될 수 있을까[경제뭔데] - 경향신문",
+                        "link": "https://news.google.com/rss/articles/CBMiWkFVX3lxTE1Ob25mM2l1X0FHZWNvcmJYZmc4aXFsU0RSZjBpTFlReGZJU25TdElaMmtlazYtT1kyTFNFbFZyZVpGSUQ4X3lMYWtpMzRFZ1pRc0xxV3g3RzlXZ9IBX0FVX3lxTE94M1hfYXdDeGt3SzEtVGJTQUkyNklXb2JGbGxHV2N3V2FxNUhQUlhkcVpyYjhBRmFmZVJfZVBQeUhMVWdlR3pvQzY3b3dESFRzejNmTGR6TS1UZXNNOE1F?oc=5",
+                        "date": "2025-09-20"
+                    },
+                    {
+                        "title": "'최고가 행진' 불붙은 삼성전자 주가…\"13만전자 간다\" - 뉴스1",
+                        "link": "https://news.google.com/rss/articles/CBMiW0FVX3lxTFBvcXZncW1IYzhDR3otRjc0dVQxU2ZZdVhBRXVyNGgtbFpWeDVrYzNxSDJZajFmaG9pVkd1NWRiYU9YdVc5dEVpR29aaV9nbjgwUXlnMGJaLWQ1YUk?oc=5",
+                        "date": "2025-10-16"
+                    },
+                    {
+                        "title": "[Q&AI] 삼성전자 주가 급등... 왜? - 지디넷코리아",
+                        "link": "https://news.google.com/rss/articles/CBMiVkFVX3lxTFB6Y0IzUUhtdWx1bUZ2U2hsWjVjS21SbDdYRHVDM0FCNzFtSTNmcnQtSjJrZllBTFJKSnBSSEZmNFNQdnhLSWtPWmFoTHBmd2V4S1c4VkRn?oc=5",
+                        "date": "2025-06-20"
+                    }
+                ],
+                "method": "ai",
+                "timestamp": "2026-01-12 13:17"
+            }
         },
         "카카오페이카오페이": {
             "code": "377300",
