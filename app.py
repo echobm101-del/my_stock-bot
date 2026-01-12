@@ -55,7 +55,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. 기본 설정 및 CSS 적용] ---
-st.set_page_config(page_title="Quant Sniper V49.9.5 (Final)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V49.9.7 (Complete UI)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -125,7 +125,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.9.5)",
+            "message": "Update data via Streamlit App (V49.9.7)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -377,7 +377,7 @@ def get_market_cycle_status(code):
     except: return "시장 분석 중"
 
 # -----------------------------------------------------------
-# [분석 엔진 - AI는 제외하고 기술적 지표만 계산]
+# [분석 엔진 - 기술적 지표 계산]
 # -----------------------------------------------------------
 def calculate_sniper_score(code):
     try:
@@ -593,67 +593,82 @@ def get_naver_finance_news(code):
     except: pass
     return titles[:5]
 
+# [핵심 변경] 엄격한 필터링(Strict Filter) 적용
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
     news_titles = []
-    news_data = [] # 링크 포함된 상세 데이터
+    news_data = [] 
     
-    # 1. 구글 뉴스 (RSS)
+    # 1. 뉴스 수집 (구글: 2개월 이내 시도)
     try:
         query = f"{company_name} 주가"
         encoded_query = urllib.parse.quote(query)
         base_url = "https://news.google.com/rss/search"
-        rss_url = base_url + f"?q={encoded_query}&hl=ko&gl=KR&ceid=KR:ko"
+        # when:2m = 최근 2개월 검색 연산자
+        rss_url = base_url + f"?q={encoded_query}+when:2m&hl=ko&gl=KR&ceid=KR:ko"
         feed = feedparser.parse(rss_url)
         for entry in feed.entries[:5]:
-            date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else ""
+            date_str = time.strftime("%Y-%m-%d", entry.published_parsed) if entry.published_parsed else "날짜없음"
             news_data.append({"title": entry.title, "link": entry.link, "date": date_str})
-            news_titles.append(entry.title)
+            news_titles.append(f"[{date_str}] {entry.title}")
     except: pass
 
-    # 2. 네이버 금융 뉴스 (코드 있을 경우)
+    # 2. 네이버 금융 뉴스
     code = stock_data_context.get('code', '')
     if code:
         naver_fin_titles = get_naver_finance_news(code)
-        news_titles.extend(naver_fin_titles)
-        for t in naver_fin_titles: # 네이버 뉴스는 링크가 없으므로 타이틀만 추가
-             if len(news_data) < 10: news_data.append({"title": t, "link": "#", "date": "NAVER"})
+        for t in naver_fin_titles: 
+             if len(news_data) < 10: 
+                 news_data.append({"title": t, "link": "#", "date": "NAVER_FIN"})
+                 news_titles.append(f"[날짜확인필요] {t}")
 
     news_titles = list(set(news_titles))
 
     if not news_titles: 
-        return {"score": 0, "headline": "관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0}
+        return {"score": 0, "headline": "최근 2개월 내 관련 뉴스 없음", "raw_news": [], "method": "none", "catalyst": "", "opinion": "중립", "risk": "", "supply_score": 0}
 
     try:
         if not USER_GOOGLE_API_KEY: raise Exception("API Key Missing")
         
-        # 프롬프트 생성 (AI에게 줄 정보)
+        # [AI 필터링 로직]
         trend = stock_data_context.get('trend', '분석중')
         cycle = stock_data_context.get('cycle', '정보없음')
         is_holding = stock_data_context.get('is_holding', False)
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         current_price = stock_data_context.get('current_price', 0)
         
-        role_prompt = "당신은 냉철한 헤지펀드 매니저입니다."
+        today = datetime.datetime.now().strftime("%Y년 %m월 %d일")
+
+        role_prompt = "당신은 데이터 정합성을 최우선으로 하는 펀드매니저입니다."
         if is_holding:
-            role_prompt += f" 현재 {profit_rate:.2f}% 수익 중인 보유자에게 '익절/홀딩/손절' 전략을 제시하세요."
+            role_prompt += f" 현재 {profit_rate:.2f}% 수익 중인 보유자에게 조언하세요."
         else:
-            role_prompt += " 신규 진입 대기자에게 '매수/관망' 전략을 제시하세요."
+            role_prompt += " 신규 진입 대기자에게 조언하세요."
 
         prompt = f"""
         {role_prompt}
-        [데이터]
-        종목: {company_name} ({current_price:,}원)
-        추세: {trend}
-        뉴스: {str(news_titles)}
+        [기준 데이터]
+        - 분석 시점: {today}
+        - 종목: {company_name}
+        - **현재가: {current_price:,}원** (절대적 기준값)
+        - 기술적 추세: {trend}
 
-        위 뉴스를 종합하여 JSON으로 답하세요.
+        [수집된 뉴스 후보군]
+        {str(news_titles)}
+
+        [🚨 필수 필터링 지침 (Filtering Rules)]
+        1. **유효기간(Time Limit):** 위 '분석 시점({today})'을 기준으로 **2개월 이상 지난 뉴스**는 분석에서 즉시 **폐기(Discard)**하세요.
+        2. **정합성 체크(Reality Check):** 뉴스 내용이 '현재가({current_price:,}원)' 및 '현재 추세'와 정반대이거나 괴리가 심하다면(예: 현재가는 신고가인데 뉴스는 폭락 언급) **오래된 뉴스**로 간주하고 **폐기**하세요.
+        3. **결과 도출:** 위 1, 2번 과정에서 살아남은 뉴스만으로 분석하세요.
+           - 만약 모든 뉴스가 폐기되었다면, 솔직하게 **"최근 유효한 뉴스가 없습니다."**라고 말하고 **오직 차트(기술적 추세)에 근거해서만** 조언을 작성하세요.
+
+        위 지침을 준수하여 JSON으로 답하세요.
         {{
-            "headline": "핵심 요약 (한 문장)",
-            "catalyst": "주가 재료 (단어)",
-            "risk": "리스크 (단어)",
+            "headline": "분석 요약 (유효 뉴스 없으면 '기술적 지표 분석' 위주 작성)",
+            "catalyst": "재료 (없으면 '식별 불가')",
+            "risk": "리스크 (없으면 '기술적 조정 가능성' 등)",
             "opinion": "매수/홀딩/관망/매도 중 택1",
-            "score": -10~10 점수
+            "score": (-10 ~ 10 사이 점수, 뉴스 없으면 0점)
         }}
         """
         
@@ -692,8 +707,7 @@ def round_to_tick(price):
     elif price < 500000: return int(round(price / 500) * 500)
     else: return int(round(price, -3))
 
-# [중요] analyze_pro에서는 이제 'AI 분석'을 자동으로 수행하지 않습니다!
-# 대신 stored_data에 저장된 ai_analysis가 있으면 그걸 가져옵니다.
+# [분석 데이터 통합 - 저장된 AI 데이터 활용]
 def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None, stored_data=None):
     try:
         score, tags, vol_ratio, chg_rate, win_rate, df, main_reason = calculate_sniper_score(code)
@@ -846,15 +860,14 @@ def send_telegram_msg(token, chat_id, msg):
 
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V49.9.5 (Final)")
+    st.title("💎 Quant Sniper V49.9.7 (Complete UI)")
 with col_guide:
     st.write("") 
     st.write("") 
     with st.expander("📘 업데이트 노트", expanded=False):
         st.markdown("""
-        * **[New] AI 과금 방어:** 버튼을 누를 때만 AI 분석을 수행하고 저장합니다.
-        * **[Logic] 3대 보조지표:** 스토캐스틱, MFI, SAR 적용 완료.
-        * **[UI]** 모든 범례 및 지표 차트 복구 완료.
+        * **[Safety] 뉴스 필터링:** 2개월 이상 된 뉴스나 현재 주가와 괴리가 큰 정보는 AI가 자동으로 무시합니다.
+        * **[UI]** 투자자별 매매동향 및 범례 위치 최적화 완료.
         """)
 
 with st.expander("🌍 글로벌 거시 경제 대시보드", expanded=False):
@@ -896,10 +909,14 @@ with tab1:
                 with col_chart:
                     st.write("###### 📈 기술적 지표")
                     st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True) # [위치 수정] 범례를 차트 바로 아래로
+                    
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     render_signal_lights(res['history'].iloc[-1]['RSI'], res['history'].iloc[-1]['MACD'], res['history'].iloc[-1]['MACD_Signal'])
                     render_ma_status(res['ma_status'])
-                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    
+                    st.write("###### 🧠 수급 동향 (투자자별)") # [복구] 수급 차트 추가
+                    render_investor_chart(res['investor_trend'])
                 
                 with col_ai:
                     st.write("###### 🏢 재무 & AI")
@@ -946,10 +963,14 @@ with tab2:
                 with c1:
                     st.write("###### 📈 차트 & 보조지표")
                     st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True) # [위치 수정]
+                    
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     render_signal_lights(res['history'].iloc[-1]['RSI'], res['history'].iloc[-1]['MACD'], res['history'].iloc[-1]['MACD_Signal'])
                     render_ma_status(res['ma_status'])
-                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    
+                    st.write("###### 🧠 수급 동향 (투자자별)") # [복구]
+                    render_investor_chart(res['investor_trend'])
 
                 with c2:
                     st.write("###### 🤖 AI 매니저 조언")
@@ -1024,11 +1045,16 @@ with tab3:
                 c1, c2 = st.columns([0.6, 0.4])
                 
                 with c1:
+                    st.write("###### 📈 기술적 지표")
                     st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True) # [위치 수정]
+                    
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     render_signal_lights(res['history'].iloc[-1]['RSI'], res['history'].iloc[-1]['MACD'], res['history'].iloc[-1]['MACD_Signal'])
                     render_ma_status(res['ma_status'])
-                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    
+                    st.write("###### 🧠 수급 동향 (투자자별)") # [복구]
+                    render_investor_chart(res['investor_trend'])
                 
                 with c2:
                     ai_data = res['news']
@@ -1145,7 +1171,7 @@ with st.sidebar:
         token = USER_TELEGRAM_TOKEN
         chat_id = USER_CHAT_ID
         if token and chat_id and 'wl_results' in locals() and wl_results:
-            msg = f"💎 Quant Sniper V49.9.5\n\n"
+            msg = f"💎 Quant Sniper V49.9.7\n\n"
             if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
             for i, r in enumerate(wl_results[:3]): 
                 rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
