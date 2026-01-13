@@ -21,12 +21,11 @@ import warnings
 import logging
 
 # ==============================================================================
-# [V50.8 최종 수정 - 진짜 마지막]
-# 1. 붉은색 에러 원인(st.set_option) 완전 제거됨 확인
-# 2. Secrets에서 GOOGLE_API_KEY만 정확히 가져오도록 설정
+# [V51.0 업데이트] 
+# 1. 네이버 API 키(Secrets) 자동 연동 기능 추가
+# 2. 크롤링 막힘 해결 -> 정식 API로 뉴스 수집
 # ==============================================================================
 
-# 경고 메시지 무시 설정
 warnings.filterwarnings("ignore")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 logging.getLogger('streamlit').setLevel(logging.ERROR)
@@ -53,22 +52,29 @@ except ImportError:
     st.stop()
 
 # ==============================================================================
-# [보안 설정] Secrets에서 키 가져오기
+# [보안 설정] 키 가져오기
 # ==============================================================================
 try:
-    # Secrets에 저장된 키를 가져옵니다. 없으면 빈칸("") 처리하여 에러 방지
     USER_GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
     USER_TELEGRAM_TOKEN = st.secrets.get("TELEGRAM_TOKEN", "")
     USER_CHAT_ID = st.secrets.get("CHAT_ID", "")
-    USER_GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", "") 
+    USER_GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", "")
+    
+    # [네이버 API 키 로드]
+    if "naver" in st.secrets:
+        NAVER_CLIENT_ID = st.secrets["naver"].get("client_id", "")
+        NAVER_CLIENT_SECRET = st.secrets["naver"].get("client_secret", "")
+    else:
+        NAVER_CLIENT_ID = ""
+        NAVER_CLIENT_SECRET = ""
+        
 except Exception as e:
-    USER_GITHUB_TOKEN = ""
-    USER_TELEGRAM_TOKEN = ""
-    USER_CHAT_ID = ""
     USER_GOOGLE_API_KEY = ""
+    NAVER_CLIENT_ID = ""
+    NAVER_CLIENT_SECRET = ""
 
-# --- [1. 기본 설정 및 CSS 적용] ---
-st.set_page_config(page_title="Quant Sniper V50.8 (Final)", page_icon="💎", layout="wide")
+# --- [1. 기본 설정] ---
+st.set_page_config(page_title="Quant Sniper V51.0 (News API)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -138,7 +144,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.8)",
+            "message": "Update data via Streamlit App (V51.0)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -349,8 +355,23 @@ def backtest_strategy(df):
         return int((wins / total) * 100) if total > 0 else 0
     except: return 0
 
-# --- [뉴스 크롤링 - 안전장치 추가] ---
+# --- [뉴스 API 함수 (업그레이드)] ---
 def get_naver_search_news(keyword):
+    # 1. 네이버 API 사용 시도
+    if NAVER_CLIENT_ID and NAVER_CLIENT_SECRET:
+        try:
+            url = "https://openapi.naver.com/v1/search/news.json"
+            headers = {"X-Naver-Client-Id": NAVER_CLIENT_ID, "X-Naver-Client-Secret": NAVER_CLIENT_SECRET}
+            # sort=sim(정확도순) or date(최신순). date가 주식에 적합
+            params = {"query": keyword, "display": 7, "sort": "date"} 
+            res = requests.get(url, headers=headers, params=params, timeout=5)
+            if res.status_code == 200:
+                items = res.json().get('items', [])
+                # HTML 태그 제거
+                return [re.sub('<[^<]+?>', '', item['title']).replace('&quot;', '"').replace('&apos;', "'") for item in items]
+        except: pass
+
+    # 2. API 실패 시 기존 크롤링 (백업)
     titles = []
     try:
         url = f"https://search.naver.com/search.naver?where=news&query={urllib.parse.quote(keyword)}&sort=1&pd=2"
@@ -365,6 +386,7 @@ def get_naver_search_news(keyword):
     return list(dict.fromkeys(titles))[:7]
 
 def get_naver_finance_news(code):
+    # 금융 뉴스는 크롤링 유지 (API 미지원)
     titles = []
     try:
         url = f"https://finance.naver.com/item/news_news.naver?code={code}"
@@ -385,9 +407,10 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
     news_titles = []
      
-    # 1. 네이버 검색 뉴스
+    # 1. 네이버 검색 뉴스 (API 우선)
     search_titles = get_naver_search_news(company_name)
-    news_titles.extend([f"[검색] {t}" for t in search_titles])
+    prefix = "[API]" if NAVER_CLIENT_ID else "[검색]"
+    news_titles.extend([f"{prefix} {t}" for t in search_titles])
 
     # 2. 네이버 금융 뉴스
     code = stock_data_context.get('code', '')
@@ -426,7 +449,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
 
         [분석 요청]
         1. 정량적(Technical): 차트 및 수급 분석
-        2. 정성적(Qualitative): 뉴스 재료 분석
+        2. 정성적(Qualitative): 뉴스 재료 분석. (중요: 뉴스가 있다면 그 내용을 바탕으로 호재/악재를 판단하세요)
         3. 수급(Supply): 기관/외인 동향 추론
         4. 종합 결론: 매수/매도/관망 의견
 
@@ -647,12 +670,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V50.8 (Final)")
+    st.title("💎 Quant Sniper V51.0 (News API)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.8 업데이트", expanded=False):
-        st.markdown("* **[Bugfix]** 설정 오류 코드 제거.\n* **[Stable]** 안정성 확보 완료.")
+    with st.expander("📘 V51.0 업데이트", expanded=False):
+        st.markdown("* **[Upgrade]** 네이버 공식 API 연동! 뉴스 수집 능력이 대폭 향상되었습니다.\n* **[Smart]** Secrets에 저장된 키를 자동으로 인식합니다.")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -673,7 +696,6 @@ with tab1:
             with st.expander(f"🤖 AI 분석 및 상세 차트"):
                 c1, c2 = st.columns([1, 1])
                 with c1:
-                    # [차트 그리기 안전 장치]
                     try:
                         st.altair_chart(create_chart_clean(res['history']))
                     except:
@@ -783,6 +805,79 @@ with tab2:
                                 st.rerun()
                 if st.button(f"🗑️ 삭제", key=f"del_{res['code']}"):
                     del st.session_state['data_store']['portfolio'][res['name']]
+                    update_github_file(st.session_state['data_store'])
+                    st.rerun()
+
+with tab3:
+    st.markdown("### 👀 관심 종목 (Watchlist)")
+    wl_items = list(st.session_state['data_store']['watchlist'].items())
+    if not wl_items: st.info("관심 종목이 없습니다.")
+    else:
+        wl_results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(analyze_pro, info['code'], name, None, None, info) for name, info in wl_items]
+            for f in concurrent.futures.as_completed(futures):
+                if f.result(): wl_results.append(f.result())
+        
+        for res in wl_results:
+            st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
+            with st.expander(f"🤖 AI 상세 분석"):
+                c1, c2 = st.columns([0.6, 0.4])
+                with c1:
+                    try:
+                        st.altair_chart(create_chart_clean(res['history']))
+                    except:
+                        st.error("차트 로딩 중 경고 발생")
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    render_investor_chart(res['investor_trend'])
+                with c2:
+                    ai_data = res['news']
+                    inv_df = res['investor_trend']
+                    sup_txt = "정보 없음"
+                    if not inv_df.empty:
+                        last = inv_df.iloc[-1]
+                        sup_txt = f"외인 {int(last['외국인']):,}, 기관 {int(last['기관']):,}"
+                    macro = get_macro_data()
+                    usd = f"USD {macro['USD/KRW']['val']:.0f}" if macro else ""
+
+                    if ai_data.get('method') == 'ai':
+                        st.caption(f"🕒 {ai_data.get('timestamp')}")
+                        if 'technical' in ai_data:
+                            st.markdown(f"**📊 기술:** {ai_data['technical']}")
+                            st.markdown(f"**📰 재료:** {ai_data['qualitative']}")
+                            st.markdown(f"**👥 수급:** {ai_data['supply_analysis']}")
+                            st.info(f"🏆 {ai_data['conclusion']}")
+                        else:
+                            st.markdown(f"**{ai_data.get('headline')}**")
+
+                        if st.button("🔄 업데이트", key=f"rw_{res['code']}"):
+                            with st.spinner("..."):
+                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
+                                new_ai = get_news_sentiment_llm(res['name'], ctx)
+                                new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                                st.session_state['data_store']['watchlist'][res['name']]['ai_analysis'] = new_ai
+                                update_github_file(st.session_state['data_store'])
+                                st.rerun()
+                    else:
+                        if st.button("✨ 3단 심층 분석", key=f"nw_{res['code']}"):
+                            with st.spinner("..."):
+                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
+                                new_ai = get_news_sentiment_llm(res['name'], ctx)
+                                new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                                st.session_state['data_store']['watchlist'][res['name']]['ai_analysis'] = new_ai
+                                update_github_file(st.session_state['data_store'])
+                                st.rerun()
+                st.markdown("---")
+                bp = st.number_input("매수 단가", value=res['price'], step=100, key=f"b_{res['code']}")
+                if st.button("📥 잔고 이동", key=f"m_{res['code']}"):
+                    st.session_state['data_store']['portfolio'][res['name']] = {"code": res['code'], "buy_price": bp, "ai_analysis": res['news']}
+                    if res['name'] in st.session_state['data_store']['watchlist']:
+                        del st.session_state['data_store']['watchlist'][res['name']]
+                    update_github_file(st.session_state['data_store'])
+                    st.success("이동 완료"); st.rerun()
+                if st.button(f"🗑️ 삭제", key=f"d_{res['code']}"):
+                    del st.session_state['data_store']['watchlist'][res['name']]
                     update_github_file(st.session_state['data_store'])
                     st.rerun()
 
