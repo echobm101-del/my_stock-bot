@@ -2,7 +2,16 @@
     "portfolio": {
         "필옵틱스": {
             "code": "161580",
-            "buy_price": 41150
+            "buy_price": 41150,
+            "ai_analysis": {
+                "score": 0,
+                "headline": "최신 뉴스 없음 (기술적 분석 수행)",
+                "method": "tech_only",
+                "opinion": "중립",
+                "risk": "정보 부재",
+                "raw_news": [],
+                "timestamp": "2026-01-13 10:37"
+            }
         },
         "컴트로닉스": {
             "code": "089010",
