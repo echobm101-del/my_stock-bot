@@ -128,13 +128,51 @@
             "code": "005930",
             "buy_price": 77000,
             "ai_analysis": {
-                "score": 0,
-                "headline": "최신 뉴스 없음 (기술적 분석 수행)",
-                "method": "tech_only",
-                "opinion": "중립",
-                "risk": "정보 부재",
-                "raw_news": [],
-                "timestamp": "2026-01-13 10:02"
+                "technical": "삼성전은 현재 137,600원으로, 기술적 추세는 상승세를 유지하고 있어 긍정적인 신호입니다. 이는 단기 또는 중기적으로 주가 상승 모멘텀이 지속될 가능성을 시사합니다. 하지만 투자자별 수급 정보가 부재하여 기술적 분석의 깊이에 한계가 있습니다.",
+                "qualitative": "제공된 최신 뉴스들은 모두 프로 스포츠(야구, 농구) 관련 기사이며, '삼성전' 종목의 사업 내용이나 재무 상태, 시장 환경 등 주가에 영향을 미칠 수 있는 어떠한 정보도 포함하고 있지 않습니다. 따라서 현재 주어진 뉴스만으로는 호재나 악재를 판단할 수 없습니다.",
+                "supply_analysis": "투자자별 수급 데이터가 전혀 제공되지 않아 기관, 외국인, 개인 투자자들의 매매 동향을 파악하거나 추론할 수 없습니다. 수급은 주가 방향성을 결정하는 중요한 요소이므로, 이 정보의 부재는 분석의 신뢰도를 크게 떨어뜨립니다.",
+                "conclusion": "기술적 상승세는 긍정적이나, 종목 관련 뉴스 부재 및 핵심적인 수급 정보가 없어 추가적인 판단이 어렵습니다. 현재 보유 중이며 수익률이 0.0%이므로, 추가 정보가 확보될 때까지 '관망'하며 추이를 지켜보는 것이 합리적입니다.",
+                "score": 65,
+                "raw_news": [
+                    {
+                        "title": "[API] “선발야구, 정말 하고 싶다”…NC, 2026 키는 ‘건창모’와 새 외인 테...",
+                        "link": "https://search.naver.com/search.naver?where=news&query=삼성전",
+                        "date": "최신"
+                    },
+                    {
+                        "title": "[API] [JB프리뷰] 로슨도 못 했던 DB의 8연승, 알바노는 또 SK의 방패 뚫을 수...",
+                        "link": "https://search.naver.com/search.naver?where=news&query=삼성전",
+                        "date": "최신"
+                    },
+                    {
+                        "title": "[API] [BK 리뷰] '서명진 역전 3점슛' 현대모비스, 삼성에 재역전승 … 2025~202...",
+                        "link": "https://search.naver.com/search.naver?where=news&query=삼성전",
+                        "date": "최신"
+                    },
+                    {
+                        "title": "[API] 고졸 신인을 KBL 최고 가드에게 ? 전희철 감독의 매치업 예고 \"에디 다니...",
+                        "link": "https://search.naver.com/search.naver?where=news&query=삼성전",
+                        "date": "최신"
+                    },
+                    {
+                        "title": "[API] 이제 KIA ‘주전 중견수’ 김호령, 버티고 버텨 터졌다…이제 ‘FA’가 ...",
+                        "link": "https://search.naver.com/search.naver?where=news&query=삼성전",
+                        "date": "최신"
+                    },
+                    {
+                        "title": "[API] DB 7연승 질주로 단독 2위, 삼성·kt도 연패 탈출",
+                        "link": "https://search.naver.com/search.naver?where=news&query=삼성전",
+                        "date": "최신"
+                    },
+                    {
+                        "title": "[API] '깜짝 활약' 빛난 프로농구 SK 신인 다니엘 \"자신 있게 한 덕분\"",
+                        "link": "https://search.naver.com/search.naver?where=news&query=삼성전",
+                        "date": "최신"
+                    }
+                ],
+                "method": "ai",
+                "headline": "기술적 상승세는 긍정적이나, 종목 관련 뉴스 부재 및 핵심적인 수급 정보가 없어 추가적인 판단이 어렵습니다. 현재 보유 중이며 수익률이 0.0%이므로, 추가 정보가 확보될 때까지 '관망'하며 추이를 지켜보는 것이 합리적입니다.",
+                "timestamp": "2026-01-13 13:00"
             }
         },
         "카카오페이카오페이": {
