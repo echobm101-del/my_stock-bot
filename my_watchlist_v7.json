@@ -21,7 +21,16 @@
         },
         "SK바이오팜": {
             "code": "326030",
-            "buy_price": 101500
+            "buy_price": 101500,
+            "ai_analysis": {
+                "score": 0,
+                "headline": "최신 뉴스 없음 (기술적 분석 수행)",
+                "method": "tech_only",
+                "opinion": "중립",
+                "risk": "정보 부재",
+                "raw_news": [],
+                "timestamp": "2026-01-13 09:45"
+            }
         },
         "삼성전": {
             "code": "005930",
