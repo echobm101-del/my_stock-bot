@@ -21,9 +21,9 @@ import warnings
 import logging
 
 # ==============================================================================
-# [V51.0 업데이트] 
-# 1. 네이버 API 키(Secrets) 자동 연동 기능 추가
-# 2. 크롤링 막힘 해결 -> 정식 API로 뉴스 수집
+# [V51.1 업데이트]
+# 1. AI 분석 결과 하단에 '최신 뉴스 5줄' 강제 노출
+# 2. 사용자가 데이터 출처를 명확히 확인할 수 있도록 UI 개선
 # ==============================================================================
 
 warnings.filterwarnings("ignore")
@@ -60,7 +60,6 @@ try:
     USER_CHAT_ID = st.secrets.get("CHAT_ID", "")
     USER_GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", "")
     
-    # [네이버 API 키 로드]
     if "naver" in st.secrets:
         NAVER_CLIENT_ID = st.secrets["naver"].get("client_id", "")
         NAVER_CLIENT_SECRET = st.secrets["naver"].get("client_secret", "")
@@ -74,7 +73,7 @@ except Exception as e:
     NAVER_CLIENT_SECRET = ""
 
 # --- [1. 기본 설정] ---
-st.set_page_config(page_title="Quant Sniper V51.0 (News API)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V51.1 (News 5)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -144,7 +143,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V51.0)",
+            "message": "Update data via Streamlit App (V51.1)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -355,19 +354,17 @@ def backtest_strategy(df):
         return int((wins / total) * 100) if total > 0 else 0
     except: return 0
 
-# --- [뉴스 API 함수 (업그레이드)] ---
+# --- [뉴스 API 함수] ---
 def get_naver_search_news(keyword):
     # 1. 네이버 API 사용 시도
     if NAVER_CLIENT_ID and NAVER_CLIENT_SECRET:
         try:
             url = "https://openapi.naver.com/v1/search/news.json"
             headers = {"X-Naver-Client-Id": NAVER_CLIENT_ID, "X-Naver-Client-Secret": NAVER_CLIENT_SECRET}
-            # sort=sim(정확도순) or date(최신순). date가 주식에 적합
             params = {"query": keyword, "display": 7, "sort": "date"} 
             res = requests.get(url, headers=headers, params=params, timeout=5)
             if res.status_code == 200:
                 items = res.json().get('items', [])
-                # HTML 태그 제거
                 return [re.sub('<[^<]+?>', '', item['title']).replace('&quot;', '"').replace('&apos;', "'") for item in items]
         except: pass
 
@@ -386,7 +383,6 @@ def get_naver_search_news(keyword):
     return list(dict.fromkeys(titles))[:7]
 
 def get_naver_finance_news(code):
-    # 금융 뉴스는 크롤링 유지 (API 미지원)
     titles = []
     try:
         url = f"https://finance.naver.com/item/news_news.naver?code={code}"
@@ -407,7 +403,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
     news_titles = []
      
-    # 1. 네이버 검색 뉴스 (API 우선)
+    # 1. 네이버 검색 뉴스
     search_titles = get_naver_search_news(company_name)
     prefix = "[API]" if NAVER_CLIENT_ID else "[검색]"
     news_titles.extend([f"{prefix} {t}" for t in search_titles])
@@ -481,6 +477,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                         "score": 50
                     }
                 
+                # 뉴스 데이터 저장
                 formatted_news = [{"title": t, "link": f"https://search.naver.com/search.naver?where=news&query={company_name}", "date": "최신"} for t in news_titles[:7]]
                 js['raw_news'] = formatted_news
                 js['method'] = "ai"
@@ -670,12 +667,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V51.0 (News API)")
+    st.title("💎 Quant Sniper V51.1 (News 5)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V51.0 업데이트", expanded=False):
-        st.markdown("* **[Upgrade]** 네이버 공식 API 연동! 뉴스 수집 능력이 대폭 향상되었습니다.\n* **[Smart]** Secrets에 저장된 키를 자동으로 인식합니다.")
+    with st.expander("📘 V51.1 업데이트", expanded=False):
+        st.markdown("* **[Visual]** AI 분석 결과 아래에 **최신 뉴스 5개**를 리스트로 보여줍니다.\n* **[API]** 네이버 API를 통해 실시간 뉴스를 가져옵니다.")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -699,8 +696,7 @@ with tab1:
                     try:
                         st.altair_chart(create_chart_clean(res['history']))
                     except:
-                        st.error("차트 로딩 중 경고 발생 (데이터는 정상입니다)")
-                    
+                        st.error("차트 로딩 중 경고 발생")
                     st.markdown(render_chart_legend(), unsafe_allow_html=True)
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     render_investor_chart(res['investor_trend'])
@@ -734,7 +730,9 @@ with tab1:
                         else:
                             st.write(ai_result.get('headline'))
 
-                        for n in ai_result.get('raw_news', []):
+                        # [V51.1 추가] 뉴스 5줄 깔끔하게 보여주기
+                        st.markdown("##### 📰 최신 뉴스 Top 5")
+                        for n in ai_result.get('raw_news', [])[:5]:
                             st.markdown(f"- [{n['title']}]({n['link']})")
 
                 if st.button(f"📌 관심등록", key=f"add_{res['code']}"):
@@ -785,6 +783,11 @@ with tab2:
                             st.info(f"🏆 {ai_data['conclusion']}")
                         else:
                             st.markdown(f"**{ai_data.get('headline')}**")
+                        
+                        # [V51.1 추가] 뉴스 5줄 노출
+                        st.markdown("##### 📰 최신 뉴스 Top 5")
+                        for n in ai_data.get('raw_news', [])[:5]:
+                            st.markdown(f"- [{n['title']}]({n['link']})")
 
                         if st.button("🔄 업데이트", key=f"re_{res['code']}"):
                             with st.spinner("..."):
@@ -797,7 +800,7 @@ with tab2:
                     else:
                         if st.button("✨ 3단 심층 분석", key=f"new_{res['code']}"):
                             with st.spinner("..."):
-                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
+                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "is_holding": True, "supply_info": sup_txt, "macro_info": usd}
                                 new_ai = get_news_sentiment_llm(res['name'], ctx)
                                 new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                                 st.session_state['data_store']['portfolio'][res['name']]['ai_analysis'] = new_ai
@@ -850,6 +853,11 @@ with tab3:
                             st.info(f"🏆 {ai_data['conclusion']}")
                         else:
                             st.markdown(f"**{ai_data.get('headline')}**")
+
+                        # [V51.1 추가] 뉴스 5줄 노출
+                        st.markdown("##### 📰 최신 뉴스 Top 5")
+                        for n in ai_data.get('raw_news', [])[:5]:
+                            st.markdown(f"- [{n['title']}]({n['link']})")
 
                         if st.button("🔄 업데이트", key=f"rw_{res['code']}"):
                             with st.spinner("..."):
