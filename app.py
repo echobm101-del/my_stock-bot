@@ -243,7 +243,7 @@ def get_financial_history(code):
     except: return pd.DataFrame()
 
 # -----------------------------------------------------------
-# [보조지표 함수]
+# [보조지표 함수] - V49.9.8 원본 유지 + 3대장(Stoch, MFI, SAR)
 # -----------------------------------------------------------
 def calculate_rsi(data, window=14):
     delta = data.diff()
@@ -337,11 +337,12 @@ def backtest_strategy(df):
         return int((wins / total) * 100) if total > 0 else 0
     except: return 0
 
-# --- [뉴스 크롤링 - 수정됨: 최신순 + 1개월 이내(pd=2) 강제 적용] ---
+# --- [뉴스 크롤링 - 최신순 정렬 및 기간 설정(pd=2) 적용으로 수정됨] ---
 def get_naver_search_news(keyword):
     titles = []
     try:
-        # &pd=2 파라미터를 추가하여 최근 1개월 이내 기사만 강제로 검색 (2025년 이전 기사 차단)
+        # [수정] &pd=2 파라미터를 추가하여 최근 1개월 이내 기사만 강제로 검색
+        # &sort=1 (최신순) + &pd=2 (1개월) 조합으로 2026년 최신 기사 확보
         url = f"https://search.naver.com/search.naver?where=news&query={urllib.parse.quote(keyword)}&sort=1&pd=2"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'}
         res = requests.get(url, headers=headers)
@@ -351,7 +352,7 @@ def get_naver_search_news(keyword):
             t = item.get_text().strip()
             if t: titles.append(t)
     except: pass
-    return list(dict.fromkeys(titles))[:7]
+    return list(dict.fromkeys(titles))[:7] # 중복 제거 후 반환
 
 def get_naver_finance_news(code):
     titles = []
@@ -359,17 +360,17 @@ def get_naver_finance_news(code):
         url = f"https://finance.naver.com/item/news_news.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers)
-        res.encoding = 'euc-kr'
+        res.encoding = 'euc-kr' # 인코딩 명시
         soup = BeautifulSoup(res.text, 'html.parser')
-        items = soup.select('.title a')
+        items = soup.select('.title a') # 셀렉터 수정
         for item in items:
             t = item.get_text().strip()
-            if t and "관련기사" not in t:
+            if t and "관련기사" not in t: # 관련기사 등 불필요 항목 제거
                 titles.append(t)
     except: pass
     return list(dict.fromkeys(titles))[:5]
 
-# [AI 분석 엔진]
+# [AI 분석 엔진 - 3단계 심층 분석 업그레이드]
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
     news_titles = []
@@ -397,8 +398,8 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         current_price = stock_data_context.get('current_price', 0)
         is_holding = stock_data_context.get('is_holding', False)
-        supply_info = stock_data_context.get('supply_info', '수급 정보 없음')
-        macro_info = stock_data_context.get('macro_info', 'USD/KRW 정보 없음')
+        supply_info = stock_data_context.get('supply_info', '수급 정보 없음') # 수급 정보
+        macro_info = stock_data_context.get('macro_info', 'USD/KRW 정보 없음') # 매크로 정보
         
         prompt = f"""
         당신은 노련한 주식 전략가입니다. 아래 데이터를 바탕으로 3가지 관점에서 입체적으로 분석해주세요.
@@ -441,6 +442,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 formatted_news = [{"title": t, "link": f"https://search.naver.com/search.naver?where=news&query={company_name}", "date": "최신"} for t in news_titles[:7]]
                 js['raw_news'] = formatted_news
                 js['method'] = "ai"
+                # 구형 UI 호환을 위해 headline 필드도 채워둠
                 if 'headline' not in js: js['headline'] = js.get('conclusion', '분석 완료')
                 return js
             else: raise Exception("JSON Parsing Fail")
@@ -483,9 +485,9 @@ def get_supply_demand(code):
         return {"f": int(df['외국인'].sum()), "i": int(df['기관합계'].sum())}
     except: return {"f":0, "i":0}
 
-# --- [누락 방지] 원본 코드에서 호출되나 정의가 없던 함수들 추가 ---
 def get_macro_data():
     try:
+        # 간단한 매크로(환율) 정보 수집 예시 (수정 필요시 보완)
         df = fdr.DataReader('USD/KRW', datetime.datetime.now() - datetime.timedelta(days=7))
         if not df.empty:
             return {"USD/KRW": {"val": df['Close'].iloc[-1]}}
@@ -493,13 +495,12 @@ def get_macro_data():
     return {"USD/KRW": {"val": 0.0}}
 
 def get_company_guide_score(code):
-    # 원본 코드에 정의가 없지만 호출되어 에러 방지용 더미 함수 추가
+    # 모의 데이터 또는 외부 API 연동 필요. 에러 방지를 위한 더미
     return 0, 0, {}
 
 def get_ai_recommended_stocks(keyword):
-    # 원본 코드에 정의가 없지만 호출되어 에러 방지용 더미 함수 추가
+    # 테마 검색 실패시 AI 추천 로직 (더미)
     return [], "검색 실패"
-# -------------------------------------------------------------
 
 def round_to_tick(price):
     if price < 2000: return int(round(price, -1))
@@ -654,6 +655,7 @@ with tab1:
                     render_fund_scorecard(res['fund_data'])
                     if st.button(f"✨ AI 분석 실행", key=f"ai_prev_{res['code']}"):
                         with st.spinner("AI가 3단계(기술/재료/수급)로 심층 분석 중..."):
+                            # 수급 요약 데이터 생성
                             inv_df = res['investor_trend']
                             sup_txt = "정보 없음"
                             if not inv_df.empty:
@@ -661,12 +663,14 @@ with tab1:
                                 f_buy = int(last['외국인']); i_buy = int(last['기관'])
                                 sup_txt = f"외국인 {'순매수' if f_buy>0 else '순매도'}({f_buy:,}), 기관 {'순매수' if i_buy>0 else '순매도'}({i_buy:,})"
                             
+                            # 환율 정보 (매크로)
                             macro = get_macro_data()
                             usd = f"USD/KRW {macro['USD/KRW']['val']:.2f}" if macro else "환율 정보 없음"
 
                             context = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
                             ai_result = get_news_sentiment_llm(res['name'], context)
                             
+                            # [UI] 3단 분석 결과 표시
                             if ai_result.get('technical'):
                                 st.success(f"📊 **정량(기술) 분석**\n{ai_result['technical']}")
                                 st.info(f"📰 **정성(재료) 분석**\n{ai_result['qualitative']}")
@@ -674,7 +678,7 @@ with tab1:
                                 st.markdown(f"---")
                                 st.caption(f"🏆 **종합 결론**: {ai_result['conclusion']}")
                             else:
-                                st.write(ai_result.get('headline'))
+                                st.write(ai_result.get('headline')) # 구형 응답 대비
 
                             for n in ai_result.get('raw_news', []):
                                 st.markdown(f"- [{n['title']}]({n['link']})")
@@ -705,6 +709,8 @@ with tab2:
                     render_investor_chart(res['investor_trend'])
                 with c2:
                     ai_data = res['news']
+                    
+                    # 수급/환율 데이터 준비 (버튼 클릭시 사용)
                     inv_df = res['investor_trend']
                     sup_txt = "정보 없음"
                     if not inv_df.empty:
@@ -715,13 +721,15 @@ with tab2:
 
                     if ai_data.get('method') == 'ai':
                         st.caption(f"🕒 {ai_data.get('timestamp')}")
+                        
+                        # 신규 3단 구조 UI 적용
                         if 'technical' in ai_data:
                             st.markdown(f"**📊 기술:** {ai_data['technical']}")
                             st.markdown(f"**📰 재료:** {ai_data['qualitative']}")
                             st.markdown(f"**👥 수급:** {ai_data['supply_analysis']}")
                             st.info(f"🏆 {ai_data['conclusion']}")
                         else:
-                            st.markdown(f"**{ai_data.get('headline')}**")
+                            st.markdown(f"**{ai_data.get('headline')}**") # 구버전 데이터 호환
 
                         if st.button("🔄 업데이트", key=f"re_{res['code']}"):
                             with st.spinner("..."):
@@ -734,7 +742,7 @@ with tab2:
                     else:
                         if st.button("✨ 3단 심층 분석", key=f"new_{res['code']}"):
                             with st.spinner("..."):
-                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
+                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "is_holding": True, "supply_info": sup_txt, "macro_info": usd}
                                 new_ai = get_news_sentiment_llm(res['name'], ctx)
                                 new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                                 st.session_state['data_store']['portfolio'][res['name']]['ai_analysis'] = new_ai
@@ -767,6 +775,7 @@ with tab3:
                     render_investor_chart(res['investor_trend'])
                 with c2:
                     ai_data = res['news']
+                    
                     inv_df = res['investor_trend']
                     sup_txt = "정보 없음"
                     if not inv_df.empty:
