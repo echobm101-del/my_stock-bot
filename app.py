@@ -374,7 +374,7 @@ def get_naver_finance_news(code):
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
     news_titles = []
-    
+     
     # 1. 네이버 검색 뉴스 (기간 필터 적용됨)
     search_titles = get_naver_search_news(company_name)
     news_titles.extend([f"[검색] {t}" for t in search_titles])
@@ -845,7 +845,7 @@ with st.sidebar:
                         r, _ = get_naver_theme_stocks(k)
                         st.session_state['preview_list'] = r
                 st.rerun()
-    
+     
     with st.expander("종목 추가"):
         n = st.text_input("이름"); c = st.text_input("코드"); h = st.checkbox("보유?")
         p = st.number_input("평단", step=100) if h else 0
