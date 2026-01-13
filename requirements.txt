@@ -10,3 +10,5 @@ numpy
 setuptools
 gspread
 oauth2client
+python-telegram-bot
+lxml
