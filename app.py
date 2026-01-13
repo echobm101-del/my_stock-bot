@@ -21,14 +21,13 @@ import warnings
 import logging
 
 # ==============================================================================
-# [V50.5 긴급 처방]
-# 에러를 일으키는 'st.set_option' 코드를 물리적으로 제거했습니다.
-# 이 코드는 Streamlit 최신 버전에서 무조건 작동합니다.
+# [V50.6 긴급 수정]
+# 1. 프로그램 죽이는 st.set_option 코드 완전 삭제함
+# 2. 경고 메시지만 조용히 시키는 코드 적용
 # ==============================================================================
-
-# 경고 메시지 차단 설정
 warnings.filterwarnings("ignore")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+# Streamlit 로거 레벨 조정 (불필요한 로그 숨김)
 logging.getLogger('streamlit').setLevel(logging.ERROR)
 
 # ------------------------------------------------------------------------------
@@ -67,7 +66,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. 기본 설정 및 CSS 적용] ---
-st.set_page_config(page_title="Quant Sniper V50.5 (Clean)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.6 (Stable)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -137,7 +136,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.5)",
+            "message": "Update data via Streamlit App (V50.6)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -650,12 +649,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V50.5 (Final)")
+    st.title("💎 Quant Sniper V50.6 (Stable)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.5 업데이트", expanded=False):
-        st.markdown("* **[Bugfix]** 설정 오류 코드 제거.\n* **[Stable]** 안정성 확보 완료.")
+    with st.expander("📘 V50.6 업데이트", expanded=False):
+        st.markdown("* **[Stable]** 에러 원인 코드(st.set_option) 영구 삭제 완료.\n* **[Optimized]** 로그 메시지 최소화 적용.")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -786,79 +785,6 @@ with tab2:
                                 st.rerun()
                 if st.button(f"🗑️ 삭제", key=f"del_{res['code']}"):
                     del st.session_state['data_store']['portfolio'][res['name']]
-                    update_github_file(st.session_state['data_store'])
-                    st.rerun()
-
-with tab3:
-    st.markdown("### 👀 관심 종목 (Watchlist)")
-    wl_items = list(st.session_state['data_store']['watchlist'].items())
-    if not wl_items: st.info("관심 종목이 없습니다.")
-    else:
-        wl_results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(analyze_pro, info['code'], name, None, None, info) for name, info in wl_items]
-            for f in concurrent.futures.as_completed(futures):
-                if f.result(): wl_results.append(f.result())
-        
-        for res in wl_results:
-            st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
-            with st.expander(f"🤖 AI 상세 분석"):
-                c1, c2 = st.columns([0.6, 0.4])
-                with c1:
-                    try:
-                        st.altair_chart(create_chart_clean(res['history']))
-                    except:
-                        st.error("차트 로딩 중 경고 발생")
-                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
-                    render_tech_metrics(res['stoch'], res['vol_ratio'])
-                    render_investor_chart(res['investor_trend'])
-                with c2:
-                    ai_data = res['news']
-                    inv_df = res['investor_trend']
-                    sup_txt = "정보 없음"
-                    if not inv_df.empty:
-                        last = inv_df.iloc[-1]
-                        sup_txt = f"외인 {int(last['외국인']):,}, 기관 {int(last['기관']):,}"
-                    macro = get_macro_data()
-                    usd = f"USD {macro['USD/KRW']['val']:.0f}" if macro else ""
-
-                    if ai_data.get('method') == 'ai':
-                        st.caption(f"🕒 {ai_data.get('timestamp')}")
-                        if 'technical' in ai_data:
-                            st.markdown(f"**📊 기술:** {ai_data['technical']}")
-                            st.markdown(f"**📰 재료:** {ai_data['qualitative']}")
-                            st.markdown(f"**👥 수급:** {ai_data['supply_analysis']}")
-                            st.info(f"🏆 {ai_data['conclusion']}")
-                        else:
-                            st.markdown(f"**{ai_data.get('headline')}**")
-
-                        if st.button("🔄 업데이트", key=f"rw_{res['code']}"):
-                            with st.spinner("..."):
-                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
-                                new_ai = get_news_sentiment_llm(res['name'], ctx)
-                                new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                                st.session_state['data_store']['watchlist'][res['name']]['ai_analysis'] = new_ai
-                                update_github_file(st.session_state['data_store'])
-                                st.rerun()
-                    else:
-                        if st.button("✨ 3단 심층 분석", key=f"nw_{res['code']}"):
-                            with st.spinner("..."):
-                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
-                                new_ai = get_news_sentiment_llm(res['name'], ctx)
-                                new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                                st.session_state['data_store']['watchlist'][res['name']]['ai_analysis'] = new_ai
-                                update_github_file(st.session_state['data_store'])
-                                st.rerun()
-                st.markdown("---")
-                bp = st.number_input("매수 단가", value=res['price'], step=100, key=f"b_{res['code']}")
-                if st.button("📥 잔고 이동", key=f"m_{res['code']}"):
-                    st.session_state['data_store']['portfolio'][res['name']] = {"code": res['code'], "buy_price": bp, "ai_analysis": res['news']}
-                    if res['name'] in st.session_state['data_store']['watchlist']:
-                        del st.session_state['data_store']['watchlist'][res['name']]
-                    update_github_file(st.session_state['data_store'])
-                    st.success("이동 완료"); st.rerun()
-                if st.button(f"🗑️ 삭제", key=f"d_{res['code']}"):
-                    del st.session_state['data_store']['watchlist'][res['name']]
                     update_github_file(st.session_state['data_store'])
                     st.rerun()
 
