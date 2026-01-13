@@ -22,9 +22,9 @@ import logging
 from datetime import datetime as dt
 
 # ==============================================================================
-# [V51.6 업데이트]
-# 1. 데이터 안전장치: 기존 관심종목이 사라지지 않도록 데이터 로드/저장 로직 강화
-# 2. 기능 추가: 테마 발굴 탭에서 '관심종목' 뿐만 아니라 '내 잔고(Portfolio)'로 바로 등록 가능
+# [V51.8 업데이트]
+# 1. UI 혁신: AI 분석 결과가 있으면 '상세 분석' 버튼 위에 [종합 3줄 요약]을 즉시 노출
+# 2. 클릭 없이도 핵심 내용을 파악할 수 있도록 UX 개선
 # ==============================================================================
 
 warnings.filterwarnings("ignore")
@@ -74,7 +74,7 @@ except Exception as e:
     NAVER_CLIENT_SECRET = ""
 
 # --- [1. 기본 설정] ---
-st.set_page_config(page_title="Quant Sniper V51.6 (Safety)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V51.8 (Summary View)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -124,12 +124,9 @@ def load_from_github():
         if r.status_code == 200:
             content = base64.b64decode(r.json()['content']).decode('utf-8')
             data = json.loads(content)
-            
-            # [안전장치] 데이터 구조가 깨져있을 경우 복구
             if not isinstance(data, dict): data = {}
             if "portfolio" not in data: data["portfolio"] = {}
             if "watchlist" not in data: data["watchlist"] = {}
-            
             return data
         return {"portfolio": {}, "watchlist": {}}
     except: return {"portfolio": {}, "watchlist": {}}
@@ -148,7 +145,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V51.6)",
+            "message": "Update data via Streamlit App (V51.8)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -157,11 +154,9 @@ def update_github_file(new_data):
     except Exception as e:
         return False
 
-# [중요] 세션 상태 초기화 시 데이터 무결성 확인
 if 'data_store' not in st.session_state: 
     st.session_state['data_store'] = load_from_github()
 else:
-    # 혹시라도 키가 없을 경우를 대비해 한번 더 체크
     if "portfolio" not in st.session_state['data_store']: st.session_state['data_store']["portfolio"] = {}
     if "watchlist" not in st.session_state['data_store']: st.session_state['data_store']["watchlist"] = {}
 
@@ -500,14 +495,16 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         1. 정량적(Technical): 차트 및 수급 분석
         2. 정성적(Qualitative): 뉴스 재료 분석. (중요: 뉴스가 있다면 그 내용을 바탕으로 호재/악재를 판단하세요)
         3. 수급(Supply): 기관/외인 동향 추론
-        4. 종합 결론: 매수/매도/관망 의견
+        4. 종합 결론: 한줄 요약
+        5. **3줄 요약(Summary)**: 위 모든 내용을 종합하여 투자자가 지금 취해야 할 행동을 3문장으로 명확히 요약해 주세요.
 
-        반드시 아래 JSON 포맷으로만 응답하세요. 마크다운 쓰지 마세요.
+        반드시 아래 JSON 포맷으로만 응답하세요.
         {{
             "technical": "내용",
             "qualitative": "내용",
             "supply_analysis": "내용",
             "conclusion": "한줄 결론",
+            "summary": "종합 3줄 요약 내용 (여기가 가장 중요함)",
             "score": 70
         }}
         """
@@ -520,7 +517,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             try:
                 match = re.search(r'\{.*\}', cleaned, re.DOTALL)
                 if match: js = json.loads(match.group())
-                else: js = {"technical": "...", "qualitative": "...", "supply_analysis": "...", "conclusion": "...", "score": 50}
+                else: js = {"technical": "...", "qualitative": "...", "supply_analysis": "...", "conclusion": "...", "summary": "분석 실패", "score": 50}
                 
                 js['raw_news'] = unique_news[:7] 
                 js['method'] = "ai"
@@ -528,11 +525,11 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 return js
 
             except:
-                return {"score":50, "headline":"파싱 오류", "raw_news":unique_news, "method":"error"}
+                return {"score":50, "headline":"파싱 오류", "summary":"데이터 파싱 중 오류 발생", "raw_news":unique_news, "method":"error"}
         else: raise Exception(error_msg)
         
     except Exception as e:
-        return {"score": 0, "headline": f"오류: {str(e)}", "method": "error", "raw_news": unique_news}
+        return {"score": 0, "headline": f"오류: {str(e)}", "summary": f"AI 호출 중 오류가 발생했습니다: {str(e)}", "method": "error", "raw_news": unique_news}
 
 def get_valid_model_name(api_key):
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
@@ -652,7 +649,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None, 
         "fund_data": None, 
         "ma_status": [], 
         "trend_txt": "분석 중",
-        "news": {"score":0, "headline":"AI 분석 버튼을 눌러주세요 👇", "raw_news":[], "method":"none", "opinion":"", "catalyst":"", "risk":""}, 
+        "news": {"score":0, "headline":"AI 분석 버튼을 눌러주세요 👇", "raw_news":[], "method":"none", "opinion":"", "catalyst":"", "risk":"", "summary":""}, 
         "history": df, 
         "supply": {"f":0, "i":0},
         "stoch": {"k": curr.get('Stoch_K', 50), "d": curr.get('Stoch_D', 50)},
@@ -701,12 +698,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V51.6 (Safety)")
+    st.title("💎 Quant Sniper V51.8 (Summary View)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V51.6 업데이트", expanded=False):
-        st.markdown("* **[Safety]** 관심종목이 사라지지 않도록 안전장치를 강화했습니다.\n* **[Feature]** 테마 발굴 탭에서 '내 잔고'로 바로 담을 수 있습니다.")
+    with st.expander("📘 V51.8 업데이트", expanded=False):
+        st.markdown("* **[UX]** 종합 3줄 요약을 카드 바로 아래에 즉시 노출합니다. (클릭 불필요)")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -724,6 +721,21 @@ with tab1:
 
         for res in preview_results:
             st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
+            
+            # [V51.8] AI 요약 즉시 노출 (세션 상태 우선 체크)
+            ai_key = f"ai_result_{res['code']}"
+            summary_text = None
+            
+            # 1. 이미 분석된 데이터가 있으면
+            if 'news' in res and res['news'].get('method') == 'ai':
+                summary_text = res['news'].get('summary')
+            # 2. 방금 막 분석해서 세션에 있으면 (실시간)
+            elif ai_key in st.session_state:
+                summary_text = st.session_state[ai_key].get('summary')
+
+            if summary_text:
+                st.info(f"📢 **AI 종합 코멘트:** {summary_text}")
+
             with st.expander(f"🤖 AI 분석 및 상세 차트"):
                 c1, c2 = st.columns([1, 1])
                 with c1:
@@ -737,7 +749,6 @@ with tab1:
                 with c2:
                     render_fund_scorecard(res['fund_data'])
                     
-                    ai_key = f"ai_result_{res['code']}"
                     if st.button(f"✨ AI 분석 실행", key=f"btn_{res['code']}"):
                         with st.spinner("AI가 3단계(기술/재료/수급)로 심층 분석 중..."):
                             inv_df = res['investor_trend']
@@ -751,28 +762,32 @@ with tab1:
                             usd = f"USD/KRW {macro['USD/KRW']['val']:.2f}" if macro else "환율 정보 없음"
 
                             context = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
+                            # 분석 결과 저장
                             st.session_state[ai_key] = get_news_sentiment_llm(res['name'], context)
+                            st.rerun() # 즉시 새로고침하여 요약 노출
                     
-                    if ai_key in st.session_state:
-                        ai_result = st.session_state[ai_key]
-                        if ai_result.get('technical'):
-                            st.success(f"📊 **정량(기술) 분석**\n{ai_result['technical']}")
-                            st.info(f"📰 **정성(재료) 분석**\n{ai_result['qualitative']}")
-                            st.warning(f"👥 **수급 심층 분석**\n{ai_result['supply_analysis']}")
+                    # 분석 결과가 있으면 상세 내용 표시
+                    target_data = None
+                    if ai_key in st.session_state: target_data = st.session_state[ai_key]
+                    elif 'news' in res and res['news'].get('method') == 'ai': target_data = res['news']
+
+                    if target_data:
+                        if target_data.get('technical'):
+                            st.success(f"📊 **정량(기술) 분석**\n{target_data['technical']}")
+                            st.info(f"📰 **정성(재료) 분석**\n{target_data['qualitative']}")
+                            st.warning(f"👥 **수급 심층 분석**\n{target_data['supply_analysis']}")
                             st.markdown(f"---")
-                            st.caption(f"🏆 **종합 결론**: {ai_result['conclusion']}")
+                            st.caption(f"🏆 **종합 결론**: {target_data['conclusion']}")
                         else:
-                            st.write(ai_result.get('headline'))
+                            st.write(target_data.get('headline'))
 
                         st.markdown("##### 📰 최신 뉴스 Top 5")
-                        for n in ai_result.get('raw_news', [])[:5]:
+                        for n in target_data.get('raw_news', [])[:5]:
                             meta_info = f" *({n.get('source', '뉴스')} | {n.get('date', '최신')})*"
                             st.markdown(f"- [{n['title']}]({n['link']}){meta_info}")
 
-                # [V51.6 추가] 버튼 영역 (관심등록 / 잔고담기)
                 c_add1, c_add2, c_add3 = st.columns([0.3, 0.4, 0.3])
                 
-                # 1. 관심 등록
                 with c_add1:
                     if st.button(f"📌 관심등록", key=f"add_wl_{res['code']}"):
                         if 'watchlist' not in st.session_state['data_store']:
@@ -783,23 +798,19 @@ with tab1:
                         time.sleep(0.5)
                         st.rerun()
                 
-                # 2. 매수 단가 입력
                 with c_add2:
                     buy_price_input = st.number_input(f"매수 단가", value=res['price'], step=100, key=f"bp_input_{res['code']}", label_visibility="collapsed")
 
-                # 3. 잔고(포트폴리오) 담기
                 with c_add3:
                     if st.button(f"💰 잔고담기", key=f"add_port_{res['code']}"):
                         if 'portfolio' not in st.session_state['data_store']:
                             st.session_state['data_store']['portfolio'] = {}
                         
-                        # 포트폴리오에 추가
                         st.session_state['data_store']['portfolio'][res['name']] = {
                             'code': res['code'],
                             'buy_price': buy_price_input
                         }
                         
-                        # 혹시 관심종목에 있다면 제거 (중복 방지)
                         if res['name'] in st.session_state['data_store'].get('watchlist', {}):
                             del st.session_state['data_store']['watchlist'][res['name']]
                             
@@ -821,6 +832,11 @@ with tab2:
         
         for res in port_results:
             st.markdown(create_portfolio_card_html(res), unsafe_allow_html=True)
+            
+            if 'news' in res and res['news'].get('method') == 'ai':
+                summary_text = res['news'].get('summary', '요약 정보 없음')
+                st.info(f"📢 **AI 종합 코멘트:** {summary_text}")
+
             with st.expander(f"📊 {res['name']} 상세 분석"):
                 c1, c2 = st.columns([0.6, 0.4])
                 with c1:
@@ -892,6 +908,11 @@ with tab3:
         
         for res in wl_results:
             st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
+            
+            if 'news' in res and res['news'].get('method') == 'ai':
+                summary_text = res['news'].get('summary', '요약 정보 없음')
+                st.info(f"📢 **AI 종합 코멘트:** {summary_text}")
+
             with st.expander(f"🤖 AI 상세 분석"):
                 c1, c2 = st.columns([0.6, 0.4])
                 with c1:
