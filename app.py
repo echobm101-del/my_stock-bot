@@ -22,9 +22,9 @@ import logging
 from datetime import datetime as dt
 
 # ==============================================================================
-# [V51.8 업데이트]
-# 1. UI 혁신: AI 분석 결과가 있으면 '상세 분석' 버튼 위에 [종합 3줄 요약]을 즉시 노출
-# 2. 클릭 없이도 핵심 내용을 파악할 수 있도록 UX 개선
+# [V51.9 UI/UX 최종 수정]
+# 1. UI 구조 변경: 카드 -> [AI 요약 박스] -> [상세 분석 버튼] 순서로 배치
+# 2. 분석 완료 시 즉시 요약 박스가 노출되도록 세션 상태 체크 로직 강화
 # ==============================================================================
 
 warnings.filterwarnings("ignore")
@@ -74,7 +74,7 @@ except Exception as e:
     NAVER_CLIENT_SECRET = ""
 
 # --- [1. 기본 설정] ---
-st.set_page_config(page_title="Quant Sniper V51.8 (Summary View)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V51.9 (Final UI)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -145,7 +145,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V51.8)",
+            "message": "Update data via Streamlit App (V51.9)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -698,12 +698,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V51.8 (Summary View)")
+    st.title("💎 Quant Sniper V51.9 (Final UI)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V51.8 업데이트", expanded=False):
-        st.markdown("* **[UX]** 종합 3줄 요약을 카드 바로 아래에 즉시 노출합니다. (클릭 불필요)")
+    with st.expander("📘 V51.9 업데이트", expanded=False):
+        st.markdown("* **[UI]** 3줄 요약 박스가 상세 분석 버튼 위로 이동했습니다.\n* **[UX]** 분석 완료 시 즉시 새로고침되어 결과를 보여줍니다.")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -722,21 +722,21 @@ with tab1:
         for res in preview_results:
             st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
             
-            # [V51.8] AI 요약 즉시 노출 (세션 상태 우선 체크)
+            # [V51.9 핵심 수정] AI 요약을 '상세 분석' 버튼 밖(위)에 노출
             ai_key = f"ai_result_{res['code']}"
-            summary_text = None
+            summary_to_show = None
             
-            # 1. 이미 분석된 데이터가 있으면
-            if 'news' in res and res['news'].get('method') == 'ai':
-                summary_text = res['news'].get('summary')
-            # 2. 방금 막 분석해서 세션에 있으면 (실시간)
-            elif ai_key in st.session_state:
-                summary_text = st.session_state[ai_key].get('summary')
+            # 1. 세션에 방금 분석한 결과가 있으면 우선 사용
+            if ai_key in st.session_state:
+                summary_to_show = st.session_state[ai_key].get('summary')
+            # 2. 기존 저장된 결과가 있으면 사용
+            elif 'news' in res and res['news'].get('method') == 'ai':
+                summary_to_show = res['news'].get('summary')
 
-            if summary_text:
-                st.info(f"📢 **AI 종합 코멘트:** {summary_text}")
+            if summary_to_show:
+                st.info(f"📢 **AI 종합 3줄 요약:**\n{summary_to_show}")
 
-            with st.expander(f"🤖 AI 분석 및 상세 차트"):
+            with st.expander(f"🤖 상세 분석 보기"):
                 c1, c2 = st.columns([1, 1])
                 with c1:
                     try:
@@ -764,12 +764,10 @@ with tab1:
                             context = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
                             # 분석 결과 저장
                             st.session_state[ai_key] = get_news_sentiment_llm(res['name'], context)
-                            st.rerun() # 즉시 새로고침하여 요약 노출
+                            st.rerun() # [중요] 즉시 새로고침하여 위쪽 요약 박스 갱신
                     
-                    # 분석 결과가 있으면 상세 내용 표시
-                    target_data = None
-                    if ai_key in st.session_state: target_data = st.session_state[ai_key]
-                    elif 'news' in res and res['news'].get('method') == 'ai': target_data = res['news']
+                    # 상세 내용 표시 (세션 or 기존 데이터)
+                    target_data = st.session_state.get(ai_key) or (res['news'] if res.get('news', {}).get('method') == 'ai' else None)
 
                     if target_data:
                         if target_data.get('technical'):
@@ -833,9 +831,13 @@ with tab2:
         for res in port_results:
             st.markdown(create_portfolio_card_html(res), unsafe_allow_html=True)
             
+            # [V51.9] 포트폴리오 탭에서도 요약 즉시 노출
+            summary_text = None
             if 'news' in res and res['news'].get('method') == 'ai':
-                summary_text = res['news'].get('summary', '요약 정보 없음')
-                st.info(f"📢 **AI 종합 코멘트:** {summary_text}")
+                summary_text = res['news'].get('summary')
+            
+            if summary_text:
+                st.info(f"📢 **AI 종합 3줄 요약:**\n{summary_text}")
 
             with st.expander(f"📊 {res['name']} 상세 분석"):
                 c1, c2 = st.columns([0.6, 0.4])
@@ -909,9 +911,16 @@ with tab3:
         for res in wl_results:
             st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
             
-            if 'news' in res and res['news'].get('method') == 'ai':
-                summary_text = res['news'].get('summary', '요약 정보 없음')
-                st.info(f"📢 **AI 종합 코멘트:** {summary_text}")
+            # [V51.9] Watchlist 탭에서도 요약 즉시 노출
+            ai_key = f"ai_result_{res['code']}"
+            summary_to_show = None
+            if ai_key in st.session_state:
+                summary_to_show = st.session_state[ai_key].get('summary')
+            elif 'news' in res and res['news'].get('method') == 'ai':
+                summary_to_show = res['news'].get('summary')
+
+            if summary_to_show:
+                st.info(f"📢 **AI 종합 3줄 요약:**\n{summary_to_show}")
 
             with st.expander(f"🤖 AI 상세 분석"):
                 c1, c2 = st.columns([0.6, 0.4])
@@ -987,28 +996,4 @@ with st.sidebar:
             inp = st.text_input("검색어")
             if st.form_submit_button("분석 시작"):
                 k = inp if preset == "직접 입력" else THEME_KEYWORDS[preset]
-                if krx_df.empty: krx_df = get_krx_list_safe()
-                found = False
-                if k in krx_df['Name'].values:
-                    c = krx_df[krx_df['Name'] == k].iloc[0]['Code']
-                    r = analyze_pro(c, k); st.session_state['preview_list'] = [r]; found = True
-                if not found:
-                    s, _ = get_ai_recommended_stocks(k)
-                    if s: st.session_state['preview_list'] = s
-                    else: 
-                        r, _ = get_naver_theme_stocks(k)
-                        st.session_state['preview_list'] = r
-                st.rerun()
-      
-    with st.expander("종목 추가"):
-        n = st.text_input("이름"); c = st.text_input("코드"); h = st.checkbox("보유?")
-        p = st.number_input("평단", step=100) if h else 0
-        if st.button("저장"):
-            t = 'portfolio' if h else 'watchlist'
-            d = {"code": c}; 
-            if h: d["buy_price"] = p
-            st.session_state['data_store'][t][n] = d
-            update_github_file(st.session_state['data_store']); st.rerun()
-            
-    if st.button("초기화"):
-        st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}; st.rerun()
+                if krx_df.empty: krx_
