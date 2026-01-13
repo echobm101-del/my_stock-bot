@@ -174,12 +174,23 @@
                 "headline": "강력한 상승 추세와 긍정적인 뉴스 재료를 바탕으로 추가 상승 여력이 있다고 판단되나, 수급 불확실성으로 인해 관망하며 보유 포지션을 유지하는 것이 적절합니다.",
                 "timestamp": "2026-01-13 12:40"
             }
+        },
+        "KODEX 미국S&P500": {
+            "code": "379800",
+            "buy_price": 23390,
+            "ai_analysis": {
+                "score": 0,
+                "headline": "AI 분석 버튼을 눌러주세요 👇",
+                "raw_news": [],
+                "method": "none",
+                "opinion": "",
+                "catalyst": "",
+                "risk": "",
+                "summary": ""
+            }
         }
     },
     "watchlist": {
-        "KODEX 미국S&P500": {
-            "code": "379800"
-        },
         "Tiger 미국테크 TOP10 INDXX(H)": {
             "code": "472160",
             "ai_analysis": {
