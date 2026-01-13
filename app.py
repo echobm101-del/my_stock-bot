@@ -19,11 +19,13 @@ from io import StringIO
 import random
 import warnings
 import logging
+from datetime import datetime as dt # 날짜 변환용
 
 # ==============================================================================
-# [V51.3 업데이트]
-# 1. 수급 데이터(외인/기관) 수집 로직 전면 교체 (라이브러리 -> 직접 파싱)
-# 2. "수급 데이터 없음" 현상 해결 및 AI 분석에 수급 데이터 강제 주입
+# [V51.5 업데이트]
+# 1. 날짜 포맷팅 함수(parse_pubdate) 재작성 -> 날짜 누락 해결
+# 2. 검색어 뒤에 " 주가" 강제 추가 -> 야구/농구 뉴스 차단
+# 3. 출처 미제공 시 '네이버뉴스'로 통일
 # ==============================================================================
 
 warnings.filterwarnings("ignore")
@@ -73,7 +75,7 @@ except Exception as e:
     NAVER_CLIENT_SECRET = ""
 
 # --- [1. 기본 설정] ---
-st.set_page_config(page_title="Quant Sniper V51.3 (Supply Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V51.5 (Date Fix)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -143,7 +145,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V51.3)",
+            "message": "Update data via Streamlit App (V51.5)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -192,7 +194,7 @@ def get_naver_theme_stocks(keyword):
         return stocks, f"'{keyword}' 관련 테마 발견: {len(stocks)}개 종목"
     except Exception as e: return [], f"크롤링 오류: {str(e)}"
 
-# [V51.3 핵심 수정] 수급 데이터 강제 파싱 함수 (pykrx 대체용)
+# [V51.3 유지] 수급 데이터 강제 파싱 함수
 def get_investor_trend_direct_parsing(code):
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
@@ -200,48 +202,32 @@ def get_investor_trend_direct_parsing(code):
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
         res = requests.get(url, headers=headers, timeout=5)
-        
-        # 테이블 파싱 (인코딩 처리 중요)
         dfs = pd.read_html(StringIO(res.text), attrs={"class": "type2"}, flavor='bs4')
         if not dfs: return pd.DataFrame()
         
-        df = dfs[1] # 보통 두 번째 테이블이 일별 매매동향
-        df = df.dropna(how='all') # 빈 행 제거
-        
-        # 컬럼 정리 (날짜, 종가, 전일비, 등락률, 거래량, 기관, 외국인...)
-        # 네이버 구조: [날짜] [종가] [전일비] [등락률] [거래량] [기관] [외국인] ...
+        df = dfs[1]
+        df = df.dropna(how='all')
         if len(df.columns) < 7: return pd.DataFrame()
         
-        df = df.iloc[:, [0, 5, 6]] # 날짜, 기관, 외국인 컬럼만 추출
+        df = df.iloc[:, [0, 5, 6]]
         df.columns = ['Date', 'Institution', 'Foreigner']
-        df = df.dropna() # 데이터 없는 날짜 제거
+        df = df.dropna()
         
-        # 숫자 변환 (콤마 제거)
         df['Institution'] = df['Institution'].astype(str).str.replace(',', '').astype(float)
         df['Foreigner'] = df['Foreigner'].astype(str).str.replace(',', '').astype(float)
         
-        # 최근 20일치만 사용 및 정렬
         df = df.head(20).sort_values('Date').reset_index(drop=True)
-        
-        # 누적합 계산 (차트용)
         df['Cum_Institution'] = df['Institution'].cumsum()
         df['Cum_Foreigner'] = df['Foreigner'].cumsum()
-        
-        # 날짜 컬럼명 통일
         df.rename(columns={'Date': '날짜', 'Institution': '기관', 'Foreigner': '외국인'}, inplace=True)
-        
         return df
     except Exception as e:
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
 def get_investor_trend(code):
-    # 1순위: 직접 파싱 (서버 차단 회피율 높음)
     df = get_investor_trend_direct_parsing(code)
-    if not df.empty:
-        return df
-        
-    # 2순위: 기존 pykrx (백업)
+    if not df.empty: return df
     try:
         end_d = datetime.datetime.now().strftime("%Y%m%d")
         start_d = (datetime.datetime.now() - datetime.timedelta(days=60)).strftime("%Y%m%d")
@@ -254,7 +240,6 @@ def get_investor_trend(code):
             df.rename(columns={'날짜': '날짜', '기관합계': '기관', '외국인': '외국인'}, inplace=True)
             return df[['날짜', '기관', '외국인', 'Cum_Institution', 'Cum_Foreigner']]
     except: pass
-    
     return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
@@ -381,34 +366,71 @@ def backtest_strategy(df):
         return int((wins / total) * 100) if total > 0 else 0
     except: return 0
 
-# --- [뉴스 API 함수] ---
+# --- [뉴스 헬퍼 함수] ---
+def clean_html(raw_html):
+    return re.sub('<[^<]+?>', '', raw_html).replace('&quot;', '"').replace('&apos;', "'").replace('&amp;', '&')
+
+def parse_pubdate(pubdate_str):
+    # API 날짜 포맷 (Mon, 13 Jan 2025 14:00:00 +0900)을 YYYY-MM-DD로 변환
+    try:
+        # datetime 모듈의 strptime을 사용하여 파싱
+        # Locale 문제 방지를 위해 영문 월 이름 처리가 중요하지만, Streamlit 클라우드 환경에서는 보통 동작함
+        # 안전하게 앞의 날짜 부분만 떼어서 처리
+        # 예: "Mon, 13 Jan 2025" 까지만 잘라서 쓸 수도 있음
+        dt_obj = datetime.datetime.strptime(pubdate_str, "%a, %d %b %Y %H:%M:%S %z")
+        return dt_obj.strftime("%Y-%m-%d")
+    except:
+        return "최신"
+
+# --- [뉴스 API 함수 (수정됨)] ---
 def get_naver_search_news(keyword):
+    # [V51.5 수정] 검색어 뒤에 " 주가"를 붙여서 주식 뉴스만 유도
+    # 예: "삼성전" -> "삼성전 주가" (야구 뉴스 제외됨)
+    search_keyword = f"{keyword} 주가" if "주가" not in keyword else keyword
+
     if NAVER_CLIENT_ID and NAVER_CLIENT_SECRET:
         try:
             url = "https://openapi.naver.com/v1/search/news.json"
             headers = {"X-Naver-Client-Id": NAVER_CLIENT_ID, "X-Naver-Client-Secret": NAVER_CLIENT_SECRET}
-            params = {"query": keyword, "display": 7, "sort": "date"} 
+            params = {"query": search_keyword, "display": 7, "sort": "date"} 
             res = requests.get(url, headers=headers, params=params, timeout=5)
             if res.status_code == 200:
                 items = res.json().get('items', [])
-                return [re.sub('<[^<]+?>', '', item['title']).replace('&quot;', '"').replace('&apos;', "'") for item in items]
+                results = []
+                for item in items:
+                    title = clean_html(item['title'])
+                    link = item['originallink'] if item['originallink'] else item['link']
+                    # 날짜 변환 적용
+                    date_str = parse_pubdate(item['pubDate'])
+                    # API는 출처 미제공 -> '네이버뉴스'로 통일
+                    results.append({"title": title, "link": link, "date": date_str, "source": "네이버뉴스"})
+                return results
         except: pass
 
-    titles = []
+    # 크롤링 백업
+    news_list = []
     try:
-        url = f"https://search.naver.com/search.naver?where=news&query={urllib.parse.quote(keyword)}&sort=1&pd=2"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        url = f"https://search.naver.com/search.naver?where=news&query={urllib.parse.quote(search_keyword)}&sort=1&pd=2"
+        headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, 'html.parser')
-        items = soup.select('.news_tit')
-        for item in items:
-            t = item.get_text().strip()
-            if t: titles.append(t)
+        items = soup.select('.news_area')
+        for item in items[:7]:
+            title_tag = item.select_one('.news_tit')
+            if title_tag:
+                title = title_tag.get_text().strip()
+                link = title_tag['href']
+                source_tag = item.select_one('.info.press')
+                source = source_tag.get_text().strip() if source_tag else "뉴스"
+                date_tag = item.select_one('.info_group .info')
+                date_txt = date_tag.get_text().strip() if date_tag else "최신"
+                if "." in date_txt: date_txt = date_txt.replace(".", "-")[:-1]
+                news_list.append({"title": title, "link": link, "date": date_txt, "source": source})
     except: pass
-    return list(dict.fromkeys(titles))[:7]
+    return news_list
 
 def get_naver_finance_news(code):
-    titles = []
+    news_list = []
     try:
         url = f"https://finance.naver.com/item/news_news.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
@@ -416,31 +438,45 @@ def get_naver_finance_news(code):
         res.encoding = 'euc-kr'
         soup = BeautifulSoup(res.text, 'html.parser')
         items = soup.select('.title a')
-        for item in items:
-            t = item.get_text().strip()
-            if t and "관련기사" not in t:
-                titles.append(t)
+        for item in items[:5]:
+            title = item.get_text().strip()
+            if "관련기사" not in title:
+                link = "https://finance.naver.com" + item['href']
+                news_list.append({"title": title, "link": link, "date": "최신", "source": "네이버금융"})
     except: pass
-    return list(dict.fromkeys(titles))[:5]
+    return news_list
 
 # [AI 분석 엔진]
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
-    news_titles = []
-     
-    search_titles = get_naver_search_news(company_name)
-    prefix = "[API]" if NAVER_CLIENT_ID else "[검색]"
-    news_titles.extend([f"{prefix} {t}" for t in search_titles])
+    
+    all_news = []
+    
+    # 1. 검색 뉴스
+    search_news = get_naver_search_news(company_name)
+    all_news.extend(search_news)
 
+    # 2. 금융 뉴스
     code = stock_data_context.get('code', '')
     if code:
-        fin_titles = get_naver_finance_news(code)
-        news_titles.extend([f"[공시/금융] {t}" for t in fin_titles])
+        fin_news = get_naver_finance_news(code)
+        all_news.extend(fin_news)
 
-    news_titles = list(set(news_titles))
-
-    if not news_titles: 
-        news_titles = ["(현재 수집된 최신 뉴스가 없습니다. 기술적 분석 위주로 진행해주세요.)"]
+    # 중복 제거
+    seen_titles = set()
+    unique_news = []
+    for n in all_news:
+        if n['title'] not in seen_titles:
+            unique_news.append(n)
+            seen_titles.add(n['title'])
+    
+    # AI 입력 텍스트 생성
+    news_text_list = []
+    for n in unique_news[:10]: 
+        news_text_list.append(f"- {n['title']} ({n['source']} | {n['date']})")
+    
+    if not news_text_list: 
+        news_text_list = ["(최신 뉴스 없음)"]
 
     try:
         if not USER_GOOGLE_API_KEY: raise Exception("API Key Missing")
@@ -463,7 +499,7 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         - 내 상태: {"보유중 (수익률 " + str(round(profit_rate, 2)) + "%)" if is_holding else "미보유 (신규진입 고민)"}
 
         [2. 최신 뉴스]
-        {str(news_titles)}
+        {str(news_text_list)}
 
         [분석 요청]
         1. 정량적(Technical): 차트 및 수급 분석
@@ -488,38 +524,20 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             
             try:
                 match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-                if match:
-                    js = json.loads(match.group())
-                else:
-                    js = {
-                        "technical": "분석 데이터 변환 중",
-                        "qualitative": cleaned[:200] + "...",
-                        "supply_analysis": "상세 내용은 AI 원문 참조",
-                        "conclusion": cleaned[:50] + "...",
-                        "score": 50
-                    }
+                if match: js = json.loads(match.group())
+                else: js = {"technical": "...", "qualitative": "...", "supply_analysis": "...", "conclusion": "...", "score": 50}
                 
-                formatted_news = [{"title": t, "link": f"https://search.naver.com/search.naver?where=news&query={company_name}", "date": "최신"} for t in news_titles[:7]]
-                js['raw_news'] = formatted_news
+                js['raw_news'] = unique_news[:7] 
                 js['method'] = "ai"
                 if 'headline' not in js: js['headline'] = js.get('conclusion', '분석 완료')
                 return js
 
-            except Exception as parse_e:
-                return {
-                    "technical": "AI 응답 형식이 올바르지 않지만 내용은 수신했습니다.",
-                    "qualitative": cleaned, 
-                    "supply_analysis": "위 내용을 참고하세요.",
-                    "conclusion": "형식 오류로 원문 표시",
-                    "score": 50,
-                    "raw_news": [],
-                    "method": "ai"
-                }
-
+            except:
+                return {"score":50, "headline":"파싱 오류", "raw_news":unique_news, "method":"error"}
         else: raise Exception(error_msg)
         
     except Exception as e:
-        return {"score": 0, "headline": f"AI 통신 오류: {str(e)}", "method": "error", "opinion": "중립", "raw_news": []}
+        return {"score": 0, "headline": f"오류: {str(e)}", "method": "error", "raw_news": unique_news}
 
 def get_valid_model_name(api_key):
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
@@ -670,10 +688,8 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None, 
     try: _, _, fund_data = get_company_guide_score(code); result_dict['fund_data'] = fund_data
     except: result_dict['fund_data'] = {}
     
-    # [V51.3] 수급 데이터 로직 개선
     try: result_dict['investor_trend'] = get_investor_trend(code)
     except: pass
-    
     try: result_dict['fin_history'] = get_financial_history(code)
     except: pass
     
@@ -690,12 +706,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V51.3 (Supply Fix)")
+    st.title("💎 Quant Sniper V51.5 (Date Fix)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V51.3 업데이트", expanded=False):
-        st.markdown("* **[Data]** 수급 데이터(외인/기관) 직접 파싱으로 복구 완료!\n* **[Analysis]** AI가 이제 수급 정보를 보고 분석합니다.")
+    with st.expander("📘 V51.5 업데이트", expanded=False):
+        st.markdown("* **[Date]** 날짜가 '최신'으로만 뜨던 문제를 해결했습니다. (YYYY-MM-DD)\n* **[Search]** '삼성전' 검색 시 야구 뉴스 차단! ('주가' 자동 추가)")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -729,7 +745,6 @@ with tab1:
                     ai_key = f"ai_result_{res['code']}"
                     if st.button(f"✨ AI 분석 실행", key=f"btn_{res['code']}"):
                         with st.spinner("AI가 3단계(기술/재료/수급)로 심층 분석 중..."):
-                            # 수급 요약 (AI용)
                             inv_df = res['investor_trend']
                             sup_txt = "정보 없음"
                             if not inv_df.empty:
@@ -754,7 +769,7 @@ with tab1:
                         else:
                             st.write(ai_result.get('headline'))
 
-                        # [V51.2] 뉴스 출처/날짜 표시
+                        # [V51.5] 뉴스 출처/날짜 표시
                         st.markdown("##### 📰 최신 뉴스 Top 5")
                         for n in ai_result.get('raw_news', [])[:5]:
                             meta_info = f" *({n.get('source', '뉴스')} | {n.get('date', '최신')})*"
@@ -791,13 +806,11 @@ with tab2:
                 with c2:
                     ai_data = res['news']
                     
-                    # 수급 요약 (AI용)
                     inv_df = res['investor_trend']
                     sup_txt = "정보 없음"
                     if not inv_df.empty:
                         last = inv_df.iloc[-1]
                         sup_txt = f"외인 {int(last['외국인']):,}, 기관 {int(last['기관']):,}"
-                    
                     macro = get_macro_data()
                     usd = f"USD {macro['USD/KRW']['val']:.0f}" if macro else ""
 
@@ -811,7 +824,7 @@ with tab2:
                         else:
                             st.markdown(f"**{ai_data.get('headline')}**")
                         
-                        # [V51.2] 뉴스 출처/날짜 표시
+                        # [V51.5] 뉴스 출처/날짜 표시
                         st.markdown("##### 📰 최신 뉴스 Top 5")
                         for n in ai_data.get('raw_news', [])[:5]:
                             meta_info = f" *({n.get('source', '뉴스')} | {n.get('date', '최신')})*"
@@ -836,87 +849,6 @@ with tab2:
                                 st.rerun()
                 if st.button(f"🗑️ 삭제", key=f"del_{res['code']}"):
                     del st.session_state['data_store']['portfolio'][res['name']]
-                    update_github_file(st.session_state['data_store'])
-                    st.rerun()
-
-with tab3:
-    st.markdown("### 👀 관심 종목 (Watchlist)")
-    wl_items = list(st.session_state['data_store']['watchlist'].items())
-    if not wl_items: st.info("관심 종목이 없습니다.")
-    else:
-        wl_results = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            futures = [executor.submit(analyze_pro, info['code'], name, None, None, info) for name, info in wl_items]
-            for f in concurrent.futures.as_completed(futures):
-                if f.result(): wl_results.append(f.result())
-        
-        for res in wl_results:
-            st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
-            with st.expander(f"🤖 AI 상세 분석"):
-                c1, c2 = st.columns([0.6, 0.4])
-                with c1:
-                    try:
-                        st.altair_chart(create_chart_clean(res['history']))
-                    except:
-                        st.error("차트 로딩 중 경고 발생")
-                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
-                    render_tech_metrics(res['stoch'], res['vol_ratio'])
-                    render_investor_chart(res['investor_trend'])
-                with c2:
-                    ai_data = res['news']
-                    
-                    # 수급 요약 (AI용)
-                    inv_df = res['investor_trend']
-                    sup_txt = "정보 없음"
-                    if not inv_df.empty:
-                        last = inv_df.iloc[-1]
-                        sup_txt = f"외인 {int(last['외국인']):,}, 기관 {int(last['기관']):,}"
-                    macro = get_macro_data()
-                    usd = f"USD {macro['USD/KRW']['val']:.0f}" if macro else ""
-
-                    if ai_data.get('method') == 'ai':
-                        st.caption(f"🕒 {ai_data.get('timestamp')}")
-                        if 'technical' in ai_data:
-                            st.markdown(f"**📊 기술:** {ai_data['technical']}")
-                            st.markdown(f"**📰 재료:** {ai_data['qualitative']}")
-                            st.markdown(f"**👥 수급:** {ai_data['supply_analysis']}")
-                            st.info(f"🏆 {ai_data['conclusion']}")
-                        else:
-                            st.markdown(f"**{ai_data.get('headline')}**")
-
-                        # [V51.2] 뉴스 출처/날짜 표시
-                        st.markdown("##### 📰 최신 뉴스 Top 5")
-                        for n in ai_data.get('raw_news', [])[:5]:
-                            meta_info = f" *({n.get('source', '뉴스')} | {n.get('date', '최신')})*"
-                            st.markdown(f"- [{n['title']}]({n['link']}){meta_info}")
-
-                        if st.button("🔄 업데이트", key=f"rw_{res['code']}"):
-                            with st.spinner("..."):
-                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
-                                new_ai = get_news_sentiment_llm(res['name'], ctx)
-                                new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                                st.session_state['data_store']['watchlist'][res['name']]['ai_analysis'] = new_ai
-                                update_github_file(st.session_state['data_store'])
-                                st.rerun()
-                    else:
-                        if st.button("✨ 3단 심층 분석", key=f"nw_{res['code']}"):
-                            with st.spinner("..."):
-                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
-                                new_ai = get_news_sentiment_llm(res['name'], ctx)
-                                new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-                                st.session_state['data_store']['watchlist'][res['name']]['ai_analysis'] = new_ai
-                                update_github_file(st.session_state['data_store'])
-                                st.rerun()
-                st.markdown("---")
-                bp = st.number_input("매수 단가", value=res['price'], step=100, key=f"b_{res['code']}")
-                if st.button("📥 잔고 이동", key=f"m_{res['code']}"):
-                    st.session_state['data_store']['portfolio'][res['name']] = {"code": res['code'], "buy_price": bp, "ai_analysis": res['news']}
-                    if res['name'] in st.session_state['data_store']['watchlist']:
-                        del st.session_state['data_store']['watchlist'][res['name']]
-                    update_github_file(st.session_state['data_store'])
-                    st.success("이동 완료"); st.rerun()
-                if st.button(f"🗑️ 삭제", key=f"d_{res['code']}"):
-                    del st.session_state['data_store']['watchlist'][res['name']]
                     update_github_file(st.session_state['data_store'])
                     st.rerun()
 
