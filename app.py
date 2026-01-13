@@ -19,11 +19,13 @@ from io import StringIO
 import random
 import warnings
 import logging
+from datetime import datetime as dt
 
 # ==============================================================================
-# [V51.1 업데이트]
-# 1. AI 분석 결과 하단에 '최신 뉴스 5줄' 강제 노출
-# 2. 사용자가 데이터 출처를 명확히 확인할 수 있도록 UI 개선
+# [V51.2 업데이트]
+# 1. 뉴스 데이터 구조 변경: 제목만 가져오던 것을 [제목, 링크, 날짜, 출처]로 확장
+# 2. UI 표시 변경: 기사 제목 옆에 (출처 | 날짜)가 함께 표시됨
+# 3. 날짜 포맷 통일 (YYYY-MM-DD)
 # ==============================================================================
 
 warnings.filterwarnings("ignore")
@@ -73,7 +75,7 @@ except Exception as e:
     NAVER_CLIENT_SECRET = ""
 
 # --- [1. 기본 설정] ---
-st.set_page_config(page_title="Quant Sniper V51.1 (News 5)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V51.2 (Detail News)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -143,7 +145,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V51.1)",
+            "message": "Update data via Streamlit App (V51.2)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -354,9 +356,23 @@ def backtest_strategy(df):
         return int((wins / total) * 100) if total > 0 else 0
     except: return 0
 
-# --- [뉴스 API 함수] ---
+# --- [헬퍼 함수] ---
+def clean_html(raw_html):
+    return re.sub('<[^<]+?>', '', raw_html).replace('&quot;', '"').replace('&apos;', "'").replace('&amp;', '&')
+
+def parse_pubdate(pubdate_str):
+    # API 날짜 포맷 (Mon, 13 Jan 2025 ...) 을 YYYY-MM-DD로 변환
+    try:
+        # 간단하게 앞에서부터 끊어서 처리하거나, datetime 사용
+        # 예: "Mon, 13 Jan 2025 14:00:00 +0900"
+        dt_obj = datetime.datetime.strptime(pubdate_str.split(' +')[0], '%a, %d %b %Y %H:%M:%S')
+        return dt_obj.strftime("%Y-%m-%d")
+    except:
+        return "최신"
+
+# --- [뉴스 API 함수 (상세 정보 포함)] ---
 def get_naver_search_news(keyword):
-    # 1. 네이버 API 사용 시도
+    # 1. 네이버 API 사용
     if NAVER_CLIENT_ID and NAVER_CLIENT_SECRET:
         try:
             url = "https://openapi.naver.com/v1/search/news.json"
@@ -365,96 +381,129 @@ def get_naver_search_news(keyword):
             res = requests.get(url, headers=headers, params=params, timeout=5)
             if res.status_code == 200:
                 items = res.json().get('items', [])
-                return [re.sub('<[^<]+?>', '', item['title']).replace('&quot;', '"').replace('&apos;', "'") for item in items]
+                results = []
+                for item in items:
+                    title = clean_html(item['title'])
+                    link = item['originallink'] if item['originallink'] else item['link']
+                    date = parse_pubdate(item['pubDate'])
+                    # API는 언론사 정보를 직접 주지 않으므로 '네이버뉴스'로 통일하거나 링크 분석 필요
+                    # 여기서는 깔끔하게 Date만 표시
+                    results.append({"title": title, "link": link, "date": date, "source": "뉴스"})
+                return results
         except: pass
 
-    # 2. API 실패 시 기존 크롤링 (백업)
-    titles = []
+    # 2. 크롤링 백업 (여기서는 언론사 파싱 가능)
+    news_list = []
     try:
         url = f"https://search.naver.com/search.naver?where=news&query={urllib.parse.quote(keyword)}&sort=1&pd=2"
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, 'html.parser')
-        items = soup.select('.news_tit')
-        for item in items:
-            t = item.get_text().strip()
-            if t: titles.append(t)
+        items = soup.select('.news_area')
+        for item in items[:7]:
+            title_tag = item.select_one('.news_tit')
+            if title_tag:
+                title = title_tag.get_text().strip()
+                link = title_tag['href']
+                
+                # 언론사
+                source_tag = item.select_one('.info.press')
+                source = source_tag.get_text().strip() if source_tag else "뉴스"
+                
+                # 날짜 (네이버는 '1시간 전', '2024.01.01.' 등으로 줌)
+                date_tag = item.select_one('.info_group .info')
+                date_txt = date_tag.get_text().strip() if date_tag else "최신"
+                # 날짜 정제 (간단히)
+                if "." in date_txt: date_txt = date_txt.replace(".", "-")[:-1]
+                
+                news_list.append({"title": title, "link": link, "date": date_txt, "source": source})
     except: pass
-    return list(dict.fromkeys(titles))[:7]
+    return news_list
 
 def get_naver_finance_news(code):
-    titles = []
+    news_list = []
     try:
         url = f"https://finance.naver.com/item/news_news.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers, timeout=5)
         res.encoding = 'euc-kr'
         soup = BeautifulSoup(res.text, 'html.parser')
+        # 네이버 금융 뉴스 구조: title -> link, date, source 찾기 복잡함
+        # 단순 제목/링크만 제공되는 경우가 많음
         items = soup.select('.title a')
-        for item in items:
-            t = item.get_text().strip()
-            if t and "관련기사" not in t:
-                titles.append(t)
+        for item in items[:5]:
+            title = item.get_text().strip()
+            if "관련기사" not in title:
+                link = "https://finance.naver.com" + item['href']
+                # 금융 뉴스 페이지에서 날짜/출처 파싱은 복잡하여 '공시/금융' 으로 통일
+                news_list.append({"title": title, "link": link, "date": "최신", "source": "네이버금융"})
     except: pass
-    return list(dict.fromkeys(titles))[:5]
+    return news_list
 
 # [AI 분석 엔진]
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
-    news_titles = []
-     
-    # 1. 네이버 검색 뉴스
-    search_titles = get_naver_search_news(company_name)
-    prefix = "[API]" if NAVER_CLIENT_ID else "[검색]"
-    news_titles.extend([f"{prefix} {t}" for t in search_titles])
+    
+    # 뉴스 수집 (객체 리스트)
+    all_news = []
+    
+    # 1. 검색 뉴스
+    search_news = get_naver_search_news(company_name)
+    all_news.extend(search_news)
 
-    # 2. 네이버 금융 뉴스
+    # 2. 금융 뉴스
     code = stock_data_context.get('code', '')
     if code:
-        fin_titles = get_naver_finance_news(code)
-        news_titles.extend([f"[공시/금융] {t}" for t in fin_titles])
+        fin_news = get_naver_finance_news(code)
+        all_news.extend(fin_news)
 
-    news_titles = list(set(news_titles))
-
-    if not news_titles: 
-        news_titles = ["(현재 수집된 최신 뉴스가 없습니다. 기술적 분석 위주로 진행해주세요.)"]
+    # 중복 제거 (제목 기준)
+    seen_titles = set()
+    unique_news = []
+    for n in all_news:
+        if n['title'] not in seen_titles:
+            unique_news.append(n)
+            seen_titles.add(n['title'])
+    
+    # AI에게 보낼 텍스트 생성
+    news_text_list = []
+    for n in unique_news[:10]: # 최대 10개만 분석
+        news_text_list.append(f"- {n['title']} ({n['source']} | {n['date']})")
+    
+    if not news_text_list: 
+        news_text_list = ["(최신 뉴스 없음)"]
 
     try:
         if not USER_GOOGLE_API_KEY: raise Exception("API Key Missing")
         
         # 데이터 준비
         trend = stock_data_context.get('trend', '분석중')
-        profit_rate = stock_data_context.get('profit_rate', 0.0)
-        current_price = stock_data_context.get('current_price', 0)
-        is_holding = stock_data_context.get('is_holding', False)
-        supply_info = stock_data_context.get('supply_info', '수급 정보 없음')
-        macro_info = stock_data_context.get('macro_info', 'USD/KRW 정보 없음')
+        supply_info = stock_data_context.get('supply_info', '정보 없음')
+        macro_info = stock_data_context.get('macro_info', '정보 없음')
         
         prompt = f"""
-        당신은 노련한 주식 전략가입니다. 아래 데이터를 바탕으로 3가지 관점에서 입체적으로 분석해주세요.
+        주식 전략가로서 다음 데이터를 분석해주세요.
         
-        [1. 기초 데이터]
-        - 종목: {company_name} (현재가: {current_price:,}원)
-        - 기술적 추세: {trend}
-        - **투자자별 수급**: {supply_info}
-        - 시장 환율(참고): {macro_info}
-        - 내 상태: {"보유중 (수익률 " + str(round(profit_rate, 2)) + "%)" if is_holding else "미보유 (신규진입 고민)"}
+        [종목: {company_name}]
+        - 추세: {trend}
+        - 수급: {supply_info}
+        - 환율: {macro_info}
 
-        [2. 최신 뉴스]
-        {str(news_titles)}
+        [최신 뉴스]
+        {str(news_text_list)}
 
         [분석 요청]
-        1. 정량적(Technical): 차트 및 수급 분석
-        2. 정성적(Qualitative): 뉴스 재료 분석. (중요: 뉴스가 있다면 그 내용을 바탕으로 호재/악재를 판단하세요)
-        3. 수급(Supply): 기관/외인 동향 추론
-        4. 종합 결론: 매수/매도/관망 의견
+        1. 기술적(Technical): 추세/수급 진단
+        2. 정성적(Qualitative): 뉴스 재료 분석 (기사의 날짜와 출처를 고려하여 신뢰도와 시의성을 판단할 것)
+        3. 수급(Supply): 기관/외인 동향
+        4. 종합 결론: 한 줄 요약
 
-        반드시 아래 JSON 포맷으로만 응답하세요. 마크다운 쓰지 마세요.
+        JSON 포맷으로 응답:
         {{
-            "technical": "내용",
-            "qualitative": "내용",
-            "supply_analysis": "내용",
-            "conclusion": "한줄 결론",
+            "technical": "...",
+            "qualitative": "...",
+            "supply_analysis": "...",
+            "conclusion": "...",
             "score": 70
         }}
         """
@@ -466,39 +515,21 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             
             try:
                 match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-                if match:
-                    js = json.loads(match.group())
-                else:
-                    js = {
-                        "technical": "분석 데이터 변환 중",
-                        "qualitative": cleaned[:200] + "...",
-                        "supply_analysis": "상세 내용은 AI 원문 참조",
-                        "conclusion": cleaned[:50] + "...",
-                        "score": 50
-                    }
+                if match: js = json.loads(match.group())
+                else: js = {"technical": "...", "qualitative": "...", "supply_analysis": "...", "conclusion": "...", "score": 50}
                 
-                # 뉴스 데이터 저장
-                formatted_news = [{"title": t, "link": f"https://search.naver.com/search.naver?where=news&query={company_name}", "date": "최신"} for t in news_titles[:7]]
-                js['raw_news'] = formatted_news
+                # 원본 뉴스 객체 저장
+                js['raw_news'] = unique_news[:7] 
                 js['method'] = "ai"
                 if 'headline' not in js: js['headline'] = js.get('conclusion', '분석 완료')
                 return js
 
-            except Exception as parse_e:
-                return {
-                    "technical": "AI 응답 형식이 올바르지 않지만 내용은 수신했습니다.",
-                    "qualitative": cleaned, 
-                    "supply_analysis": "위 내용을 참고하세요.",
-                    "conclusion": "형식 오류로 원문 표시",
-                    "score": 50,
-                    "raw_news": [],
-                    "method": "ai"
-                }
-
+            except:
+                return {"score":50, "headline":"파싱 오류", "raw_news":unique_news, "method":"error"}
         else: raise Exception(error_msg)
         
     except Exception as e:
-        return {"score": 0, "headline": f"AI 통신 오류: {str(e)}", "method": "error", "opinion": "중립", "raw_news": []}
+        return {"score": 0, "headline": f"오류: {str(e)}", "method": "error", "raw_news": unique_news}
 
 def get_valid_model_name(api_key):
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
@@ -667,12 +698,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V51.1 (News 5)")
+    st.title("💎 Quant Sniper V51.2 (Detail News)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V51.1 업데이트", expanded=False):
-        st.markdown("* **[Visual]** AI 분석 결과 아래에 **최신 뉴스 5개**를 리스트로 보여줍니다.\n* **[API]** 네이버 API를 통해 실시간 뉴스를 가져옵니다.")
+    with st.expander("📘 V51.2 업데이트", expanded=False):
+        st.markdown("* **[Detail]** 뉴스 출처와 날짜(YYYY-MM-DD)를 함께 보여줍니다.\n* **[Smart]** AI가 뉴스의 최신성을 고려하여 분석합니다.")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -730,10 +761,12 @@ with tab1:
                         else:
                             st.write(ai_result.get('headline'))
 
-                        # [V51.1 추가] 뉴스 5줄 깔끔하게 보여주기
+                        # [V51.2] 뉴스 출처/날짜 표시
                         st.markdown("##### 📰 최신 뉴스 Top 5")
                         for n in ai_result.get('raw_news', [])[:5]:
-                            st.markdown(f"- [{n['title']}]({n['link']})")
+                            # 날짜/출처가 있으면 표시, 없으면 생략
+                            meta_info = f" *({n.get('source', '뉴스')} | {n.get('date', '최신')})*"
+                            st.markdown(f"- [{n['title']}]({n['link']}){meta_info}")
 
                 if st.button(f"📌 관심등록", key=f"add_{res['code']}"):
                     st.session_state['data_store']['watchlist'][res['name']] = {'code': res['code']}
@@ -784,10 +817,11 @@ with tab2:
                         else:
                             st.markdown(f"**{ai_data.get('headline')}**")
                         
-                        # [V51.1 추가] 뉴스 5줄 노출
+                        # [V51.2] 뉴스 출처/날짜 표시
                         st.markdown("##### 📰 최신 뉴스 Top 5")
                         for n in ai_data.get('raw_news', [])[:5]:
-                            st.markdown(f"- [{n['title']}]({n['link']})")
+                            meta_info = f" *({n.get('source', '뉴스')} | {n.get('date', '최신')})*"
+                            st.markdown(f"- [{n['title']}]({n['link']}){meta_info}")
 
                         if st.button("🔄 업데이트", key=f"re_{res['code']}"):
                             with st.spinner("..."):
@@ -854,10 +888,11 @@ with tab3:
                         else:
                             st.markdown(f"**{ai_data.get('headline')}**")
 
-                        # [V51.1 추가] 뉴스 5줄 노출
+                        # [V51.2] 뉴스 출처/날짜 표시
                         st.markdown("##### 📰 최신 뉴스 Top 5")
                         for n in ai_data.get('raw_news', [])[:5]:
-                            st.markdown(f"- [{n['title']}]({n['link']})")
+                            meta_info = f" *({n.get('source', '뉴스')} | {n.get('date', '최신')})*"
+                            st.markdown(f"- [{n['title']}]({n['link']}){meta_info}")
 
                         if st.button("🔄 업데이트", key=f"rw_{res['code']}"):
                             with st.spinner("..."):
