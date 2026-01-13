@@ -19,13 +19,12 @@ from io import StringIO
 import random
 import warnings
 import logging
-from datetime import datetime as dt # 날짜 변환용
+from datetime import datetime as dt
 
 # ==============================================================================
-# [V51.5 업데이트]
-# 1. 날짜 포맷팅 함수(parse_pubdate) 재작성 -> 날짜 누락 해결
-# 2. 검색어 뒤에 " 주가" 강제 추가 -> 야구/농구 뉴스 차단
-# 3. 출처 미제공 시 '네이버뉴스'로 통일
+# [V51.6 업데이트]
+# 1. 데이터 안전장치: 기존 관심종목이 사라지지 않도록 데이터 로드/저장 로직 강화
+# 2. 기능 추가: 테마 발굴 탭에서 '관심종목' 뿐만 아니라 '내 잔고(Portfolio)'로 바로 등록 가능
 # ==============================================================================
 
 warnings.filterwarnings("ignore")
@@ -75,7 +74,7 @@ except Exception as e:
     NAVER_CLIENT_SECRET = ""
 
 # --- [1. 기본 설정] ---
-st.set_page_config(page_title="Quant Sniper V51.5 (Date Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V51.6 (Safety)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -125,8 +124,12 @@ def load_from_github():
         if r.status_code == 200:
             content = base64.b64decode(r.json()['content']).decode('utf-8')
             data = json.loads(content)
-            if "portfolio" not in data and "watchlist" not in data:
-                return {"portfolio": {}, "watchlist": data}
+            
+            # [안전장치] 데이터 구조가 깨져있을 경우 복구
+            if not isinstance(data, dict): data = {}
+            if "portfolio" not in data: data["portfolio"] = {}
+            if "watchlist" not in data: data["watchlist"] = {}
+            
             return data
         return {"portfolio": {}, "watchlist": {}}
     except: return {"portfolio": {}, "watchlist": {}}
@@ -145,7 +148,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V51.5)",
+            "message": "Update data via Streamlit App (V51.6)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -154,7 +157,14 @@ def update_github_file(new_data):
     except Exception as e:
         return False
 
-if 'data_store' not in st.session_state: st.session_state['data_store'] = load_from_github()
+# [중요] 세션 상태 초기화 시 데이터 무결성 확인
+if 'data_store' not in st.session_state: 
+    st.session_state['data_store'] = load_from_github()
+else:
+    # 혹시라도 키가 없을 경우를 대비해 한번 더 체크
+    if "portfolio" not in st.session_state['data_store']: st.session_state['data_store']["portfolio"] = {}
+    if "watchlist" not in st.session_state['data_store']: st.session_state['data_store']["watchlist"] = {}
+
 if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
 if 'current_theme_name' not in st.session_state: st.session_state['current_theme_name'] = ""
 
@@ -194,7 +204,7 @@ def get_naver_theme_stocks(keyword):
         return stocks, f"'{keyword}' 관련 테마 발견: {len(stocks)}개 종목"
     except Exception as e: return [], f"크롤링 오류: {str(e)}"
 
-# [V51.3 유지] 수급 데이터 강제 파싱 함수
+# [수급 데이터 강제 파싱]
 def get_investor_trend_direct_parsing(code):
     try:
         url = f"https://finance.naver.com/item/frgn.naver?code={code}"
@@ -371,21 +381,14 @@ def clean_html(raw_html):
     return re.sub('<[^<]+?>', '', raw_html).replace('&quot;', '"').replace('&apos;', "'").replace('&amp;', '&')
 
 def parse_pubdate(pubdate_str):
-    # API 날짜 포맷 (Mon, 13 Jan 2025 14:00:00 +0900)을 YYYY-MM-DD로 변환
     try:
-        # datetime 모듈의 strptime을 사용하여 파싱
-        # Locale 문제 방지를 위해 영문 월 이름 처리가 중요하지만, Streamlit 클라우드 환경에서는 보통 동작함
-        # 안전하게 앞의 날짜 부분만 떼어서 처리
-        # 예: "Mon, 13 Jan 2025" 까지만 잘라서 쓸 수도 있음
         dt_obj = datetime.datetime.strptime(pubdate_str, "%a, %d %b %Y %H:%M:%S %z")
         return dt_obj.strftime("%Y-%m-%d")
     except:
         return "최신"
 
-# --- [뉴스 API 함수 (수정됨)] ---
+# --- [뉴스 API 함수] ---
 def get_naver_search_news(keyword):
-    # [V51.5 수정] 검색어 뒤에 " 주가"를 붙여서 주식 뉴스만 유도
-    # 예: "삼성전" -> "삼성전 주가" (야구 뉴스 제외됨)
     search_keyword = f"{keyword} 주가" if "주가" not in keyword else keyword
 
     if NAVER_CLIENT_ID and NAVER_CLIENT_SECRET:
@@ -400,14 +403,11 @@ def get_naver_search_news(keyword):
                 for item in items:
                     title = clean_html(item['title'])
                     link = item['originallink'] if item['originallink'] else item['link']
-                    # 날짜 변환 적용
                     date_str = parse_pubdate(item['pubDate'])
-                    # API는 출처 미제공 -> '네이버뉴스'로 통일
                     results.append({"title": title, "link": link, "date": date_str, "source": "네이버뉴스"})
                 return results
         except: pass
 
-    # 크롤링 백업
     news_list = []
     try:
         url = f"https://search.naver.com/search.naver?where=news&query={urllib.parse.quote(search_keyword)}&sort=1&pd=2"
@@ -451,18 +451,14 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
     
     all_news = []
-    
-    # 1. 검색 뉴스
     search_news = get_naver_search_news(company_name)
     all_news.extend(search_news)
 
-    # 2. 금융 뉴스
     code = stock_data_context.get('code', '')
     if code:
         fin_news = get_naver_finance_news(code)
         all_news.extend(fin_news)
 
-    # 중복 제거
     seen_titles = set()
     unique_news = []
     for n in all_news:
@@ -470,7 +466,6 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             unique_news.append(n)
             seen_titles.add(n['title'])
     
-    # AI 입력 텍스트 생성
     news_text_list = []
     for n in unique_news[:10]: 
         news_text_list.append(f"- {n['title']} ({n['source']} | {n['date']})")
@@ -706,12 +701,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V51.5 (Date Fix)")
+    st.title("💎 Quant Sniper V51.6 (Safety)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V51.5 업데이트", expanded=False):
-        st.markdown("* **[Date]** 날짜가 '최신'으로만 뜨던 문제를 해결했습니다. (YYYY-MM-DD)\n* **[Search]** '삼성전' 검색 시 야구 뉴스 차단! ('주가' 자동 추가)")
+    with st.expander("📘 V51.6 업데이트", expanded=False):
+        st.markdown("* **[Safety]** 관심종목이 사라지지 않도록 안전장치를 강화했습니다.\n* **[Feature]** 테마 발굴 탭에서 '내 잔고'로 바로 담을 수 있습니다.")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -769,16 +764,49 @@ with tab1:
                         else:
                             st.write(ai_result.get('headline'))
 
-                        # [V51.5] 뉴스 출처/날짜 표시
                         st.markdown("##### 📰 최신 뉴스 Top 5")
                         for n in ai_result.get('raw_news', [])[:5]:
                             meta_info = f" *({n.get('source', '뉴스')} | {n.get('date', '최신')})*"
                             st.markdown(f"- [{n['title']}]({n['link']}){meta_info}")
 
-                if st.button(f"📌 관심등록", key=f"add_{res['code']}"):
-                    st.session_state['data_store']['watchlist'][res['name']] = {'code': res['code']}
-                    update_github_file(st.session_state['data_store'])
-                    st.success("완료"); time.sleep(0.5); st.rerun()
+                # [V51.6 추가] 버튼 영역 (관심등록 / 잔고담기)
+                c_add1, c_add2, c_add3 = st.columns([0.3, 0.4, 0.3])
+                
+                # 1. 관심 등록
+                with c_add1:
+                    if st.button(f"📌 관심등록", key=f"add_wl_{res['code']}"):
+                        if 'watchlist' not in st.session_state['data_store']:
+                            st.session_state['data_store']['watchlist'] = {}
+                        st.session_state['data_store']['watchlist'][res['name']] = {'code': res['code']}
+                        update_github_file(st.session_state['data_store'])
+                        st.success("완료")
+                        time.sleep(0.5)
+                        st.rerun()
+                
+                # 2. 매수 단가 입력
+                with c_add2:
+                    buy_price_input = st.number_input(f"매수 단가", value=res['price'], step=100, key=f"bp_input_{res['code']}", label_visibility="collapsed")
+
+                # 3. 잔고(포트폴리오) 담기
+                with c_add3:
+                    if st.button(f"💰 잔고담기", key=f"add_port_{res['code']}"):
+                        if 'portfolio' not in st.session_state['data_store']:
+                            st.session_state['data_store']['portfolio'] = {}
+                        
+                        # 포트폴리오에 추가
+                        st.session_state['data_store']['portfolio'][res['name']] = {
+                            'code': res['code'],
+                            'buy_price': buy_price_input
+                        }
+                        
+                        # 혹시 관심종목에 있다면 제거 (중복 방지)
+                        if res['name'] in st.session_state['data_store'].get('watchlist', {}):
+                            del st.session_state['data_store']['watchlist'][res['name']]
+                            
+                        update_github_file(st.session_state['data_store'])
+                        st.success("담기 완료")
+                        time.sleep(0.5)
+                        st.rerun()
 
 with tab2:
     st.markdown("### 💰 내 보유 종목 (Portfolio)")
@@ -824,7 +852,6 @@ with tab2:
                         else:
                             st.markdown(f"**{ai_data.get('headline')}**")
                         
-                        # [V51.5] 뉴스 출처/날짜 표시
                         st.markdown("##### 📰 최신 뉴스 Top 5")
                         for n in ai_data.get('raw_news', [])[:5]:
                             meta_info = f" *({n.get('source', '뉴스')} | {n.get('date', '최신')})*"
@@ -849,6 +876,84 @@ with tab2:
                                 st.rerun()
                 if st.button(f"🗑️ 삭제", key=f"del_{res['code']}"):
                     del st.session_state['data_store']['portfolio'][res['name']]
+                    update_github_file(st.session_state['data_store'])
+                    st.rerun()
+
+with tab3:
+    st.markdown("### 👀 관심 종목 (Watchlist)")
+    wl_items = list(st.session_state['data_store']['watchlist'].items())
+    if not wl_items: st.info("관심 종목이 없습니다.")
+    else:
+        wl_results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(analyze_pro, info['code'], name, None, None, info) for name, info in wl_items]
+            for f in concurrent.futures.as_completed(futures):
+                if f.result(): wl_results.append(f.result())
+        
+        for res in wl_results:
+            st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
+            with st.expander(f"🤖 AI 상세 분석"):
+                c1, c2 = st.columns([0.6, 0.4])
+                with c1:
+                    try:
+                        st.altair_chart(create_chart_clean(res['history']))
+                    except:
+                        st.error("차트 로딩 중 경고 발생")
+                    st.markdown(render_chart_legend(), unsafe_allow_html=True)
+                    render_tech_metrics(res['stoch'], res['vol_ratio'])
+                    render_investor_chart(res['investor_trend'])
+                with c2:
+                    ai_data = res['news']
+                    inv_df = res['investor_trend']
+                    sup_txt = "정보 없음"
+                    if not inv_df.empty:
+                        last = inv_df.iloc[-1]
+                        sup_txt = f"외인 {int(last['외국인']):,}, 기관 {int(last['기관']):,}"
+                    macro = get_macro_data()
+                    usd = f"USD {macro['USD/KRW']['val']:.0f}" if macro else ""
+
+                    if ai_data.get('method') == 'ai':
+                        st.caption(f"🕒 {ai_data.get('timestamp')}")
+                        if 'technical' in ai_data:
+                            st.markdown(f"**📊 기술:** {ai_data['technical']}")
+                            st.markdown(f"**📰 재료:** {ai_data['qualitative']}")
+                            st.markdown(f"**👥 수급:** {ai_data['supply_analysis']}")
+                            st.info(f"🏆 {ai_data['conclusion']}")
+                        else:
+                            st.markdown(f"**{ai_data.get('headline')}**")
+
+                        st.markdown("##### 📰 최신 뉴스 Top 5")
+                        for n in ai_data.get('raw_news', [])[:5]:
+                            meta_info = f" *({n.get('source', '뉴스')} | {n.get('date', '최신')})*"
+                            st.markdown(f"- [{n['title']}]({n['link']}){meta_info}")
+
+                        if st.button("🔄 업데이트", key=f"rw_{res['code']}"):
+                            with st.spinner("..."):
+                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
+                                new_ai = get_news_sentiment_llm(res['name'], ctx)
+                                new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                                st.session_state['data_store']['watchlist'][res['name']]['ai_analysis'] = new_ai
+                                update_github_file(st.session_state['data_store'])
+                                st.rerun()
+                    else:
+                        if st.button("✨ 3단 심층 분석", key=f"nw_{res['code']}"):
+                            with st.spinner("..."):
+                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
+                                new_ai = get_news_sentiment_llm(res['name'], ctx)
+                                new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+                                st.session_state['data_store']['watchlist'][res['name']]['ai_analysis'] = new_ai
+                                update_github_file(st.session_state['data_store'])
+                                st.rerun()
+                st.markdown("---")
+                bp = st.number_input("매수 단가", value=res['price'], step=100, key=f"b_{res['code']}")
+                if st.button("📥 잔고 이동", key=f"m_{res['code']}"):
+                    st.session_state['data_store']['portfolio'][res['name']] = {"code": res['code'], "buy_price": bp, "ai_analysis": res['news']}
+                    if res['name'] in st.session_state['data_store']['watchlist']:
+                        del st.session_state['data_store']['watchlist'][res['name']]
+                    update_github_file(st.session_state['data_store'])
+                    st.success("이동 완료"); st.rerun()
+                if st.button(f"🗑️ 삭제", key=f"d_{res['code']}"):
+                    del st.session_state['data_store']['watchlist'][res['name']]
                     update_github_file(st.session_state['data_store'])
                     st.rerun()
 
