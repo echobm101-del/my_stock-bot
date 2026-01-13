@@ -20,8 +20,8 @@ import random
 import warnings
 import logging
 
-# [긴급 수정] 에러를 유발하던 'st.set_option' 코드를 삭제했습니다.
-# 경고 메시지는 아래 코드로 안전하게 차단합니다.
+# [긴급 수정] 에러를 유발하던 설정 코드를 완전히 삭제했습니다.
+# 경고 메시지 차단은 아래 표준 방식으로만 수행합니다.
 warnings.filterwarnings("ignore")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 logging.getLogger('streamlit').setLevel(logging.ERROR)
@@ -62,7 +62,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. 기본 설정 및 CSS 적용] ---
-st.set_page_config(page_title="Quant Sniper V50.3 (Final Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.4 (Real Fix)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -132,7 +132,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.3)",
+            "message": "Update data via Streamlit App (V50.4)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -645,11 +645,11 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V50.3 (Final Fix)")
+    st.title("💎 Quant Sniper V50.4 (Real Fix)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.3 업데이트", expanded=False):
+    with st.expander("📘 V50.4 업데이트", expanded=False):
         st.markdown("* **[Emergency Fix]** Streamlit 버전 호환성 에러 수정.\n* **[Stable]** AI 결과 저장 및 로그 차단 유지.")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
@@ -773,7 +773,7 @@ with tab2:
                     else:
                         if st.button("✨ 3단 심층 분석", key=f"new_{res['code']}"):
                             with st.spinner("..."):
-                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "is_holding": True, "supply_info": sup_txt, "macro_info": usd}
+                                ctx = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
                                 new_ai = get_news_sentiment_llm(res['name'], ctx)
                                 new_ai['timestamp'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
                                 st.session_state['data_store']['portfolio'][res['name']]['ai_analysis'] = new_ai
