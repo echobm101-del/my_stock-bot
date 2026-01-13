@@ -18,6 +18,11 @@ import urllib.parse
 import numpy as np
 from io import StringIO
 import random
+import warnings
+
+# [경고 메시지 차단] 화면을 가리는 노란색 경고 숨기기
+warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.filterwarnings("ignore")
 
 # ------------------------------------------------------------------------------
 # [모듈 연결] ui.py 기능 가져오기
@@ -55,7 +60,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. 기본 설정 및 CSS 적용] ---
-st.set_page_config(page_title="Quant Sniper V49.9.9.3 (News Fixed)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.0 (Fix)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -125,7 +130,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V49.9.9.3)",
+            "message": "Update data via Streamlit App (V50.0 Fix)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -243,7 +248,7 @@ def get_financial_history(code):
     except: return pd.DataFrame()
 
 # -----------------------------------------------------------
-# [보조지표 함수] - V49.9.8 원본 유지 + 3대장(Stoch, MFI, SAR)
+# [보조지표 함수]
 # -----------------------------------------------------------
 def calculate_rsi(data, window=14):
     delta = data.diff()
@@ -337,12 +342,10 @@ def backtest_strategy(df):
         return int((wins / total) * 100) if total > 0 else 0
     except: return 0
 
-# --- [뉴스 크롤링 - 최신순 정렬 및 기간 설정(pd=2) 적용으로 수정됨] ---
+# --- [뉴스 크롤링] ---
 def get_naver_search_news(keyword):
     titles = []
     try:
-        # [수정] &pd=2 파라미터를 추가하여 최근 1개월 이내 기사만 강제로 검색
-        # &sort=1 (최신순) + &pd=2 (1개월) 조합으로 2026년 최신 기사 확보
         url = f"https://search.naver.com/search.naver?where=news&query={urllib.parse.quote(keyword)}&sort=1&pd=2"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36'}
         res = requests.get(url, headers=headers)
@@ -352,7 +355,7 @@ def get_naver_search_news(keyword):
             t = item.get_text().strip()
             if t: titles.append(t)
     except: pass
-    return list(dict.fromkeys(titles))[:7] # 중복 제거 후 반환
+    return list(dict.fromkeys(titles))[:7]
 
 def get_naver_finance_news(code):
     titles = []
@@ -360,22 +363,22 @@ def get_naver_finance_news(code):
         url = f"https://finance.naver.com/item/news_news.naver?code={code}"
         headers = {'User-Agent': 'Mozilla/5.0'}
         res = requests.get(url, headers=headers)
-        res.encoding = 'euc-kr' # 인코딩 명시
+        res.encoding = 'euc-kr'
         soup = BeautifulSoup(res.text, 'html.parser')
-        items = soup.select('.title a') # 셀렉터 수정
+        items = soup.select('.title a')
         for item in items:
             t = item.get_text().strip()
-            if t and "관련기사" not in t: # 관련기사 등 불필요 항목 제거
+            if t and "관련기사" not in t:
                 titles.append(t)
     except: pass
     return list(dict.fromkeys(titles))[:5]
 
-# [AI 분석 엔진 - 3단계 심층 분석 업그레이드]
+# [AI 분석 엔진 - 오류 수정 및 강화]
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
     news_titles = []
      
-    # 1. 네이버 검색 뉴스 (기간 필터 적용됨)
+    # 1. 네이버 검색 뉴스
     search_titles = get_naver_search_news(company_name)
     news_titles.extend([f"[검색] {t}" for t in search_titles])
 
@@ -398,8 +401,8 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         profit_rate = stock_data_context.get('profit_rate', 0.0)
         current_price = stock_data_context.get('current_price', 0)
         is_holding = stock_data_context.get('is_holding', False)
-        supply_info = stock_data_context.get('supply_info', '수급 정보 없음') # 수급 정보
-        macro_info = stock_data_context.get('macro_info', 'USD/KRW 정보 없음') # 매크로 정보
+        supply_info = stock_data_context.get('supply_info', '수급 정보 없음')
+        macro_info = stock_data_context.get('macro_info', 'USD/KRW 정보 없음')
         
         prompt = f"""
         당신은 노련한 주식 전략가입니다. 아래 데이터를 바탕으로 3가지 관점에서 입체적으로 분석해주세요.
@@ -411,23 +414,22 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         - 시장 환율(참고): {macro_info}
         - 내 상태: {"보유중 (수익률 " + str(round(profit_rate, 2)) + "%)" if is_holding else "미보유 (신규진입 고민)"}
 
-        [2. 최신 뉴스 (Time-Sensitive, 최신순 정렬됨)]
+        [2. 최신 뉴스]
         {str(news_titles)}
 
-        [💡 분석 지침 - 반드시 3단 구조로 작성할 것]
-        1. **정량적(Technical) 분석**: 차트 추세, 보조지표 상태를 객관적으로 진단.
-        2. **정성적(Qualitative) 분석**: 뉴스에 나온 호재/악재 재료를 분석 (과거 이슈인지, 새로운 모멘텀인지 판단).
-        3. **수급(Supply) 심층 분석**: 위 '투자자별 수급' 데이터를 보고 외국인/기관이 왜 사고파는지 추론 (예: 환율 영향, 실적 기대 등).
-        4. **종합 결론**: 위 3가지를 종합하여 최종 매매 의견 제시.
+        [분석 요청]
+        1. 정량적(Technical): 차트 및 수급 분석
+        2. 정성적(Qualitative): 뉴스 재료 분석
+        3. 수급(Supply): 기관/외인 동향 추론
+        4. 종합 결론: 매수/매도/관망 의견
 
-        위 내용을 JSON 형식으로 출력하세요.
+        반드시 아래 JSON 포맷으로만 응답하세요. 마크다운 쓰지 마세요.
         {{
-            "technical": "정량적 분석 내용 (1~2문장)",
-            "qualitative": "정성적(재료) 분석 내용 (1~2문장)",
-            "supply_analysis": "수급 원인 추론 내용 (1~2문장)",
-            "conclusion": "종합 결론 (한 문장 요약)",
-            "opinion": "강력매수/매수/홀딩/관망/매도 중 택1",
-            "score": (-10 ~ 10 정수)
+            "technical": "내용",
+            "qualitative": "내용",
+            "supply_analysis": "내용",
+            "conclusion": "한줄 결론",
+            "score": 70
         }}
         """
         
@@ -435,21 +437,46 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
         if res_data and 'candidates' in res_data:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
             cleaned = raw.replace("```json", "").replace("```", "").strip()
-            match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-            if match:
-                js = json.loads(match.group())
+            
+            # [강력해진 JSON 파싱]
+            try:
+                # 1차 시도: 정규식으로 JSON 추출
+                match = re.search(r'\{.*\}', cleaned, re.DOTALL)
+                if match:
+                    js = json.loads(match.group())
+                else:
+                    # JSON 형식이 아닐 경우 전체 텍스트를 강제로 변환
+                    js = {
+                        "technical": "분석 데이터 변환 중",
+                        "qualitative": cleaned[:200] + "...",
+                        "supply_analysis": "상세 내용은 AI 원문 참조",
+                        "conclusion": cleaned[:50] + "...",
+                        "score": 50
+                    }
+                
                 # 뉴스 데이터 포맷팅
                 formatted_news = [{"title": t, "link": f"https://search.naver.com/search.naver?where=news&query={company_name}", "date": "최신"} for t in news_titles[:7]]
                 js['raw_news'] = formatted_news
                 js['method'] = "ai"
-                # 구형 UI 호환을 위해 headline 필드도 채워둠
                 if 'headline' not in js: js['headline'] = js.get('conclusion', '분석 완료')
                 return js
-            else: raise Exception("JSON Parsing Fail")
+
+            except Exception as parse_e:
+                # 파싱 완전히 실패 시에도 돈이 아까우니 원문이라도 보여줌
+                return {
+                    "technical": "AI 응답 형식이 올바르지 않지만 내용은 수신했습니다.",
+                    "qualitative": cleaned, # 여기에 원문 전체 넣기
+                    "supply_analysis": "위 내용을 참고하세요.",
+                    "conclusion": "형식 오류로 원문 표시",
+                    "score": 50,
+                    "raw_news": [],
+                    "method": "ai"
+                }
+
         else: raise Exception(error_msg)
         
     except Exception as e:
-        return {"score": 0, "headline": f"AI 분석 오류: {str(e)}", "method": "error", "opinion": "중립", "raw_news": []}
+        return {"score": 0, "headline": f"AI 통신 오류: {str(e)}", "method": "error", "opinion": "중립", "raw_news": []}
 
 def get_valid_model_name(api_key):
     url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
@@ -487,7 +514,6 @@ def get_supply_demand(code):
 
 def get_macro_data():
     try:
-        # 간단한 매크로(환율) 정보 수집 예시 (수정 필요시 보완)
         df = fdr.DataReader('USD/KRW', datetime.datetime.now() - datetime.timedelta(days=7))
         if not df.empty:
             return {"USD/KRW": {"val": df['Close'].iloc[-1]}}
@@ -495,11 +521,9 @@ def get_macro_data():
     return {"USD/KRW": {"val": 0.0}}
 
 def get_company_guide_score(code):
-    # 모의 데이터 또는 외부 API 연동 필요. 에러 방지를 위한 더미
     return 0, 0, {}
 
 def get_ai_recommended_stocks(keyword):
-    # 테마 검색 실패시 AI 추천 로직 (더미)
     return [], "검색 실패"
 
 def round_to_tick(price):
@@ -621,12 +645,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V49.9.9.3 (News Fixed)")
+    st.title("💎 Quant Sniper V50.0 (Fix)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V49.9.9.3 업데이트", expanded=False):
-        st.markdown("* **[Fix] 뉴스 기간 설정:** 최신 1개월 이내 뉴스만 강제 검색합니다.\n* **[Logic] 3단 입체 분석:** 기술/재료/수급 심층 분석 유지.")
+    with st.expander("📘 V50.0 업데이트", expanded=False):
+        st.markdown("* **[Fix] 과금 문제 해결:** AI 응답이 불안정해도 결과를 강제로 보여줍니다.\n* **[Clean] 경고 삭제:** 노란색 경고 메시지를 숨깁니다.")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -655,7 +679,6 @@ with tab1:
                     render_fund_scorecard(res['fund_data'])
                     if st.button(f"✨ AI 분석 실행", key=f"ai_prev_{res['code']}"):
                         with st.spinner("AI가 3단계(기술/재료/수급)로 심층 분석 중..."):
-                            # 수급 요약 데이터 생성
                             inv_df = res['investor_trend']
                             sup_txt = "정보 없음"
                             if not inv_df.empty:
@@ -663,14 +686,12 @@ with tab1:
                                 f_buy = int(last['외국인']); i_buy = int(last['기관'])
                                 sup_txt = f"외국인 {'순매수' if f_buy>0 else '순매도'}({f_buy:,}), 기관 {'순매수' if i_buy>0 else '순매도'}({i_buy:,})"
                             
-                            # 환율 정보 (매크로)
                             macro = get_macro_data()
                             usd = f"USD/KRW {macro['USD/KRW']['val']:.2f}" if macro else "환율 정보 없음"
 
                             context = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
                             ai_result = get_news_sentiment_llm(res['name'], context)
                             
-                            # [UI] 3단 분석 결과 표시
                             if ai_result.get('technical'):
                                 st.success(f"📊 **정량(기술) 분석**\n{ai_result['technical']}")
                                 st.info(f"📰 **정성(재료) 분석**\n{ai_result['qualitative']}")
@@ -678,7 +699,7 @@ with tab1:
                                 st.markdown(f"---")
                                 st.caption(f"🏆 **종합 결론**: {ai_result['conclusion']}")
                             else:
-                                st.write(ai_result.get('headline')) # 구형 응답 대비
+                                st.write(ai_result.get('headline'))
 
                             for n in ai_result.get('raw_news', []):
                                 st.markdown(f"- [{n['title']}]({n['link']})")
@@ -710,7 +731,6 @@ with tab2:
                 with c2:
                     ai_data = res['news']
                     
-                    # 수급/환율 데이터 준비 (버튼 클릭시 사용)
                     inv_df = res['investor_trend']
                     sup_txt = "정보 없음"
                     if not inv_df.empty:
@@ -721,15 +741,13 @@ with tab2:
 
                     if ai_data.get('method') == 'ai':
                         st.caption(f"🕒 {ai_data.get('timestamp')}")
-                        
-                        # 신규 3단 구조 UI 적용
                         if 'technical' in ai_data:
                             st.markdown(f"**📊 기술:** {ai_data['technical']}")
                             st.markdown(f"**📰 재료:** {ai_data['qualitative']}")
                             st.markdown(f"**👥 수급:** {ai_data['supply_analysis']}")
                             st.info(f"🏆 {ai_data['conclusion']}")
                         else:
-                            st.markdown(f"**{ai_data.get('headline')}**") # 구버전 데이터 호환
+                            st.markdown(f"**{ai_data.get('headline')}**")
 
                         if st.button("🔄 업데이트", key=f"re_{res['code']}"):
                             with st.spinner("..."):
@@ -775,7 +793,6 @@ with tab3:
                     render_investor_chart(res['investor_trend'])
                 with c2:
                     ai_data = res['news']
-                    
                     inv_df = res['investor_trend']
                     sup_txt = "정보 없음"
                     if not inv_df.empty:
@@ -845,7 +862,7 @@ with st.sidebar:
                         r, _ = get_naver_theme_stocks(k)
                         st.session_state['preview_list'] = r
                 st.rerun()
-     
+      
     with st.expander("종목 추가"):
         n = st.text_input("이름"); c = st.text_input("코드"); h = st.checkbox("보유?")
         p = st.number_input("평단", step=100) if h else 0
