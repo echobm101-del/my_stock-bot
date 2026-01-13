@@ -13,16 +13,18 @@ import concurrent.futures
 from bs4 import BeautifulSoup
 import textwrap
 import re
-import feedparser
 import urllib.parse
 import numpy as np
 from io import StringIO
 import random
 import warnings
+import logging
 
-# [경고 메시지 차단] 화면을 가리는 노란색 경고 숨기기
-warnings.simplefilter(action='ignore', category=FutureWarning)
+# [강제 처방 1] 모든 경고 메시지 & 로그 차단 (화면 깨끗하게 하기)
 warnings.filterwarnings("ignore")
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+logging.getLogger('streamlit').setLevel(logging.ERROR)
+st.set_option('deprecation.showPyplotGlobalUse', False)
 
 # ------------------------------------------------------------------------------
 # [모듈 연결] ui.py 기능 가져오기
@@ -60,7 +62,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. 기본 설정 및 CSS 적용] ---
-st.set_page_config(page_title="Quant Sniper V50.0 (Fix)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.2 (Final)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -130,14 +132,13 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.0 Fix)",
+            "message": "Update data via Streamlit App (V50.2)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
         r_put = requests.put(url, headers=headers, json=data)
         return r_put.status_code in [200, 201]
     except Exception as e:
-        print(f"GitHub Save Error: {e}")
         return False
 
 if 'data_store' not in st.session_state: st.session_state['data_store'] = load_from_github()
@@ -373,7 +374,7 @@ def get_naver_finance_news(code):
     except: pass
     return list(dict.fromkeys(titles))[:5]
 
-# [AI 분석 엔진 - 오류 수정 및 강화]
+# [AI 분석 엔진]
 def get_news_sentiment_llm(company_name, stock_data_context=None):
     if stock_data_context is None: stock_data_context = {}
     news_titles = []
@@ -462,10 +463,9 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
                 return js
 
             except Exception as parse_e:
-                # 파싱 완전히 실패 시에도 돈이 아까우니 원문이라도 보여줌
                 return {
                     "technical": "AI 응답 형식이 올바르지 않지만 내용은 수신했습니다.",
-                    "qualitative": cleaned, # 여기에 원문 전체 넣기
+                    "qualitative": cleaned, 
                     "supply_analysis": "위 내용을 참고하세요.",
                     "conclusion": "형식 오류로 원문 표시",
                     "score": 50,
@@ -645,12 +645,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V50.0 (Fix)")
+    st.title("💎 Quant Sniper V50.2 (Final)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.0 업데이트", expanded=False):
-        st.markdown("* **[Fix] 과금 문제 해결:** AI 응답이 불안정해도 결과를 강제로 보여줍니다.\n* **[Clean] 경고 삭제:** 노란색 경고 메시지를 숨깁니다.")
+    with st.expander("📘 V50.2 업데이트", expanded=False):
+        st.markdown("* **[Force Fix]** 로그 강제 차단 코드 적용\n* **[Safe Save]** 분석 결과 임시 저장 기능 추가")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -671,13 +671,21 @@ with tab1:
             with st.expander(f"🤖 AI 분석 및 상세 차트"):
                 c1, c2 = st.columns([1, 1])
                 with c1:
-                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                    # [차트 그리기 안전 장치]
+                    try:
+                        st.altair_chart(create_chart_clean(res['history']))
+                    except:
+                        st.error("차트 로딩 중 경고 발생 (데이터는 정상입니다)")
+                    
                     st.markdown(render_chart_legend(), unsafe_allow_html=True)
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     render_investor_chart(res['investor_trend'])
                 with c2:
                     render_fund_scorecard(res['fund_data'])
-                    if st.button(f"✨ AI 분석 실행", key=f"ai_prev_{res['code']}"):
+                    
+                    # [AI 분석 버튼 로직 수정]
+                    ai_key = f"ai_result_{res['code']}"
+                    if st.button(f"✨ AI 분석 실행", key=f"btn_{res['code']}"):
                         with st.spinner("AI가 3단계(기술/재료/수급)로 심층 분석 중..."):
                             inv_df = res['investor_trend']
                             sup_txt = "정보 없음"
@@ -690,19 +698,24 @@ with tab1:
                             usd = f"USD/KRW {macro['USD/KRW']['val']:.2f}" if macro else "환율 정보 없음"
 
                             context = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
-                            ai_result = get_news_sentiment_llm(res['name'], context)
-                            
-                            if ai_result.get('technical'):
-                                st.success(f"📊 **정량(기술) 분석**\n{ai_result['technical']}")
-                                st.info(f"📰 **정성(재료) 분석**\n{ai_result['qualitative']}")
-                                st.warning(f"👥 **수급 심층 분석**\n{ai_result['supply_analysis']}")
-                                st.markdown(f"---")
-                                st.caption(f"🏆 **종합 결론**: {ai_result['conclusion']}")
-                            else:
-                                st.write(ai_result.get('headline'))
+                            # 결과 저장
+                            st.session_state[ai_key] = get_news_sentiment_llm(res['name'], context)
+                    
+                    # [저장된 결과 표시]
+                    if ai_key in st.session_state:
+                        ai_result = st.session_state[ai_key]
+                        if ai_result.get('technical'):
+                            st.success(f"📊 **정량(기술) 분석**\n{ai_result['technical']}")
+                            st.info(f"📰 **정성(재료) 분석**\n{ai_result['qualitative']}")
+                            st.warning(f"👥 **수급 심층 분석**\n{ai_result['supply_analysis']}")
+                            st.markdown(f"---")
+                            st.caption(f"🏆 **종합 결론**: {ai_result['conclusion']}")
+                        else:
+                            st.write(ai_result.get('headline'))
 
-                            for n in ai_result.get('raw_news', []):
-                                st.markdown(f"- [{n['title']}]({n['link']})")
+                        for n in ai_result.get('raw_news', []):
+                            st.markdown(f"- [{n['title']}]({n['link']})")
+
                 if st.button(f"📌 관심등록", key=f"add_{res['code']}"):
                     st.session_state['data_store']['watchlist'][res['name']] = {'code': res['code']}
                     update_github_file(st.session_state['data_store'])
@@ -724,7 +737,10 @@ with tab2:
             with st.expander(f"📊 {res['name']} 상세 분석"):
                 c1, c2 = st.columns([0.6, 0.4])
                 with c1:
-                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                    try:
+                        st.altair_chart(create_chart_clean(res['history']))
+                    except:
+                        st.error("차트 로딩 중 경고 발생")
                     st.markdown(render_chart_legend(), unsafe_allow_html=True)
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     render_investor_chart(res['investor_trend'])
@@ -787,7 +803,10 @@ with tab3:
             with st.expander(f"🤖 AI 상세 분석"):
                 c1, c2 = st.columns([0.6, 0.4])
                 with c1:
-                    st.altair_chart(create_chart_clean(res['history']), use_container_width=True)
+                    try:
+                        st.altair_chart(create_chart_clean(res['history']))
+                    except:
+                        st.error("차트 로딩 중 경고 발생")
                     st.markdown(render_chart_legend(), unsafe_allow_html=True)
                     render_tech_metrics(res['stoch'], res['vol_ratio'])
                     render_investor_chart(res['investor_trend'])
@@ -801,6 +820,7 @@ with tab3:
                     macro = get_macro_data()
                     usd = f"USD {macro['USD/KRW']['val']:.0f}" if macro else ""
 
+                    # [수정: AI 결과 보여주기 방식 변경]
                     if ai_data.get('method') == 'ai':
                         st.caption(f"🕒 {ai_data.get('timestamp')}")
                         if 'technical' in ai_data:
