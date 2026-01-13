@@ -20,11 +20,11 @@ import random
 import warnings
 import logging
 
-# [강제 처방 1] 모든 경고 메시지 & 로그 차단 (화면 깨끗하게 하기)
+# [긴급 수정] 에러를 유발하던 'st.set_option' 코드를 삭제했습니다.
+# 경고 메시지는 아래 코드로 안전하게 차단합니다.
 warnings.filterwarnings("ignore")
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 logging.getLogger('streamlit').setLevel(logging.ERROR)
-st.set_option('deprecation.showPyplotGlobalUse', False)
 
 # ------------------------------------------------------------------------------
 # [모듈 연결] ui.py 기능 가져오기
@@ -62,7 +62,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
 
 # --- [1. 기본 설정 및 CSS 적용] ---
-st.set_page_config(page_title="Quant Sniper V50.2 (Final)", page_icon="💎", layout="wide")
+st.set_page_config(page_title="Quant Sniper V50.3 (Final Fix)", page_icon="💎", layout="wide")
 apply_custom_css()
 
 # --- [2. 데이터 로딩 및 분석 로직] ---
@@ -132,7 +132,7 @@ def update_github_file(new_data):
         json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
         b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
         data = {
-            "message": "Update data via Streamlit App (V50.2)",
+            "message": "Update data via Streamlit App (V50.3)",
             "content": b64_content
         }
         if sha: data["sha"] = sha
@@ -645,12 +645,12 @@ def send_telegram_msg(token, chat_id, msg):
 # --- [3. 메인 화면 UI] ---
 col_title, col_guide = st.columns([0.7, 0.3])
 with col_title:
-    st.title("💎 Quant Sniper V50.2 (Final)")
+    st.title("💎 Quant Sniper V50.3 (Final Fix)")
 with col_guide:
     st.write("") 
     st.write("") 
-    with st.expander("📘 V50.2 업데이트", expanded=False):
-        st.markdown("* **[Force Fix]** 로그 강제 차단 코드 적용\n* **[Safe Save]** 분석 결과 임시 저장 기능 추가")
+    with st.expander("📘 V50.3 업데이트", expanded=False):
+        st.markdown("* **[Emergency Fix]** Streamlit 버전 호환성 에러 수정.\n* **[Stable]** AI 결과 저장 및 로그 차단 유지.")
 
 tab1, tab2, tab3 = st.tabs(["🔍 테마/종목 발굴", "💰 내 잔고 (Portfolio)", "👀 관심 종목 (Watchlist)"])
 
@@ -683,7 +683,6 @@ with tab1:
                 with c2:
                     render_fund_scorecard(res['fund_data'])
                     
-                    # [AI 분석 버튼 로직 수정]
                     ai_key = f"ai_result_{res['code']}"
                     if st.button(f"✨ AI 분석 실행", key=f"btn_{res['code']}"):
                         with st.spinner("AI가 3단계(기술/재료/수급)로 심층 분석 중..."):
@@ -698,10 +697,8 @@ with tab1:
                             usd = f"USD/KRW {macro['USD/KRW']['val']:.2f}" if macro else "환율 정보 없음"
 
                             context = {"code": res['code'], "trend": res['trend_txt'], "current_price": res['price'], "supply_info": sup_txt, "macro_info": usd}
-                            # 결과 저장
                             st.session_state[ai_key] = get_news_sentiment_llm(res['name'], context)
                     
-                    # [저장된 결과 표시]
                     if ai_key in st.session_state:
                         ai_result = st.session_state[ai_key]
                         if ai_result.get('technical'):
@@ -820,7 +817,6 @@ with tab3:
                     macro = get_macro_data()
                     usd = f"USD {macro['USD/KRW']['val']:.0f}" if macro else ""
 
-                    # [수정: AI 결과 보여주기 방식 변경]
                     if ai_data.get('method') == 'ai':
                         st.caption(f"🕒 {ai_data.get('timestamp')}")
                         if 'technical' in ai_data:
