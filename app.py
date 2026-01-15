@@ -1594,12 +1594,24 @@ with tab1:
                 st.write("###### 🧠 큰손 투자 동향")
                 render_investor_chart(res['investor_trend'])
                 
-                # [New] DART 공시 표시
+                # ---------------------------------------------------------
+                # [추가] DART 공시 데이터 표시 영역 (개선된 버전)
+                # ---------------------------------------------------------
                 if res.get('dart_disclosures'):
                     st.write("###### 📢 DART 최근 주요 공시 (3개월)")
                     for d in res['dart_disclosures']:
-                        st.markdown(f"<div class='dart-box'><span class='dart-title'>{d['report_nm']}</span><span class='dart-badge'>{d['rcept_dt']}</span></div>", unsafe_allow_html=True)
-
+                        # 1. 날짜 포맷팅 (YYYYMMDD -> YYYY-MM-DD)
+                        date_str = d['rcept_dt']
+                        if len(date_str) == 8:
+                            date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                            
+                        # 2. 리포트 이름이 너무 길면 자르기
+                        rpt_nm = d['report_nm']
+                        if len(rpt_nm) > 25: rpt_nm = rpt_nm[:25] + "..."
+                        
+                        st.markdown(f"<div class='dart-box'><span class='dart-title'>{rpt_nm}</span><span class='dart-badge'>{date_str}</span></div>", unsafe_allow_html=True)
+                # ---------------------------------------------------------
+                
                 st.write("###### 📰 AI 헤지펀드 매니저 분석")
                 if res['news']['method'] == "ai": 
                     op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
@@ -1691,12 +1703,23 @@ with tab2:
                     st.write("###### 🧠 수급 동향")
                     render_investor_chart(res['investor_trend'])
                 
-                # [New] DART 공시 표시
+                # ---------------------------------------------------------
+                # [추가] DART 공시 데이터 표시 영역 (개선된 버전)
+                # ---------------------------------------------------------
                 if res.get('dart_disclosures'):
                     st.write("###### 📢 DART 최근 주요 공시 (3개월)")
                     for d in res['dart_disclosures']:
-                        st.markdown(f"<div class='dart-box'><span class='dart-title'>{d['report_nm']}</span><span class='dart-badge'>{d['rcept_dt']}</span></div>", unsafe_allow_html=True)
-
+                        # 1. 날짜 포맷팅 (YYYYMMDD -> YYYY-MM-DD)
+                        date_str = d['rcept_dt']
+                        if len(date_str) == 8:
+                            date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                            
+                        # 2. 리포트 이름이 너무 길면 자르기
+                        rpt_nm = d['report_nm']
+                        if len(rpt_nm) > 25: rpt_nm = rpt_nm[:25] + "..."
+                        
+                        st.markdown(f"<div class='dart-box'><span class='dart-title'>{rpt_nm}</span><span class='dart-badge'>{date_str}</span></div>", unsafe_allow_html=True)
+                # ---------------------------------------------------------
                 st.markdown("---")
                 st.write("###### 🤖 AI 포트폴리오 매니저의 조언")
                 
@@ -1823,12 +1846,24 @@ with tab3:
                 st.write("###### 🧠 수급 동향")
                 render_investor_chart(res['investor_trend'])
                 
-                # [New] DART 공시 표시
+                # ---------------------------------------------------------
+                # [추가] DART 공시 데이터 표시 영역 (개선된 버전)
+                # ---------------------------------------------------------
                 if res.get('dart_disclosures'):
                     st.write("###### 📢 DART 최근 주요 공시 (3개월)")
                     for d in res['dart_disclosures']:
-                        st.markdown(f"<div class='dart-box'><span class='dart-title'>{d['report_nm']}</span><span class='dart-badge'>{d['rcept_dt']}</span></div>", unsafe_allow_html=True)
-
+                        # 1. 날짜 포맷팅 (YYYYMMDD -> YYYY-MM-DD)
+                        date_str = d['rcept_dt']
+                        if len(date_str) == 8:
+                            date_str = f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+                            
+                        # 2. 리포트 이름이 너무 길면 자르기
+                        rpt_nm = d['report_nm']
+                        if len(rpt_nm) > 25: rpt_nm = rpt_nm[:25] + "..."
+                        
+                        st.markdown(f"<div class='dart-box'><span class='dart-title'>{rpt_nm}</span><span class='dart-badge'>{date_str}</span></div>", unsafe_allow_html=True)
+                # ---------------------------------------------------------
+                
                 st.write("###### 📰 AI 분석")
                 if res['news']['method'] == "ai": 
                     op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
@@ -1938,3 +1973,4 @@ with st.sidebar:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
         st.session_state['preview_list'] = []
         st.rerun()
+
