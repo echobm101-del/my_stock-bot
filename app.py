@@ -629,7 +629,8 @@ def update_github_file(new_data):
 if 'data_store' not in st.session_state: st.session_state['data_store'] = load_from_github()
 if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
 if 'current_theme_name' not in st.session_state: st.session_state['current_theme_name'] = ""
-
+if 'ai_cache' not in st.session_state: st.session_state['ai_cache'] = {}
+    
 @st.cache_data(ttl=1800)
 def get_naver_theme_stocks(keyword):
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -1857,4 +1858,5 @@ with st.sidebar:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
         st.session_state['preview_list'] = []
         st.rerun()
+
 
