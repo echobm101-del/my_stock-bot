@@ -1875,6 +1875,17 @@ with tab3:
                 else: st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
 
 with st.sidebar:
+    with st.sidebar:
+    st.write("### ⚙️ 기능 메뉴")
+    
+    # [▼▼▼ 추가: DART 연결 상태 확인용 코드 ▼▼▼]
+    if USER_DART_KEY and dart:
+        st.success(f"✅ DART 연결됨 (API Key OK)")
+    else:
+        if not USER_DART_KEY:
+            st.error("⚠️ DART API 키가 없습니다. Secrets를 확인하세요.")
+        else:
+            st.error("⚠️ 라이브러리(OpenDartReader) 미설치")
     st.write("### ⚙️ 기능 메뉴")
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
         THEME_KEYWORDS = { "직접 입력": None, "반도체": "반도체", "2차전지": "2차전지", "HBM": "HBM", "AI/인공지능": "지능형로봇", "로봇": "로봇", "제약바이오": "제약업체", "자동차/부품": "자동차", "방위산업": "방위산업", "원자력발전": "원자력발전", "초전도체": "초전도체", "저PBR": "은행" }
@@ -1973,4 +1984,5 @@ with st.sidebar:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
         st.session_state['preview_list'] = []
         st.rerun()
+
 
