@@ -1257,11 +1257,9 @@ def round_to_tick(price):
     elif price < 500000: return int(round(price / 500) * 500)
     else: return int(round(price, -3))
 
-# [수정됨] AI 자동 실행 방지 및 캐시 적용 버전
+# [수정] AI 로직을 완전히 메인 스레드로 위임
 def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
-    # 세션 스테이트에 AI 캐시 저장소 초기화
-    if 'ai_cache' not in st.session_state: st.session_state['ai_cache'] = {}
-
+    # analyze_pro 함수 내부에서는 st.session_state에 접근하지 않습니다. (스레드 안전성 확보)
     try:
         score, tags, vol_ratio, chg_rate, win_rate, df, main_reason = calculate_sniper_score(code)
         if df.empty: return None
@@ -1293,7 +1291,7 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         "cycle_txt": "확인 중", 
         "relation_tag": relation_tag,
         "my_buy_price": my_buy_price,
-        "ai_context": {} # [New] 나중에 버튼 클릭 시 사용할 데이터
+        "ai_context": {} 
     }
 
     try:
@@ -1394,17 +1392,14 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         }
         result_dict['ai_context'] = context # 컨텍스트 저장
 
-        # [핵심 변경] AI 자동 실행 대신 캐시 확인
-        if code in st.session_state['ai_cache']:
-             result_dict['news'] = st.session_state['ai_cache'][code]
-        else:
-             # 대기 상태 설정
-             result_dict['news'] = {
-                 "score": 0, "supply_score": 0, 
-                 "headline": "💎 AI 심층 분석 대기 중 (버튼을 눌러주세요)", 
-                 "raw_news": [], "method": "standby", 
-                 "opinion": "대기", "catalyst": "", "risk": ""
-             }
+        # [핵심 변경] 여기서는 무조건 Standby 상태만 반환합니다.
+        # 실제 캐시 데이터 주입은 메인 스레드(UI 루프)에서 수행합니다.
+        result_dict['news'] = {
+             "score": 0, "supply_score": 0, 
+             "headline": "💎 AI 심층 분석 대기 중 (버튼을 눌러주세요)", 
+             "raw_news": [], "method": "standby", 
+             "opinion": "대기", "catalyst": "", "risk": ""
+        }
 
     except: pass 
 
@@ -1586,6 +1581,10 @@ with tab2:
                     if f.result(): port_results.append(f.result())
             
         for res in port_results:
+            # [핵심 수정] 메인 스레드에서 캐시 확인 및 데이터 주입
+            if 'ai_cache' in st.session_state and res['code'] in st.session_state['ai_cache']:
+                res['news'] = st.session_state['ai_cache'][res['code']]
+
             st.markdown(create_portfolio_card_html(res), unsafe_allow_html=True)
             
             # [변경] AI 분석 여부에 따라 버튼 또는 결과 표시
@@ -1688,6 +1687,10 @@ with tab3:
             wl_results.sort(key=lambda x: x['score'], reverse=True)
         
         for res in wl_results:
+            # [핵심 수정] 메인 스레드에서 캐시 확인 및 데이터 주입
+            if 'ai_cache' in st.session_state and res['code'] in st.session_state['ai_cache']:
+                res['news'] = st.session_state['ai_cache'][res['code']]
+
             st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
             
             # [변경] AI 분석 여부에 따라 버튼 또는 결과 표시
@@ -1704,22 +1707,12 @@ with tab3:
                 # ---------------------------------------------------------
                 if res['news']['method'] == "standby":
                     st.info("비용 절감을 위해 AI 분석을 대기 중입니다. 심층 분석을 원하시면 아래 버튼을 눌러주세요.")
-                    
-                    # 버튼 클릭 로직
-                    if st.button(f"🚀 {res['name']} AI 분석 시작 (과금 발생)", key=f"ai_run_p_{res['code']}"):
-                        
-                        # [추가됨] 사용자에게 실행 중임을 알리는 팝업 메시지
-                        st.toast(f"🤖 '{res['name']}' AI 분석을 시작합니다... 잠시만 기다려주세요!", icon="🔥")
-                        
-                        with st.spinner(f"🔍 {res['name']} 데이터 수집 및 AI 분석 중..."):
+                    if st.button(f"🚀 {res['name']} AI 분석 시작 (과금 발생)", key=f"ai_run_w_{res['code']}"):
+                        with st.spinner(f"🤖 {res['name']}에 대한 최신 뉴스와 수급을 분석 중입니다..."):
                             # AI 실행
                             ai_result = get_news_sentiment_llm(res['name'], res['ai_context'])
                             # 결과 캐싱
                             st.session_state['ai_cache'][res['code']] = ai_result
-                            
-                            # [추가됨] 완료 메시지
-                            st.toast("✅ 분석 완료! 결과를 확인하세요.", icon="🎉")
-                            time.sleep(1) # 메시지 볼 시간 1초 대기
                             st.rerun()
                 # ---------------------------------------------------------
 
@@ -1778,6 +1771,7 @@ with tab3:
                 elif res['news']['method'] == "standby":
                     st.markdown("<div class='news-fallback' style='background:#f0f0f0; border-color:#ccc; color:#666;'>💤 분석 대기 중입니다. 상단의 버튼을 눌러주세요.</div>", unsafe_allow_html=True)
                 else: st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
+
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
@@ -1877,7 +1871,3 @@ with st.sidebar:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
         st.session_state['preview_list'] = []
         st.rerun()
-
-
-
-
