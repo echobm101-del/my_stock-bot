@@ -1602,12 +1602,22 @@ with tab2:
                 # ---------------------------------------------------------
                 if res['news']['method'] == "standby":
                     st.info("비용 절감을 위해 AI 분석을 대기 중입니다. 심층 분석을 원하시면 아래 버튼을 눌러주세요.")
+                    
+                    # 버튼 클릭 로직
                     if st.button(f"🚀 {res['name']} AI 분석 시작 (과금 발생)", key=f"ai_run_p_{res['code']}"):
-                        with st.spinner(f"🤖 {res['name']}에 대한 최신 뉴스와 수급을 분석 중입니다..."):
+                        
+                        # [추가됨] 사용자에게 실행 중임을 알리는 팝업 메시지
+                        st.toast(f"🤖 '{res['name']}' AI 분석을 시작합니다... 잠시만 기다려주세요!", icon="🔥")
+                        
+                        with st.spinner(f"🔍 {res['name']} 데이터 수집 및 AI 분석 중..."):
                             # AI 실행
                             ai_result = get_news_sentiment_llm(res['name'], res['ai_context'])
                             # 결과 캐싱
                             st.session_state['ai_cache'][res['code']] = ai_result
+                            
+                            # [추가됨] 완료 메시지
+                            st.toast("✅ 분석 완료! 결과를 확인하세요.", icon="🎉")
+                            time.sleep(1) # 메시지 볼 시간 1초 대기
                             st.rerun()
                 # ---------------------------------------------------------
                 
@@ -1694,12 +1704,22 @@ with tab3:
                 # ---------------------------------------------------------
                 if res['news']['method'] == "standby":
                     st.info("비용 절감을 위해 AI 분석을 대기 중입니다. 심층 분석을 원하시면 아래 버튼을 눌러주세요.")
-                    if st.button(f"🚀 {res['name']} AI 분석 시작 (과금 발생)", key=f"ai_run_w_{res['code']}"):
-                        with st.spinner(f"🤖 {res['name']}에 대한 최신 뉴스와 수급을 분석 중입니다..."):
+                    
+                    # 버튼 클릭 로직
+                    if st.button(f"🚀 {res['name']} AI 분석 시작 (과금 발생)", key=f"ai_run_p_{res['code']}"):
+                        
+                        # [추가됨] 사용자에게 실행 중임을 알리는 팝업 메시지
+                        st.toast(f"🤖 '{res['name']}' AI 분석을 시작합니다... 잠시만 기다려주세요!", icon="🔥")
+                        
+                        with st.spinner(f"🔍 {res['name']} 데이터 수집 및 AI 분석 중..."):
                             # AI 실행
                             ai_result = get_news_sentiment_llm(res['name'], res['ai_context'])
                             # 결과 캐싱
                             st.session_state['ai_cache'][res['code']] = ai_result
+                            
+                            # [추가됨] 완료 메시지
+                            st.toast("✅ 분석 완료! 결과를 확인하세요.", icon="🎉")
+                            time.sleep(1) # 메시지 볼 시간 1초 대기
                             st.rerun()
                 # ---------------------------------------------------------
 
@@ -1857,6 +1877,7 @@ with st.sidebar:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
         st.session_state['preview_list'] = []
         st.rerun()
+
 
 
 
