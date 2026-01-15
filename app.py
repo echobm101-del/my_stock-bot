@@ -19,6 +19,12 @@ import numpy as np
 from io import StringIO
 import random
 
+# [New] DART 라이브러리 추가 (없으면 pip install opendartreader)
+try:
+    import OpenDartReader
+except ImportError:
+    st.error("OpenDartReader가 설치되지 않았습니다. 'pip install opendartreader'를 실행해주세요.")
+
 # ==============================================================================
 # [보안 설정] Streamlit Secrets에서 키 가져오기
 # ==============================================================================
@@ -27,9 +33,10 @@ try:
     USER_TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
     USER_CHAT_ID = st.secrets["CHAT_ID"]
     USER_GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
-    # [변경] 네이버 공식 API 키 가져오기
     USER_NAVER_ID = st.secrets.get("NAVER_CLIENT_ID", "")
     USER_NAVER_SECRET = st.secrets.get("NAVER_CLIENT_SECRET", "")
+    # [New] DART API KEY
+    USER_DART_KEY = st.secrets.get("DART_API_KEY", "")
 except Exception as e:
     USER_GITHUB_TOKEN = ""
     USER_TELEGRAM_TOKEN = ""
@@ -37,6 +44,7 @@ except Exception as e:
     USER_GOOGLE_API_KEY = ""
     USER_NAVER_ID = ""
     USER_NAVER_SECRET = ""
+    USER_DART_KEY = ""
 
 # --- [1. UI 스타일링] ---
 st.set_page_config(page_title="Quant Sniper V49.9 (Rescue Mode)", page_icon="💎", layout="wide")
@@ -78,6 +86,12 @@ st.markdown("""
     .news-link { color: #333; text-decoration: none; font-weight: 500; display: block; margin-bottom: 2px;}
     .news-link:hover { color: #3182F6; text-decoration: underline; }
     .news-date { font-size: 11px; color: #999; }
+    
+    /* DART Disclosure Style */
+    .dart-box { padding: 6px 0; border-bottom: 1px solid #F2F4F6; font-size: 12px; display: flex; justify-content: space-between; }
+    .dart-title { color: #333; font-weight: 500; text-decoration: none; }
+    .dart-title:hover { color: #D9480F; text-decoration: underline; }
+    .dart-badge { font-size: 10px; padding: 2px 4px; border-radius: 4px; background-color: #FFF0EB; color: #D9480F; font-weight: 700; margin-right: 5px; }
     
     .metric-box { background: #F9FAFB; border-radius: 12px; padding: 15px; text-align: center; border: 1px solid #E5E8EB; height: 100%; display: flex; flex-direction: column; justify-content: center; }
     .metric-title { font-size: 12px; color: #666; margin-bottom: 4px; }
@@ -630,6 +644,34 @@ if 'data_store' not in st.session_state: st.session_state['data_store'] = load_f
 if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
 if 'current_theme_name' not in st.session_state: st.session_state['current_theme_name'] = ""
 if 'ai_cache' not in st.session_state: st.session_state['ai_cache'] = {}
+
+# [New] DART 객체 캐싱 (초기화 비용 절약)
+@st.cache_resource
+def get_dart_instance():
+    if USER_DART_KEY:
+        try:
+            return OpenDartReader(USER_DART_KEY)
+        except: return None
+    return None
+
+dart = get_dart_instance()
+
+def get_dart_recent_disclosures(code):
+    """
+    최근 3개월 간의 주요 공시(보고서) 리스트를 가져옵니다.
+    """
+    if not dart: return []
+    try:
+        # 최근 90일
+        end_d = datetime.datetime.now()
+        start_d = end_d - datetime.timedelta(days=90)
+        # OpenDartReader는 종목코드로 조회 가능
+        df = dart.list(code, start=start_d.strftime('%Y-%m-%d'), end=end_d.strftime('%Y-%m-%d'))
+        if df is not None and not df.empty:
+            # 필요한 컬럼만 추출
+            return df[['rcept_dt', 'report_nm', 'pblntf_detail_ty_nm']].head(5).to_dict('records')
+    except: pass
+    return []
 
 def get_naver_theme_stocks(keyword):
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -1291,7 +1333,8 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         "cycle_txt": "확인 중", 
         "relation_tag": relation_tag,
         "my_buy_price": my_buy_price,
-        "ai_context": {} 
+        "ai_context": {},
+        "dart_disclosures": [] # [New] DART 공시 데이터 저장 공간
     }
 
     try:
@@ -1324,6 +1367,10 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
     try: result_dict['fin_history'] = get_financial_history(code)
     except: pass
     try: result_dict['supply'] = get_supply_demand(code)
+    except: pass
+    
+    # [New] DART 공시 가져오기
+    try: result_dict['dart_disclosures'] = get_dart_recent_disclosures(code)
     except: pass
 
     try:
@@ -1546,6 +1593,13 @@ with tab1:
                     render_financial_table(res['fin_history'])
                 st.write("###### 🧠 큰손 투자 동향")
                 render_investor_chart(res['investor_trend'])
+                
+                # [New] DART 공시 표시
+                if res.get('dart_disclosures'):
+                    st.write("###### 📢 DART 최근 주요 공시 (3개월)")
+                    for d in res['dart_disclosures']:
+                        st.markdown(f"<div class='dart-box'><span class='dart-title'>{d['report_nm']}</span><span class='dart-badge'>{d['rcept_dt']}</span></div>", unsafe_allow_html=True)
+
                 st.write("###### 📰 AI 헤지펀드 매니저 분석")
                 if res['news']['method'] == "ai": 
                     op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
@@ -1637,6 +1691,12 @@ with tab2:
                     st.write("###### 🧠 수급 동향")
                     render_investor_chart(res['investor_trend'])
                 
+                # [New] DART 공시 표시
+                if res.get('dart_disclosures'):
+                    st.write("###### 📢 DART 최근 주요 공시 (3개월)")
+                    for d in res['dart_disclosures']:
+                        st.markdown(f"<div class='dart-box'><span class='dart-title'>{d['report_nm']}</span><span class='dart-badge'>{d['rcept_dt']}</span></div>", unsafe_allow_html=True)
+
                 st.markdown("---")
                 st.write("###### 🤖 AI 포트폴리오 매니저의 조언")
                 
@@ -1762,6 +1822,13 @@ with tab3:
                     render_financial_table(res['fin_history'])
                 st.write("###### 🧠 수급 동향")
                 render_investor_chart(res['investor_trend'])
+                
+                # [New] DART 공시 표시
+                if res.get('dart_disclosures'):
+                    st.write("###### 📢 DART 최근 주요 공시 (3개월)")
+                    for d in res['dart_disclosures']:
+                        st.markdown(f"<div class='dart-box'><span class='dart-title'>{d['report_nm']}</span><span class='dart-badge'>{d['rcept_dt']}</span></div>", unsafe_allow_html=True)
+
                 st.write("###### 📰 AI 분석")
                 if res['news']['method'] == "ai": 
                     op = res['news']['opinion']; badge_cls = "ai-opinion-hold"
