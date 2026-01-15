@@ -1874,19 +1874,23 @@ with tab3:
                     st.markdown("<div class='news-fallback' style='background:#f0f0f0; border-color:#ccc; color:#666;'>💤 분석 대기 중입니다. 상단의 버튼을 눌러주세요.</div>", unsafe_allow_html=True)
                 else: st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
 
+# --- [수정된 사이드바 코드] ---
 with st.sidebar:
-    with st.sidebar:
-    st.write("### ⚙️ 기능 메뉴")
+    st.write("### ⚙️ 기능 메뉴") # <-- 여기부터 들여쓰기가 되어야 합니다!
     
-    # [▼▼▼ 추가: DART 연결 상태 확인용 코드 ▼▼▼]
-    if USER_DART_KEY and dart:
-        st.success(f"✅ DART 연결됨 (API Key OK)")
+    # [DART 연결 상태 확인]
+    if USER_DART_KEY:
+        try:
+            if 'dart' in globals() and dart:
+                st.success(f"✅ DART 연결됨")
+            else:
+                dart = OpenDartReader(USER_DART_KEY)
+                st.success(f"✅ DART 연결됨 (Reconnected)")
+        except:
+            st.error("⚠️ DART 연결 실패 (API Key 확인)")
     else:
-        if not USER_DART_KEY:
-            st.error("⚠️ DART API 키가 없습니다. Secrets를 확인하세요.")
-        else:
-            st.error("⚠️ 라이브러리(OpenDartReader) 미설치")
-    st.write("### ⚙️ 기능 메뉴")
+        st.warning("⚠️ DART API Key 없음")
+
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
         THEME_KEYWORDS = { "직접 입력": None, "반도체": "반도체", "2차전지": "2차전지", "HBM": "HBM", "AI/인공지능": "지능형로봇", "로봇": "로봇", "제약바이오": "제약업체", "자동차/부품": "자동차", "방위산업": "방위산업", "원자력발전": "원자력발전", "초전도체": "초전도체", "저PBR": "은행" }
         selected_preset = st.selectbox("⚡ 인기 테마 선택", list(THEME_KEYWORDS.keys()))
@@ -1984,5 +1988,64 @@ with st.sidebar:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
         st.session_state['preview_list'] = []
         st.rerun()
+                    except Exception as e: st.error(f"오류: {str(e)}")
+
+                if not is_stock_found:
+                    try:
+                        with st.spinner(f"🤖 AI가 '{target_keyword}' 관련주를 생각 중입니다..."):
+                            ai_stocks, msg = get_ai_recommended_stocks(target_keyword)
+                            if ai_stocks:
+                                st.success(msg)
+                                st.session_state['preview_list'] = ai_stocks
+                                st.session_state['current_theme_name'] = f"AI 추천: {target_keyword}"
+                                st.rerun()
+                            else:
+                                with st.spinner("네이버 금융 테마 스캔 (Fallback)..."):
+                                    raw_stocks, msg = get_naver_theme_stocks(target_keyword)
+                                if raw_stocks:
+                                    st.success(msg)
+                                    st.session_state['preview_list'] = raw_stocks
+                                    st.session_state['current_theme_name'] = target_keyword
+                                    st.rerun()
+                                else: st.error(f"❌ '{target_keyword}'에 대한 결과를 찾을 수 없습니다.")
+                    except Exception as e: st.error(f"오류: {str(e)}")
+
+    if st.button("🚀 텔레그램 리포트 전송"):
+        token = USER_TELEGRAM_TOKEN
+        chat_id = USER_CHAT_ID
+        if token and chat_id and 'wl_results' in locals() and wl_results:
+            msg = f"💎 Quant Sniper V49.9 (Rescue Mode)\n\n"
+            if macro: msg += f"[시장] KOSPI {macro.get('KOSPI',{'val':0})['val']:.0f}\n\n"
+            for i, r in enumerate(wl_results[:3]): 
+                rel_txt = f"[{r.get('relation_tag', '')}] " if r.get('relation_tag') else ""
+                msg += f"{i+1}. {r['name']} {rel_txt}({r['score']}점)\n   가격: {r['price']:,}원\n   목표: {r['strategy']['target']:,}\n   손절: {r['strategy']['stop']:,}\n   요약: {r['news']['headline'][:50]}...\n\n"
+            send_telegram_msg(token, chat_id, msg)
+            st.success("전송 완료!")
+        else: st.warning("설정 확인 필요")
+
+    with st.expander("개별 종목 추가"):
+        name = st.text_input("이름"); code = st.text_input("코드")
+        is_hold = st.checkbox("💰 보유 중인 종목인가요?")
+        buy_price = 0
+        if is_hold:
+            buy_price = st.number_input("평단가 (매수 가격)", min_value=0, step=100)
+            
+        if st.button("추가") and name and code:
+            if is_hold:
+                st.session_state['data_store']['portfolio'][name] = {"code": code, "buy_price": buy_price}
+            else:
+                st.session_state['data_store']['watchlist'][name] = {"code": code}
+                
+            if update_github_file(st.session_state['data_store']):
+                st.success("✅ 저장 완료!")
+            else:
+                st.error("❌ 저장 실패")
+            time.sleep(0.5); st.rerun()
+            
+    if st.button("초기화"): 
+        st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
+        st.session_state['preview_list'] = []
+        st.rerun()
+
 
 
