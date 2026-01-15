@@ -1257,7 +1257,11 @@ def round_to_tick(price):
     elif price < 500000: return int(round(price / 500) * 500)
     else: return int(round(price, -3))
 
+# [수정됨] AI 자동 실행 방지 및 캐시 적용 버전
 def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
+    # 세션 스테이트에 AI 캐시 저장소 초기화
+    if 'ai_cache' not in st.session_state: st.session_state['ai_cache'] = {}
+
     try:
         score, tags, vol_ratio, chg_rate, win_rate, df, main_reason = calculate_sniper_score(code)
         if df.empty: return None
@@ -1288,7 +1292,8 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         "win_rate": win_rate, 
         "cycle_txt": "확인 중", 
         "relation_tag": relation_tag,
-        "my_buy_price": my_buy_price 
+        "my_buy_price": my_buy_price,
+        "ai_context": {} # [New] 나중에 버튼 클릭 시 사용할 데이터
     }
 
     try:
@@ -1352,28 +1357,23 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
         elif i_net > 0: supply_txt = "기관 매수 우위"
         elif f_net < 0 and i_net < 0: supply_txt = "외국인/기관 동반 매도"
 
-        # [V49.5] 수급 분석용 추가 데이터 추출
-        
-        # 1. 매크로(환율) 데이터 가져오기 (캐싱 활용)
+        # 수급/매크로 데이터 준비
         macro_data = get_macro_data()
         usd_change = 0.0
         if macro_data and 'USD/KRW' in macro_data:
             usd_change = macro_data['USD/KRW']['change']
             
-        # 2. 이격도/단기 급등 체크 (20일 전 대비)
         price_surge = 0.0
         if len(df) >= 20:
             past_price = df['Close'].iloc[-20]
             if past_price > 0:
                 price_surge = (current_price - past_price) / past_price * 100
                 
-        # 3. 라운드 피겨(심리적 저항선) 체크
         round_fig_msg = ""
         str_price = str(int(current_price))
-        if len(str_price) >= 4: # 만원 단위 이상만 체크
-            unit = 10**(len(str_price)-1) # 예: 54000 -> 10000
+        if len(str_price) >= 4:
+            unit = 10**(len(str_price)-1)
             next_big = (int(current_price / unit) + 1) * unit
-            # 현재가와 다음 큰 단위의 괴리가 3% 이내일 때
             if (next_big - current_price) / current_price < 0.03:
                 round_fig_msg = f"심리적 저항선({next_big:,}원) 접근 중"
 
@@ -1388,14 +1388,28 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
             "profit_rate": profit_rate,
             "quant_signal": quant_signal,
             "current_price": result_dict['price'],
-            "usd_krw_change": usd_change, # [New]
-            "price_surge": price_surge, # [New]
-            "round_figure_msg": round_fig_msg # [New]
+            "usd_krw_change": usd_change,
+            "price_surge": price_surge,
+            "round_figure_msg": round_fig_msg
         }
-        result_dict['news'] = get_news_sentiment_llm(result_dict['name'], stock_data_context=context)
+        result_dict['ai_context'] = context # 컨텍스트 저장
+
+        # [핵심 변경] AI 자동 실행 대신 캐시 확인
+        if code in st.session_state['ai_cache']:
+             result_dict['news'] = st.session_state['ai_cache'][code]
+        else:
+             # 대기 상태 설정
+             result_dict['news'] = {
+                 "score": 0, "supply_score": 0, 
+                 "headline": "💎 AI 심층 분석 대기 중 (버튼을 눌러주세요)", 
+                 "raw_news": [], "method": "standby", 
+                 "opinion": "대기", "catalyst": "", "risk": ""
+             }
+
     except: pass 
 
     try:
+        # 점수 계산 시 AI 점수는 실행 전엔 0점으로 처리하거나 기본값 부여
         ai_news_score = result_dict['news'].get('score', 0)
         ai_cycle_score = result_dict['news'].get('supply_score', 0) * 2
         
@@ -1405,7 +1419,8 @@ def analyze_pro(code, name_override=None, relation_tag=None, my_buy_price=None):
 
         if my_buy_price:
             action_txt = result_dict['news'].get('opinion', quant_signal)
-            # [V49.6] 자동 목표가/손절가 로직 (수동 입력 대체)
+            if action_txt == "대기": action_txt = quant_signal # AI 대기중일 땐 퀀트신호 표시
+            
             stop_raw = my_buy_price * 0.95 
             target_raw = my_buy_price * 1.10
             buy_basis_txt = "보유 중"
@@ -1573,7 +1588,29 @@ with tab2:
         for res in port_results:
             st.markdown(create_portfolio_card_html(res), unsafe_allow_html=True)
             
-            with st.expander(f"📊 {res['name']} 상세 분석 펼치기"):
+            # [변경] AI 분석 여부에 따라 버튼 또는 결과 표시
+            if res['news']['method'] == "standby":
+                expander_title = "🤖 AI 심층 분석 실행 (Click)"
+            else:
+                ai_summary_txt = res['news'].get('headline', '')
+                if len(ai_summary_txt) > 30: ai_summary_txt = ai_summary_txt[:30] + "..."
+                expander_title = f"✅ AI 분석 완료: {ai_summary_txt}"
+
+            with st.expander(expander_title):
+                # ---------------------------------------------------------
+                # [핵심] AI 분석 실행 버튼 영역
+                # ---------------------------------------------------------
+                if res['news']['method'] == "standby":
+                    st.info("비용 절감을 위해 AI 분석을 대기 중입니다. 심층 분석을 원하시면 아래 버튼을 눌러주세요.")
+                    if st.button(f"🚀 {res['name']} AI 분석 시작 (과금 발생)", key=f"ai_run_p_{res['code']}"):
+                        with st.spinner(f"🤖 {res['name']}에 대한 최신 뉴스와 수급을 분석 중입니다..."):
+                            # AI 실행
+                            ai_result = get_news_sentiment_llm(res['name'], res['ai_context'])
+                            # 결과 캐싱
+                            st.session_state['ai_cache'][res['code']] = ai_result
+                            st.rerun()
+                # ---------------------------------------------------------
+                
                 col_btn, col_rest = st.columns([0.2, 0.8])
                 with col_btn:
                     if st.button(f"🗑️ 삭제", key=f"del_port_{res['code']}"):
@@ -1613,17 +1650,10 @@ with tab2:
                             ⚠️ <b>Risk Factor:</b> {res['news'].get('risk', '특이사항 없음')}
                         </div>
                     </div>""", unsafe_allow_html=True)
+                elif res['news']['method'] == "standby":
+                    st.markdown("<div class='news-fallback' style='background:#f0f0f0; border-color:#ccc; color:#666;'>💤 분석 대기 중입니다. 상단의 버튼을 눌러주세요.</div>", unsafe_allow_html=True)
                 else:
-                    fallback_headline = res['news'].get('headline', '분석 결과 없음')
-                    fallback_risk = res['news'].get('risk', 'API 키 확인 또는 뉴스 데이터 부족')
-                    
-                    st.markdown(f"""
-                    <div class='news-fallback'>
-                        <div style='font-size:12px; color:#D9480F; margin-bottom:4px;'>⚡ 키워드 분석 모드 (AI 미연동)</div>
-                        <div style='font-size:14px; font-weight:700; color:#333; margin-bottom:6px;'>{fallback_headline}</div>
-                        <div style='font-size:11px; color:#666;'>※ {fallback_risk}</div>
-                    </div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
 
                 if res['news'].get('raw_news'):
                     st.markdown("<div class='news-scroll-box'>", unsafe_allow_html=True)
@@ -1650,14 +1680,29 @@ with tab3:
         for res in wl_results:
             st.markdown(create_watchlist_card_html(res), unsafe_allow_html=True)
             
-            ai_summary_txt = res['news'].get('headline', '분석 대기 중...')
-            if len(ai_summary_txt) > 40: ai_summary_txt = ai_summary_txt[:40] + "..."
-            opinion = res['news'].get('opinion', '')
-            icon = "🔥" if "매수" in opinion or "확대" in opinion else "🤖"
-            expander_label = f"{icon} AI 요약: {ai_summary_txt} (▼ 상세 분석 펼치기)"
+            # [변경] AI 분석 여부에 따라 버튼 또는 결과 표시
+            if res['news']['method'] == "standby":
+                expander_title = "🤖 AI 심층 분석 실행 (Click)"
+            else:
+                ai_summary_txt = res['news'].get('headline', '')
+                if len(ai_summary_txt) > 30: ai_summary_txt = ai_summary_txt[:30] + "..."
+                expander_title = f"🔥 AI 요약: {ai_summary_txt}"
             
-            with st.expander(expander_label):
-                
+            with st.expander(expander_title):
+                # ---------------------------------------------------------
+                # [핵심] AI 분석 실행 버튼 영역
+                # ---------------------------------------------------------
+                if res['news']['method'] == "standby":
+                    st.info("비용 절감을 위해 AI 분석을 대기 중입니다. 심층 분석을 원하시면 아래 버튼을 눌러주세요.")
+                    if st.button(f"🚀 {res['name']} AI 분석 시작 (과금 발생)", key=f"ai_run_w_{res['code']}"):
+                        with st.spinner(f"🤖 {res['name']}에 대한 최신 뉴스와 수급을 분석 중입니다..."):
+                            # AI 실행
+                            ai_result = get_news_sentiment_llm(res['name'], res['ai_context'])
+                            # 결과 캐싱
+                            st.session_state['ai_cache'][res['code']] = ai_result
+                            st.rerun()
+                # ---------------------------------------------------------
+
                 # [V49.1] 매수 체결 및 이동 섹션
                 st.markdown("---")
                 st.write("### 🛒 매수 체결 하셨나요?")
@@ -1710,8 +1755,9 @@ with tab3:
                     if "매수" in op or "비중확대" in op: badge_cls = "ai-opinion-buy"
                     elif "매도" in op or "비중축소" in op: badge_cls = "ai-opinion-sell"
                     st.markdown(f"""<div class='news-ai'><div style='display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;'><span class='ai-badge {badge_cls}'>{res['news']['opinion']}</span><span style='font-size:12px; color:#555;'>💡 핵심 재료: <b>{res['news']['catalyst']}</b></span></div><div style='font-size:13px; line-height:1.6; font-weight:600; color:#333; margin-bottom:8px;'>🤖 <b>Deep Analysis:</b> {res['news']['headline']}</div></div>""", unsafe_allow_html=True)
+                elif res['news']['method'] == "standby":
+                    st.markdown("<div class='news-fallback' style='background:#f0f0f0; border-color:#ccc; color:#666;'>💤 분석 대기 중입니다. 상단의 버튼을 눌러주세요.</div>", unsafe_allow_html=True)
                 else: st.markdown(f"<div class='news-fallback'><b>{res['news']['headline']}</b></div>", unsafe_allow_html=True)
-
 with st.sidebar:
     st.write("### ⚙️ 기능 메뉴")
     with st.expander("🔍 지능형 테마/주도주 찾기", expanded=True):
@@ -1811,3 +1857,4 @@ with st.sidebar:
         st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
         st.session_state['preview_list'] = []
         st.rerun()
+
