@@ -1,5 +1,10 @@
 {
-    "portfolio": {},
+    "portfolio": {
+        "삼성전자": {
+            "code": "005930",
+            "buy_price": 0
+        }
+    },
     "watchlist": {
         "현대차": {
             "code": "005380"
