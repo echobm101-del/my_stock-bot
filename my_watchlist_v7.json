@@ -1,9 +1,8 @@
 {
-    "portfolio": {
-        "필옵틱": {
-            "code": "161580",
-            "buy_price": 41150
+    "portfolio": {},
+    "watchlist": {
+        "필옵틱스": {
+            "code": "161580"
         }
-    },
-    "watchlist": {}
+    }
 }
