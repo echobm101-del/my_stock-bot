@@ -1,13 +1,9 @@
 {
     "portfolio": {
-        "삼성전자": {
-            "code": "005930",
+        "구원모": {
+            "code": "00593",
             "buy_price": 77000
         }
     },
-    "watchlist": {
-        "현대차": {
-            "code": "005380"
-        }
-    }
+    "watchlist": {}
 }
