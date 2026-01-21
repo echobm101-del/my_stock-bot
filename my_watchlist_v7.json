@@ -1,9 +1,8 @@
 {
-    "portfolio": {
-        "삼성전자": {
-            "code": "005930",
-            "buy_price": 77000
+    "portfolio": {},
+    "watchlist": {
+        "알테오젠": {
+            "code": "196170"
         }
-    },
-    "watchlist": {}
+    }
 }
