@@ -11,6 +11,6 @@ setuptools
 gspread
 oauth2client
 python-telegram-bot
-lxml
+html5lib
 opendartreader
 streamlit-gsheets
