@@ -13,3 +13,4 @@ oauth2client
 python-telegram-bot
 lxml
 opendartreader
+pip install streamlit-gsheets
