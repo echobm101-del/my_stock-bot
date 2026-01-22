@@ -1,16 +1,1 @@
 streamlit
-finance-datareader
-pandas
-requests
-beautifulsoup4
-altair
-pykrx
-feedparser
-numpy
-setuptools
-gspread
-oauth2client
-python-telegram-bot
-html5lib
-opendartreader
-streamlit-gsheets
