@@ -19,14 +19,16 @@ import numpy as np
 from io import StringIO
 import random
 
+# [New] 구글 시트 연결 라이브러리 추가
+from streamlit_gsheets import GSheetsConnection
+
 # [New] DART 라이브러리 추가
 try:
     import OpenDartReader
 except ImportError:
     st.error("OpenDartReader가 설치되지 않았습니다. requirements.txt에 'opendartreader'를 추가해주세요.")
 
-# --- [0. 초기화 및 세션 설정 (에러 방지 핵심)] ---
-# 이 부분이 가장 먼저 실행되어야 KeyError가 발생하지 않습니다.
+# --- [0. 초기화 및 세션 설정] ---
 if 'data_store' not in st.session_state: st.session_state['data_store'] = {"portfolio": {}, "watchlist": {}}
 if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
 if 'current_theme_name' not in st.session_state: st.session_state['current_theme_name'] = ""
@@ -36,14 +38,15 @@ if 'ai_cache' not in st.session_state: st.session_state['ai_cache'] = {}
 # [보안 설정] Streamlit Secrets에서 키 가져오기
 # ==============================================================================
 try:
-    USER_GITHUB_TOKEN = st.secrets["GITHUB_TOKEN"]
-    USER_TELEGRAM_TOKEN = st.secrets["TELEGRAM_TOKEN"]
-    USER_CHAT_ID = st.secrets["CHAT_ID"]
-    USER_GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+    USER_GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
+    USER_TELEGRAM_TOKEN = st.secrets.get("TELEGRAM_TOKEN", "")
+    USER_CHAT_ID = st.secrets.get("CHAT_ID", "")
+    USER_GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", "")
     USER_NAVER_ID = st.secrets.get("NAVER_CLIENT_ID", "")
     USER_NAVER_SECRET = st.secrets.get("NAVER_CLIENT_SECRET", "")
     USER_DART_KEY = st.secrets.get("DART_API_KEY", "")
 except Exception as e:
+    # 키가 없을 경우를 대비한 빈 값 처리
     USER_GITHUB_TOKEN = ""
     USER_TELEGRAM_TOKEN = ""
     USER_CHAT_ID = ""
@@ -570,9 +573,6 @@ def render_investor_chart(df):
         st.caption(f"상세 표 렌더링 오류: {str(e)}")
 
 # --- [3. 데이터 로딩 및 분석 로직] ---
-REPO_OWNER = "echobm101-del"
-REPO_NAME = "my_stock-bot"
-FILE_PATH = "my_watchlist_v7.json"
 
 @st.cache_data
 def get_krx_list_safe():
@@ -606,47 +606,84 @@ def get_krx_list_safe():
 
 krx_df = get_krx_list_safe()
 
-def load_from_github():
-    try:
-        token = USER_GITHUB_TOKEN
-        if not token: return {"portfolio": {}, "watchlist": {}}
-        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        r = requests.get(url, headers=headers)
-        if r.status_code == 200:
-            content = base64.b64decode(r.json()['content']).decode('utf-8')
-            data = json.loads(content)
-            if "portfolio" not in data and "watchlist" not in data:
-                return {"portfolio": {}, "watchlist": data}
-            return data
-        return {"portfolio": {}, "watchlist": {}}
-    except: return {"portfolio": {}, "watchlist": {}}
+# --- [DB 교체] GitHub -> Google Sheets ---
 
-def update_github_file(new_data):
+def load_data_from_gsheets():
+    """구글 시트에서 포트폴리오/관심종목 데이터를 불러옵니다."""
     try:
-        token = USER_GITHUB_TOKEN
-        if not token: return False
-        url = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
-        headers = {"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json"}
-        r_get = requests.get(url, headers=headers)
-        if r_get.status_code == 200:
-            sha = r_get.json().get('sha')
-        else:
-            sha = None
-        json_str = json.dumps(new_data, ensure_ascii=False, indent=4)
-        b64_content = base64.b64encode(json_str.encode('utf-8')).decode('utf-8')
-        data = {
-            "message": "Update data via Streamlit App (V49.9)",
-            "content": b64_content
-        }
-        if sha: data["sha"] = sha
-        r_put = requests.put(url, headers=headers, json=data)
-        return r_put.status_code in [200, 201]
+        # st.connection을 사용해 구글 시트 연결
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        
+        # 데이터 읽기 (ttl=0으로 실시간성 확보)
+        df = conn.read(ttl=0)
+        
+        # 초기 상태이거나 데이터가 없으면 빈 구조 반환
+        if df.empty or 'Code' not in df.columns:
+            return {"portfolio": {}, "watchlist": {}}
+
+        data = {"portfolio": {}, "watchlist": {}}
+        
+        # DataFrame을 순회하며 딕셔너리 구조로 변환
+        for _, row in df.iterrows():
+            category = row['Type'] # portfolio 또는 watchlist
+            name = row['Name']
+            code = str(row['Code']).zfill(6) # 6자리 코드로 변환
+            buy_price = row.get('BuyPrice', 0)
+            
+            # 데이터 채워넣기
+            if category in data:
+                # 포트폴리오는 매수가가 중요
+                if category == "portfolio":
+                    data[category][name] = {"code": code, "buy_price": float(buy_price)}
+                # 관심종목은 코드만 중요
+                else:
+                    data[category][name] = {"code": code}
+                    
+        return data
     except Exception as e:
-        print(f"GitHub Save Error: {e}")
+        # 연결 실패 시 빈 데이터 반환 (에러 로그는 콘솔에)
+        print(f"GSheets Load Error: {e}")
+        return {"portfolio": {}, "watchlist": {}}
+
+def save_data_to_gsheets(data_store):
+    """현재 데이터(data_store)를 구글 시트에 덮어씁니다."""
+    try:
+        rows = []
+        
+        # 1. 포트폴리오 데이터 변환
+        for name, info in data_store['portfolio'].items():
+            rows.append({
+                "Type": "portfolio",
+                "Name": name,
+                "Code": f"'{info['code']}", # 엑셀에서 0 잘림 방지용 따옴표
+                "BuyPrice": info.get('buy_price', 0)
+            })
+            
+        # 2. 관심종목 데이터 변환
+        for name, info in data_store['watchlist'].items():
+             rows.append({
+                "Type": "watchlist",
+                "Name": name,
+                "Code": f"'{info['code']}",
+                "BuyPrice": 0
+            })
+            
+        # 3. DataFrame 생성
+        df = pd.DataFrame(rows)
+        
+        # 4. 구글 시트에 업데이트 (덮어쓰기)
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        conn.update(data=df)
+        
+        return True
+    except Exception as e:
+        st.error(f"구글 시트 저장 실패: {e}")
         return False
 
-if 'data_store' not in st.session_state: st.session_state['data_store'] = load_from_github()
+# 초기 데이터 로딩 (GitHub 대신 GSheets 사용)
+if 'data_store' not in st.session_state or not st.session_state['data_store']['portfolio']:
+    st.session_state['data_store'] = load_data_from_gsheets()
+
 if 'preview_list' not in st.session_state: st.session_state['preview_list'] = []
 if 'current_theme_name' not in st.session_state: st.session_state['current_theme_name'] = ""
 if 'ai_cache' not in st.session_state: st.session_state['ai_cache'] = {}
@@ -1043,9 +1080,12 @@ def call_gemini_dynamic(prompt):
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model_name}:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     
+    # [개선 1] 응답 형식을 JSON으로 강제
+    prompt += "\n\nIMPORTANT: Output strictly valid JSON only. No markdown code blocks."
+    
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.1} # JSON 출력을 위해 창의성 낮춤
+        "generationConfig": {"temperature": 0.1} 
     }
     
     try:
@@ -1075,7 +1115,12 @@ def get_ai_recommended_stocks(keyword):
     if res_data and 'candidates' in res_data:
         try:
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
-            raw = raw.replace("```json", "").replace("```", "").strip()
+            # [개선 2] JSON 파싱 강화
+            raw = re.sub(r"```json\s*", "", raw)
+            raw = re.sub(r"```\s*$", "", raw)
+            match = re.search(r'\[.*\]', raw, re.DOTALL)
+            if match: raw = match.group()
+            
             stock_list = json.loads(raw)
             valid_list = []
             for item in stock_list:
@@ -1259,14 +1304,14 @@ def get_news_sentiment_llm(company_name, stock_data_context=None):
             raw = res_data['candidates'][0]['content']['parts'][0]['text']
             
             try:
+                # [개선 3] JSON 추출 강화
+                raw = re.sub(r"```json\s*", "", raw)
+                raw = re.sub(r"```\s*$", "", raw)
+                match = re.search(r'\{.*\}', raw, re.DOTALL)
+                if match: raw = match.group()
                 js = json.loads(raw)
             except:
-                cleaned = raw.replace("```json", "").replace("```", "").strip()
-                match = re.search(r'\{.*\}', cleaned, re.DOTALL)
-                if match:
-                    js = json.loads(match.group())
-                else:
-                    raise Exception("AI 응답에서 JSON 데이터를 추출할 수 없습니다.")
+                raise Exception("AI 응답에서 JSON 데이터를 추출할 수 없습니다.")
 
             return {
                 "score": js.get('score', 0),
@@ -1578,7 +1623,7 @@ with tab1:
                 with col_add:
                     if st.button(f"📌 관심등록", key=f"add_prev_{res['code']}"):
                         st.session_state['data_store']['watchlist'][res['name']] = {'code': res['code']}
-                        if update_github_file(st.session_state['data_store']):
+                        if save_data_to_gsheets(st.session_state['data_store']):
                             st.success("저장 완료")
                         time.sleep(0.5); st.rerun()
                 col1, col2 = st.columns(2)
@@ -1681,7 +1726,7 @@ with tab2:
                 with col_btn:
                     if st.button(f"🗑️ 삭제", key=f"del_port_{res['code']}"):
                         del st.session_state['data_store']['portfolio'][res['name']]
-                        update_github_file(st.session_state['data_store'])
+                        save_data_to_gsheets(st.session_state['data_store'])
                         st.rerun()
                 
                 col1, col2 = st.columns(2)
@@ -1799,7 +1844,7 @@ with tab3:
                             del st.session_state['data_store']['watchlist'][res['name']]
 
                         # 3. Save & Rerun
-                        if update_github_file(st.session_state['data_store']):
+                        if save_data_to_gsheets(st.session_state['data_store']):
                             st.success(f"✅ {res['name']} 매수 등록 완료! (잔고 탭으로 이동됨)")
                             time.sleep(1.0)
                             st.rerun()
@@ -1808,7 +1853,7 @@ with tab3:
                 with col_btn:
                     if st.button(f"🗑️ 삭제", key=f"del_wl_{res['code']}"):
                         del st.session_state['data_store']['watchlist'][res['name']]
-                        update_github_file(st.session_state['data_store'])
+                        save_data_to_gsheets(st.session_state['data_store'])
                         st.rerun()
                 
                 col1, col2 = st.columns(2)
@@ -1946,7 +1991,7 @@ with st.sidebar:
             else:
                 st.session_state['data_store']['watchlist'][name] = {"code": code}
                 
-            if update_github_file(st.session_state['data_store']):
+            if save_data_to_gsheets(st.session_state['data_store']):
                 st.success("✅ 저장 완료!")
             else:
                 st.error("❌ 저장 실패")
